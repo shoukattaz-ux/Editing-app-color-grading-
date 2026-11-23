@@ -955,6 +955,25 @@
                       "minimum": 0.0,
                       "maximum": 1.0,
                       "default": 1.0
+                    },
+                    "temporal_stability": {
+                      "description": "Motion-compensated smoothing of the AI detail between frames (removes shimmer). 0 = per-frame.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.6
+                    },
+                    "color_fidelity": {
+                      "description": "Keep the original's colour/exposure/contrast exactly; the AI only adds fine detail.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "face_detail": {
+                      "description": "Amount of AI detail on faces (1 = same as elsewhere). Lower avoids plastic skin and redrawn features.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.8
                     }
                   },
                   "additionalProperties": false

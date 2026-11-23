@@ -110,9 +110,11 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
     # decode exactly like the engine's base chain so frame N here == frame N in the render
     # previews (few frames) seek straight to the frame; full-range mattes decode from 0 so frame numbering is exact
     seek_args, trim_from = (["-ss", f"{first / fps:.6f}"], 0) if total <= 16 and first > 0 else ([], first)
-    dec = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek_args, "-i", source, "-vf",
+    from .frames import SWS
+    dec = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek_args, "-i", source, "-sws_flags", SWS, "-vf",
                             f"fps={fps:g},scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,trim=start_frame={trim_from}:end_frame={trim_from + total},setpts=PTS-STARTPTS",
+                            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,trim=start_frame={trim_from}:end_frame={trim_from + total},setpts=PTS-STARTPTS,"
+                            f"scale=flags={SWS},format=rgb24",   # explicit, accurate YUV->RGB
                             "-fps_mode", "passthrough", "-frames:v", str(total), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     tmp = out.with_suffix(".part.mkv")
     enc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{W}x{H}",

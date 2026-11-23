@@ -180,6 +180,9 @@ Timeline track: **video**
 | `quality` | enum | `fast` | fast, best | fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size. |
 | `denoise` | number | `0.5` | 0.0 … 1.0 | 0 keeps all texture (and noise); 1 removes noise strongly (smoother). |
 | `strength` | number | `1.0` | 0.0 … 1.0 | Blend with a classical Lanczos upscale; lower looks more natural. |
+| `temporal_stability` | number | `0.6` | 0.0 … 1.0 | Motion-compensated smoothing of the AI detail between frames (removes shimmer). 0 = per-frame. |
+| `color_fidelity` | boolean | `True` |  | Keep the original's colour/exposure/contrast exactly; the AI only adds fine detail. |
+| `face_detail` | number | `0.8` | 0.0 … 1.0 | Amount of AI detail on faces (1 = same as elsewhere). Lower avoids plastic skin and redrawn features. |
 
 ## `hair_edge_refinement` — Hair & Edge Refinement (matting)
 

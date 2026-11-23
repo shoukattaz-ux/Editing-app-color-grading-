@@ -205,7 +205,10 @@ _reg(OpSpec("ai_upscale", "AI Resolution Enhancement", "Enhance", STAGE_UPSCALE,
             "was never recorded, and on CPU it is slow (~0.5-3 s per frame).",
             {"quality": Param(E, "fast", enum=("fast", "best"), desc="fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size."),
              "denoise": Param(N, 0.5, 0.0, 1.0, desc="0 keeps all texture (and noise); 1 removes noise strongly (smoother)."),
-             "strength": Param(N, 1.0, 0.0, 1.0, desc="Blend with a classical Lanczos upscale; lower looks more natural.")}))
+             "strength": Param(N, 1.0, 0.0, 1.0, desc="Blend with a classical Lanczos upscale; lower looks more natural."),
+             "temporal_stability": Param(N, 0.6, 0.0, 1.0, desc="Motion-compensated smoothing of the AI detail between frames (removes shimmer). 0 = per-frame."),
+             "color_fidelity": Param(B, True, desc="Keep the original's colour/exposure/contrast exactly; the AI only adds fine detail."),
+             "face_detail": Param(N, 0.8, 0.0, 1.0, desc="Amount of AI detail on faces (1 = same as elsewhere). Lower avoids plastic skin and redrawn features.")}))
 _reg(OpSpec("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying", STAGE_KEY, "effects",
             "Hair & Edge Refinement (matting)", supported=False,
             unsupported_reason="Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. "

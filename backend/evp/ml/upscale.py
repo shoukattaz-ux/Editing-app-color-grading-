@@ -31,6 +31,7 @@ class UpscaleRef:
     start_frame: int
     frames: int
     gpu_fallback: str | None = None   # GPU error that made the run continue on CPU
+    faces_seen: int = 0               # frames where face protection was active
 
 
 _SESS: dict = {}
@@ -74,6 +75,78 @@ def run_x4(sess, rgb: np.ndarray) -> np.ndarray:
     return out
 
 
+class DetailProcessor:
+    """Turns raw per-frame network output into a temporally stable, colour-faithful result.
+
+    out = lowpass(lanczos) + detail,  detail = AI - lowpass(AI)
+      * colour_fidelity: low frequencies (colour, exposure, contrast) come from the classical upscale of the
+        original, so the AI can only add fine detail, never shift tone.
+      * face protection: detail is attenuated inside tracked face ellipses (avoids plastic skin / redrawn brows).
+      * temporal stabilisation: the previous frame's detail is motion-compensated (DIS optical flow measured on the
+        source frames) and blended in where the warp is photometrically reliable -> no shimmer, no ghosting.
+    """
+
+    def __init__(self, p: dict, fw: int, fh: int, src_w: int, src_h: int):
+        self.p, self.fw, self.fh, self.sw, self.sh = p, fw, fh, src_w, src_h
+        f = max(fw / src_w, fh / src_h)
+        self.sigma = max(1.0, 0.6 * f)               # cut-off ~ the source's Nyquist frequency at output scale
+        self.prev_src = None
+        self.prev_detail = None
+        self.flow = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_FAST) if p["temporal_stability"] > 0 else None
+        self.tracker = None
+        if p["face_detail"] < 1.0:
+            try:
+                from .face import FaceTracker
+                s = min(1.0, 480 / max(fw, fh))
+                self.fs = s
+                self.tracker = FaceTracker(max(2, int(fw * s)), max(2, int(fh * s)))
+            except Exception:
+                self.tracker = None              # detector unavailable -> no face protection (logged by caller)
+        self.faces_seen = 0
+
+    def __call__(self, src_rgb: np.ndarray, sr: np.ndarray, lz: np.ndarray) -> np.ndarray:
+        p = self.p
+        blur = lambda a: cv2.GaussianBlur(a, (0, 0), self.sigma)
+        detail = sr - blur(sr)
+        low = blur(lz) if p["color_fidelity"] else blur(sr)
+
+        if self.tracker is not None:
+            from .face import face_ellipse
+            small = cv2.resize(lz, (int(self.fw * self.fs), int(self.fh * self.fs)), interpolation=cv2.INTER_AREA)
+            faces = self.tracker.update(cv2.cvtColor((np.clip(small, 0, 1) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+            if faces:
+                self.faces_seen += 1
+                m = np.zeros(small.shape[:2], np.float32)
+                for tr, vis in faces:
+                    e, _ = face_ellipse(m.shape, tr, 0.6)
+                    m = np.maximum(m, e * vis)
+                m = cv2.resize(m, (self.fw, self.fh), interpolation=cv2.INTER_LINEAR)[..., None]
+                detail = detail * (1.0 - (1.0 - p["face_detail"]) * m)
+
+        if self.flow is not None:
+            g = cv2.cvtColor(src_rgb, cv2.COLOR_RGB2GRAY)
+            if self.prev_src is not None and self.prev_detail is not None:
+                fl = self.flow.calc(g, self.prev_src, None)              # current -> previous, source pixels
+                gx, gy = np.meshgrid(np.arange(self.sw, dtype=np.float32), np.arange(self.sh, dtype=np.float32))
+                mx, my = gx + fl[..., 0], gy + fl[..., 1]
+                warped_src = cv2.remap(self.prev_src, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+                err = cv2.GaussianBlur(np.abs(warped_src.astype(np.float32) - g.astype(np.float32)), (0, 0), 1.5)
+                conf = np.exp(-(err / 6.0) ** 2)                          # reliable where the warp explains the pixels
+                kx, ky = self.fw / self.sw, self.fh / self.sh
+                up = lambda a: cv2.resize(a, (self.fw, self.fh), interpolation=cv2.INTER_LINEAR)
+                ox, oy = np.meshgrid(np.arange(self.fw, dtype=np.float32), np.arange(self.fh, dtype=np.float32))
+                wd = cv2.remap(self.prev_detail, ox + up(fl[..., 0]) * kx, oy + up(fl[..., 1]) * ky, cv2.INTER_LINEAR,
+                               borderMode=cv2.BORDER_REPLICATE)
+                k = (p["temporal_stability"] * 0.85 * up(conf))[..., None]
+                detail = (1 - k) * detail + k * wd
+            self.prev_src, self.prev_detail = g, detail
+
+        out = low + detail
+        if p["strength"] < 1.0:
+            out = p["strength"] * out + (1 - p["strength"]) * lz
+        return out
+
+
 def fit_geometry(sw: int, sh: int, W: int, H: int) -> tuple[int, int, int, int]:
     """Same as FFmpeg scale=W:H:force_original_aspect_ratio=decrease + centred pad (even sizes)."""
     r = min(W / sw, H / sh)
@@ -84,13 +157,13 @@ def fit_geometry(sw: int, sh: int, W: int, H: int) -> tuple[int, int, int, int]:
 
 def upscale_key(source: str, op, W, H, fps, start_frame, frames) -> str:
     st = os.stat(source)
-    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v1"]
+    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v2"]
     return hashlib.sha1(json.dumps(d, default=str).encode()).hexdigest()[:20]
 
 
 def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fps: float, start_frame: int, frames: int,
                      cache_dir: str, progress: Callable[[int, int], None] | None = None,
-                     cancel: threading.Event | None = None) -> UpscaleRef:
+                     cancel: threading.Event | None = None, warmup: int = 0) -> UpscaleRef:
     import subprocess
     out = Path(cache_dir) / "upscale" / f"up_{upscale_key(source, op, W, H, fps, start_frame, frames)}.mkv"
     if out.is_file():
@@ -104,12 +177,15 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
     pre = 0.5 if (p["quality"] == "fast" and need <= 2.0) else 1.0
     tmp = out.with_suffix(".part.mkv")
     enc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
-                            "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264", "-crf", "10", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(tmp)],
+                            "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(tmp)],   # stays RGB: no extra YUV round trip
                            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     n = 0
     fell_back: list[str] = []
+    proc = DetailProcessor(p, fw, fh, src_w, src_h)
+    first = max(0, start_frame - warmup) if p["temporal_stability"] > 0 else start_frame
+    warm = start_frame - first
     try:
-        for rgb in decode(source, src_w, src_h, fps, start_frame, frames):
+        for rgb in decode(source, src_w, src_h, fps, first, frames + warm):
             if cancel is not None and cancel.is_set(): raise Cancelled()
             inp = rgb if pre == 1.0 else cv2.resize(rgb, (max(2, int(src_w * pre)), max(2, int(src_h * pre))), interpolation=cv2.INTER_AREA)
             try:
@@ -121,21 +197,21 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
                 fell_back.append(str(e)[:200])
                 sr = run_x4(sess, inp)
             sr = cv2.resize(sr, (fw, fh), interpolation=cv2.INTER_AREA if sr.shape[1] > fw else cv2.INTER_LANCZOS4)
-            if p["strength"] < 1.0:
-                lz = cv2.resize(rgb, (fw, fh), interpolation=cv2.INTER_LANCZOS4).astype(np.float32) / 255.0
-                sr = p["strength"] * sr + (1 - p["strength"]) * lz
+            lz = cv2.resize(rgb, (fw, fh), interpolation=cv2.INTER_LANCZOS4).astype(np.float32) / 255.0
+            sr = proc(rgb, sr, lz)
+            if n < warm: n += 1; continue          # priming frames for the temporal filter (previews only)
             frame = np.zeros((H, W, 3), np.uint8)
             frame[py:py + fh, px:px + fw] = (np.clip(sr, 0, 1) * 255 + 0.5).astype(np.uint8)
             enc.stdin.write(frame.tobytes())
             n += 1
-            if progress: progress(n, frames)
+            if progress: progress(n - warm, frames)
         enc.stdin.close()
         if enc.wait() != 0:
             raise RuntimeError("upscale encode failed: " + enc.stderr.read().decode(errors="replace")[-300:])
-        if n == 0:
+        if n - warm <= 0:
             raise RuntimeError("AI upscaling decoded no frames in this range")
         os.replace(tmp, out)
-        return UpscaleRef(str(out), start_frame, n, fell_back[0] if fell_back else None)
+        return UpscaleRef(str(out), start_frame, n - warm, fell_back[0] if fell_back else None, proc.faces_seen)
     except BaseException:
         try: enc.kill()
         except Exception: pass

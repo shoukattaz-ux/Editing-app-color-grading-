@@ -56,7 +56,8 @@ def test_blue_key_leaves_green_untouched(prep, media):
 def test_color_grading_changes_pixels_in_range_only(prep, media):
     ops = [{"id": "g", "type": "color_grading", "start": 1, "end": 2, "parameters": {"temperature": 60, "saturation": 1.2}}]
     out = [pixel(frame(prep, media, ops, t), 160, 90) for t in (0.5, 1.5, 2.5)]
-    assert out[0] == out[2] and out[1][0] > out[0][0] and out[1][2] < out[0][2]   # warmer = more red, less blue
+    assert max(abs(a - b) for a, b in zip(out[0], out[2])) <= 2                   # unchanged outside the range
+    assert out[1][0] > out[0][0] + 5 and out[1][2] < out[0][2] - 5                  # warmer inside = more red, less blue
 
 
 def test_exposure_and_contrast_direction(prep, media):

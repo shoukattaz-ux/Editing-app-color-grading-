@@ -334,7 +334,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             raise RuntimeError(f"compiler has no handler for '{t}' (registry/compiler mismatch)")
 
     g.add([cur], "format=yuv420p", "vout")
-    graph = g.text()
+    # graph-wide scaler flags: unbiased colour conversions (AI intermediates re-enter the graph as RGB)
+    graph = "sws_flags=bicubic+accurate_rnd+full_chroma_int+full_chroma_inp;" + g.text()
     args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
     if not opts.frame_only: args += ["-progress", "pipe:1", "-nostats"]
     if opts.t_start: args += ["-ss", f"{opts.t_start:.4f}"]

@@ -63,7 +63,7 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
                 plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, u.start_frame, n, cache_dir, cb, cancel)
             else:
                 fr = min(max(frame, u.start_frame), u.end_frame - 1)
-                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, fr, 1, cache_dir)
+                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, fr, 1, cache_dir, warmup=2)
             done += n
     if not keyers and not faces: return
     if faces:

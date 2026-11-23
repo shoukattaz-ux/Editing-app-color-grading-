@@ -29,6 +29,10 @@ If no face is found the operation does nothing and the export log says so.
 2. *Effects ▸ Enhance ▸ AI Resolution Enhancement*. It replaces the normal scaler, so all other effects then work on the sharper frames.
 * `quality`: **fast** (default) halves the network input when the output is ≤ 2× the source (about 4× faster); **best** always uses the full frame.
 * `denoise` 0 keeps texture (and noise), 1 smooths strongly; `strength` < 1 blends with a classical upscale for a more natural look.
+* `temporal_stability` (default 0.6) keeps AI detail steady from frame to frame (no shimmer) by following the motion; it only blends where the motion estimate is reliable, so moving things don't leave trails.
+* `color_fidelity` (on) keeps the original's colour, exposure and contrast exactly — the AI only contributes fine detail, so your grade is not altered.
+* `face_detail` (default 0.8) applies less AI detail on faces to avoid plastic skin and redrawn features (identity-changing face-restoration models are deliberately not used).
+* The live single-frame preview primes the temporal filter with 2 earlier frames; the export uses the full history, so fine detail can differ very slightly between them.
 * **Speed**: CPU ≈ 0.5 s per frame for a 320×180 source, ≈ 2 s for 640×360. The validator warns with an estimate when it will take over a minute. Results are cached, so later previews/exports are fast.
 * **GPU**: replace `onnxruntime` with `onnxruntime-gpu` (NVIDIA, needs CUDA 12 + cuDNN 9) or `onnxruntime-directml` (Windows, any DirectX 12 GPU). macOS uses CoreML automatically. The Export dialog shows the AI device in use. If the GPU fails (e.g. out of memory) the job continues on CPU and says so in the log.
 * It invents *plausible* detail; it cannot recover what the camera never captured.
