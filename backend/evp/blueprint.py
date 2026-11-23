@@ -368,6 +368,12 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
             if not is_installed(params["model"]):
                 m = MODELS[params["model"]]
                 rep.warn("MODEL_DOWNLOAD", f"Model '{m.name}' ({m.size // 1_000_000} MB, {m.license}) will be downloaded on first use", oid)
+        if otype in ("face_tone_correction", "face_relighting"):
+            from .ml.models import is_installed, MODELS
+            if not hasattr(__import__("cv2"), "FaceDetectorYN"):
+                rep.err("MODEL_RUNTIME_MISSING", "Face operations need OpenCV >= 4.8 with the DNN module (pip install opencv-python-headless)", oid, p); continue
+            if not is_installed("yunet"):
+                rep.warn("MODEL_DOWNLOAD", f"Face detector model ({MODELS['yunet'].size // 1000} KB, MIT) will be downloaded on first use", oid)
         if spec.needs_audio and vid and not vid.has_audio:
             rep.warn("NO_AUDIO", "Source has no audio track; this operation has no effect", oid, p)
         deps = o.get("depends_on", [])

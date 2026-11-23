@@ -94,6 +94,10 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     seek = opts.t_start or 0.0
     seek_f = round(seek * fps)          # all streams use frame-index timestamps (time base 1/fps) so they align exactly
 
+    def pad_after(ref) -> int:
+        """frames needed after an analysis file ends so the stream covers the whole timeline (+2 spare)"""
+        return max(0, plan.total_frames - ref.start_frame - ref.frames) + 2
+
     def enable(op: Operation) -> str | None:
         if op.start_frame <= 0 and op.end_frame >= plan.total_frames:
             return None
@@ -139,13 +143,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 raise RuntimeError(f"AI matte for '{k.id}' was not generated")
             inputs.append(["-i", ref.path])
             # matte file covers [start_frame, start_frame+frames): pad before with opaque, clone after, align to (seeked) timeline
-            m = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:color=white:stop=-1:stop_mode=clone,"
+            m = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:color=white:stop={pad_after(ref)}:stop_mode=clone,"
                       f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H},format=gray")
             colour = src
             m, m_edge = g.split(m) if ref.fgr_path else (m, None)
             if ref.fgr_path:
                 inputs.append(["-i", ref.fgr_path])
-                fg = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:stop=-1:stop_mode=clone,"
+                fg = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:stop={pad_after(ref)}:stop_mode=clone,"
                            f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}")
                 # take the model's foreground colour only in semi-transparent edges (weight = (1-alpha)*4), keep the
                 # (possibly already processed) frame elsewhere
@@ -257,6 +261,41 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                     a, b = g.split(src)
                     return g.add([g.add([b], f"lut3d=file='{lut_path}'"), a], f"blend=all_mode=normal:all_opacity={k:.3f}")  # first input is the "top" layer
                 cur = ranged_block(cur, op, build)
+        elif t in ("face_tone_correction", "face_relighting"):
+            ref = plan.face_controls.get(op.id)
+            if ref is None:
+                raise RuntimeError(f"face analysis for '{op.id}' was not generated")
+            inputs.append(["-i", ref.path])
+            ctrl = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:start_mode=add:stop_mode=add:color=black,"
+                         f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=bilinear,format=gbrp")
+            tone = []
+            if t == "face_tone_correction":
+                w_, ti = p["warmth"] / 100.0, p["tint"] / 100.0
+                if w_ or ti:
+                    tone.append(f"colorchannelmixer=rr={1 + 0.15 * w_ + 0.04 * ti:.4f}:gg={1 - 0.12 * ti:.4f}:bb={1 - 0.15 * w_ + 0.04 * ti:.4f}")
+                if p["saturation"] != 1:
+                    tone.append(f"eq=saturation={p['saturation']:.4f},format=gbrp")
+            mr, mg, mb = g.label("m"), g.label("m"), g.label("m")
+            if tone: g.parts.append(f"[{ctrl}]extractplanes=r+g+b[{mr}][{mg}][{mb}]")
+            else: g.parts.append(f"[{ctrl}]extractplanes=g+b[{mg}][{mb}]")
+            # Work in yuv444p so pixels with zero weight pass through bit-exactly (no RGB round trip);
+            # only the corrected branch goes through RGB. Masks are replicated into Y, U and V.
+            # nearest-neighbour 4:2:0 <-> 4:4:4 is an exact round trip (duplicate chroma, then pick it back)
+            cur = g.add([cur], "scale=iw:ih:flags=neighbor,format=yuv444p")
+
+            def masked(cur: str, rgb_chain: str, mask: str) -> str:
+                a, b = g.split(cur)
+                fx = g.add([b], f"format=gbrp,{rgb_chain},format=yuv444p")
+                m1, m2, m3 = g.label("q"), g.label("q"), g.label("q")
+                g.parts.append(f"[{mask}]split=3[{m1}][{m2}][{m3}]")
+                mk = g.add([m1, m2, m3], "mergeplanes=0x001020:yuv444p")
+                return g.add([a, fx, mk], "maskedmerge")
+
+            if tone: cur = masked(cur, ",".join(tone), mr)
+            gain = lambda k: "lutrgb=" + ":".join(f"{c}='clip(val*{k}\\,0\\,255)'" for c in "rgb")
+            cur = masked(cur, gain(4), mg)      # = face.UP_GAIN
+            cur = masked(cur, gain(0.25), mb)   # = face.DOWN_GAIN
+            cur = g.add([cur], "scale=iw:ih:flags=neighbor,format=yuv420p")
         elif t == "video_enhancement":
             f = []
             if p["stabilize"]: f.append(f"deshake=rx={p['stabilize_strength']}:ry={p['stabilize_strength']}")

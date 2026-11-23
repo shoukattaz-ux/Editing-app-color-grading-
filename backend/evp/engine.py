@@ -46,18 +46,32 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
     """Generate (or reuse cached) AI mattes for every 'ai' background_removal in the plan.
     frame=None -> whole operation range (export/proxy). frame=N -> a cheap single-frame matte for live preview,
     unless the full-range matte is already cached."""
-    keyers = plan.ai_keyers()
-    if not keyers: return
-    from .ml.matting import generate_matte, matte_key
+    keyers, faces = plan.ai_keyers(), plan.face_ops()
+    if not keyers and not faces: return
     out = plan.blueprint.output
     W, H, fps = out.width, out.height, out.fps
-    total = sum(k.end_frame - k.start_frame for k in keyers)
+    total = sum(k.end_frame - k.start_frame for k in keyers + faces)
     done = 0
+    if faces:
+        from .ml.face import generate_control, control_key
+        for f in faces:
+            n = f.end_frame - f.start_frame
+            from .ml.face import ANALYSIS_LONG_SIDE  # noqa
+            cached = (Path(cache_dir) / "face" / f"ctrl_{control_key(f.type, source, f, W, H, fps, f.start_frame, n)}.json").is_file()
+            if frame is None or cached:
+                cb = (lambda i, _n, d=done, op=f: progress(d + i, total, op.id, "Face analysis")) if progress else None
+                plan.face_controls[f.id] = generate_control(source, f, W, H, fps, f.start_frame, n, cache_dir, cb, cancel)
+            else:
+                fr = min(max(frame, f.start_frame), f.end_frame - 1)
+                plan.face_controls[f.id] = generate_control(source, f, W, H, fps, fr, 1, cache_dir, warmup=8)
+            done += n
+    if not keyers: return
+    from .ml.matting import generate_matte, matte_key
     for k in keyers:
         n = k.end_frame - k.start_frame
         full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n)}.mkv"
         if frame is None or full.is_file():
-            cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id)) if progress else None
+            cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id, "AI matting")) if progress else None
             plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel)
         else:
             f = min(max(frame, k.start_frame), k.end_frame - 1)
@@ -138,19 +152,24 @@ class Job:
                 raise RuntimeError("Insufficient disk space for the export (need roughly "
                                    f"{estimate_bytes(self.plan) // 1_000_000} MB free).")
             tmp_out = self.out_path + ".part" + Path(self.out_path).suffix
-            if self.plan.ai_keyers():
+            if self.plan.ai_keyers() or self.plan.face_ops():
                 from .ml.matting import Cancelled
+                from .ml.face import Cancelled as FaceCancelled
                 self._p0, self._pw = 0.0, 0.75
-                def prog(i, n, op_id):
-                    self.current = f"AI matting '{op_id}': frame {i}/{n}"
+                def prog(i, n, op_id, what):
+                    self.current = f"{what} '{op_id}': frame {i}/{n}"
                     self.progress = min(0.75, 0.75 * i / max(1, n))
                     el = time.time() - self.started
                     if self.progress > 0.02: self.eta = el * (1 - self.progress) / self.progress
                 try:
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
-                except Cancelled:
+                except (Cancelled, FaceCancelled):
                     self.state = self.current = "cancelled"; return
-                self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
+                if self.plan.mattes: self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
+                for fid, ref in self.plan.face_controls.items():
+                    self._log(f"Face analysis '{fid}': face found in {ref.faces_found}/{ref.frames} frames")
+                    if ref.faces_found == 0:
+                        self._log(f"WARNING: no face detected for '{fid}' - the operation has no visible effect")
                 self._p0, self._pw = 0.75, 0.25
             ok = self._attempt(tmp_out, self.opts)
             if not ok and not self._cancel.is_set() and self.opts.encoder != "cpu":

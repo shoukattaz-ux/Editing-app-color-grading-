@@ -12,6 +12,7 @@ from typing import Any
 STAGE_RESTORE = 10      # stabilise / denoise
 STAGE_KEY = 20          # produce an alpha layer from the footage
 STAGE_COMPOSITE = 30    # place keyed subject over a new background
+STAGE_FACE = 35         # face tone / relight (before the global grade, like a colourist's face pass)
 STAGE_GRADE = 40
 STAGE_FINISH = 50       # sharpen
 STAGE_OVERLAY = 60      # text
@@ -169,9 +170,35 @@ _reg(OpSpec("audio_gain", "Audio Gain", "Audio", STAGE_AUDIO, "audio",
              "fade_in": Param(N, 0.0, 0.0, 30.0, unit="s"),
              "fade_out": Param(N, 0.0, 0.0, 30.0, unit="s")}, needs_audio=True))
 
+_FACE_COMMON = {
+    "feather": Param(N, 0.5, 0.0, 1.0, desc="Softness of the face region edge (relative to face size)."),
+    "detection_confidence": Param(N, 0.6, 0.3, 0.95, desc="Face detector threshold. Lower finds small/turned faces but may misfire."),
+}
+_reg(OpSpec("face_tone_correction", "Face & Skin Tone Correction", "Face", STAGE_FACE, "effects",
+            "Detects and tracks faces (YuNet), balances face exposure automatically and adjusts skin colour only on the "
+            "person's own skin tone. Never smooths skin or changes facial features.",
+            {"strength": Param(N, 1.0, 0.0, 1.0, desc="Overall amount of the correction."),
+             "auto_exposure": Param(B, True, desc="Bring the face toward target_brightness, smoothly over time."),
+             "target_brightness": Param(N, 0.55, 0.3, 0.8, desc="Desired median skin brightness (0..1) for auto exposure."),
+             "auto_strength": Param(N, 0.7, 0.0, 1.0, desc="How far auto exposure moves toward the target."),
+             "max_auto_ev": Param(N, 1.0, 0.0, 2.0, unit="EV", desc="Largest automatic exposure change."),
+             "exposure": Param(N, 0.0, -2.0, 2.0, unit="EV", desc="Manual face exposure (added to the automatic one)."),
+             "warmth": Param(N, 0.0, -100.0, 100.0, desc="Skin warmth: + warmer, - cooler."),
+             "tint": Param(N, 0.0, -100.0, 100.0, desc="Skin tint: + magenta, - green."),
+             "saturation": Param(N, 1.0, 0.0, 2.0, desc="Skin saturation (1 = unchanged)."),
+             "skin_only": Param(B, True, desc="Colour changes only on skin (not beard, eyes, hair)."),
+             **_FACE_COMMON}))
+_reg(OpSpec("face_relighting", "Face Relighting", "Face", STAGE_FACE, "effects",
+            "2D virtual lighting on tracked faces: key light from a chosen side, fill that lifts shadows, optional shadow "
+            "deepening. Image-space approximation (no 3D face model), so it suits gentle corrections.",
+            {"key_angle": Param(N, -45.0, -90.0, 90.0, unit="deg", desc="Key light side: -90 frame-left, 0 front, +90 frame-right."),
+             "key_elevation": Param(N, 20.0, 0.0, 60.0, unit="deg", desc="Key light height (raises the bright side toward the forehead)."),
+             "key_intensity": Param(N, 0.5, 0.0, 1.0, desc="Key light strength (up to +1.5 EV on the lit side)."),
+             "fill": Param(N, 0.3, 0.0, 1.0, desc="Lifts dark areas of the face (up to +1 EV)."),
+             "shadow_depth": Param(N, 0.0, 0.0, 1.0, desc="Darkens the side away from the key for more contrast."),
+             **_FACE_COMMON}))
+
 for _t, _title, _cat in [
-    ("face_tone_correction", "Face & Skin Tone Correction", "Face"),
-    ("face_relighting", "Face Relighting", "Face"),
     ("ai_upscale", "AI Resolution Enhancement", "Enhance"),
 ]:
     _reg(OpSpec(_t, _title, _cat, STAGE_GRADE, "effects", _title, supported=False,

@@ -20,11 +20,15 @@ See the [README](../README.md#install). You need Python 3.10+, FFmpeg/ffprobe on
 * Works for people only. Fast hand movement (motion blur) can look partly transparent.
 * Phone videos recorded in portrait are handled automatically (rotation metadata).
 
+## Face correction and relighting
+*Effects ▸ Face*: **Face & Skin Tone Correction** finds and tracks faces automatically, evens out face brightness toward `target_brightness` (smoothly, so it never flickers) and lets you change skin warmth/tint/saturation without touching beard, eyes, hair or the background. **Face Relighting** adds a soft virtual key light from the side you choose (`key_angle` −90 = frame-left … +90 = frame-right), a `fill` that lifts dark areas, and optional `shadow_depth`. Both only change brightness/colour — never skin texture or face shape. Relighting is a 2D effect: keep it gentle. The face detector (230 KB) downloads on first use; analysis runs at ~25 fps on CPU and is cached.
+If no face is found the operation does nothing and the export log says so.
+
 ## Shortcuts
 Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete operation · Ctrl+wheel on the timeline zooms.
 
 ## Tips & limits
 * Greenscreen: raise *similarity* if green remains, raise *blend* for softer edges, use *edge_erode* 1–2 to remove fringe, *spill_strength* for green cast on hair/skin.
-* Features that still need a model (relighting, face tone, AI upscaling) appear disabled in *Effects* with the reason.
+* AI upscaling still needs a model and appears disabled in *Effects* with the reason.
 * Playback of *Edited* is a proxy; colours/edges can only be judged exactly in the live frame or the final export.
 * Pause/resume uses POSIX signals: available on macOS/Linux, not on Windows.

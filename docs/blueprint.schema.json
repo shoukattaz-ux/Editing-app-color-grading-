@@ -129,7 +129,9 @@
               "color_grading",
               "video_enhancement",
               "text_overlay",
-              "audio_gain"
+              "audio_gain",
+              "face_tone_correction",
+              "face_relighting"
             ]
           },
           "start": {
@@ -743,6 +745,173 @@
                       "minimum": 0.0,
                       "maximum": 30.0,
                       "default": 0.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "face_tone_correction"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "strength": {
+                      "description": "Overall amount of the correction.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 1.0
+                    },
+                    "auto_exposure": {
+                      "description": "Bring the face toward target_brightness, smoothly over time.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "target_brightness": {
+                      "description": "Desired median skin brightness (0..1) for auto exposure.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 0.8,
+                      "default": 0.55
+                    },
+                    "auto_strength": {
+                      "description": "How far auto exposure moves toward the target.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.7
+                    },
+                    "max_auto_ev": {
+                      "description": "Largest automatic exposure change.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 2.0,
+                      "default": 1.0
+                    },
+                    "exposure": {
+                      "description": "Manual face exposure (added to the automatic one).",
+                      "type": "number",
+                      "minimum": -2.0,
+                      "maximum": 2.0,
+                      "default": 0.0
+                    },
+                    "warmth": {
+                      "description": "Skin warmth: + warmer, - cooler.",
+                      "type": "number",
+                      "minimum": -100.0,
+                      "maximum": 100.0,
+                      "default": 0.0
+                    },
+                    "tint": {
+                      "description": "Skin tint: + magenta, - green.",
+                      "type": "number",
+                      "minimum": -100.0,
+                      "maximum": 100.0,
+                      "default": 0.0
+                    },
+                    "saturation": {
+                      "description": "Skin saturation (1 = unchanged).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 2.0,
+                      "default": 1.0
+                    },
+                    "skin_only": {
+                      "description": "Colour changes only on skin (not beard, eyes, hair).",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "feather": {
+                      "description": "Softness of the face region edge (relative to face size).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "detection_confidence": {
+                      "description": "Face detector threshold. Lower finds small/turned faces but may misfire.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 0.95,
+                      "default": 0.6
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "face_relighting"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "key_angle": {
+                      "description": "Key light side: -90 frame-left, 0 front, +90 frame-right.",
+                      "type": "number",
+                      "minimum": -90.0,
+                      "maximum": 90.0,
+                      "default": -45.0
+                    },
+                    "key_elevation": {
+                      "description": "Key light height (raises the bright side toward the forehead).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 60.0,
+                      "default": 20.0
+                    },
+                    "key_intensity": {
+                      "description": "Key light strength (up to +1.5 EV on the lit side).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "fill": {
+                      "description": "Lifts dark areas of the face (up to +1 EV).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.3
+                    },
+                    "shadow_depth": {
+                      "description": "Darkens the side away from the key for more contrast.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "feather": {
+                      "description": "Softness of the face region edge (relative to face size).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "detection_confidence": {
+                      "description": "Face detector threshold. Lower finds small/turned faces but may misfire.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 0.95,
+                      "default": 0.6
                     }
                   },
                   "additionalProperties": false

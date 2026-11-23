@@ -16,6 +16,10 @@ class Plan:
     consumed_keyers: set[str] = field(default_factory=set)
     total_frames: int = 0
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
+    face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
+
+    def face_ops(self) -> list[Operation]:
+        return [o for o in self.steps if o.type in ("face_tone_correction", "face_relighting")]
 
     def ai_keyers(self) -> list[Operation]:
         return [o for o in self.steps if o.type == "background_removal" and o.params.get("mode") == "ai"]

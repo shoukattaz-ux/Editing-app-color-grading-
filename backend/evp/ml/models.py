@@ -21,6 +21,10 @@ MODELS = {
                      "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
                      "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828", 14975696, "GPL-3.0",
                      "Robust Video Matting (MobileNetV3) - temporally consistent human matting with hair detail"),
+    "yunet": ModelInfo("yunet", "face_detection_yunet_2023mar.onnx",
+                       "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+                       "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4", 232589, "MIT",
+                       "YuNet face detector (OpenCV Zoo) - face boxes + 5 landmarks, ~10 ms/frame on CPU"),
 }
 
 

@@ -29,7 +29,7 @@ def test_structure_errors(prep, text, code):
 
 def test_unknown_and_unsupported_ops_are_errors_not_skipped(prep):
     p = prep(bp(ops=[{"id": "a", "type": "teleport", "start": 0, "end": 1},
-                     {"id": "b", "type": "face_relighting", "start": 0, "end": 1},
+                     {"id": "b", "type": "ai_upscale", "start": 0, "end": 1},
                      {"id": "c", "type": "hair_edge_refinement", "start": 0, "end": 1}]))
     assert codes(p).count("UNKNOWN_OPERATION") == 1
     assert codes(p).count("UNSUPPORTED_OPERATION") == 2

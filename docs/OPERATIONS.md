@@ -134,15 +134,40 @@ Timeline track: **audio**
 
 ## `face_tone_correction` — Face & Skin Tone Correction
 
-Face & Skin Tone Correction
+Detects and tracks faces (YuNet), balances face exposure automatically and adjusts skin colour only on the person's own skin tone. Never smooths skin or changes facial features.
 
-> **Not available in this build.** Requires a trained model (and ideally a GPU) that is not bundled. No fake fallback is provided: use a supported operation or add a model plugin.
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `strength` | number | `1.0` | 0.0 … 1.0 | Overall amount of the correction. |
+| `auto_exposure` | boolean | `True` |  | Bring the face toward target_brightness, smoothly over time. |
+| `target_brightness` | number | `0.55` | 0.3 … 0.8 | Desired median skin brightness (0..1) for auto exposure. |
+| `auto_strength` | number | `0.7` | 0.0 … 1.0 | How far auto exposure moves toward the target. |
+| `max_auto_ev` | number | `1.0` | 0.0 … 2.0 EV | Largest automatic exposure change. |
+| `exposure` | number | `0.0` | -2.0 … 2.0 EV | Manual face exposure (added to the automatic one). |
+| `warmth` | number | `0.0` | -100.0 … 100.0 | Skin warmth: + warmer, - cooler. |
+| `tint` | number | `0.0` | -100.0 … 100.0 | Skin tint: + magenta, - green. |
+| `saturation` | number | `1.0` | 0.0 … 2.0 | Skin saturation (1 = unchanged). |
+| `skin_only` | boolean | `True` |  | Colour changes only on skin (not beard, eyes, hair). |
+| `feather` | number | `0.5` | 0.0 … 1.0 | Softness of the face region edge (relative to face size). |
+| `detection_confidence` | number | `0.6` | 0.3 … 0.95 | Face detector threshold. Lower finds small/turned faces but may misfire. |
 
 ## `face_relighting` — Face Relighting
 
-Face Relighting
+2D virtual lighting on tracked faces: key light from a chosen side, fill that lifts shadows, optional shadow deepening. Image-space approximation (no 3D face model), so it suits gentle corrections.
 
-> **Not available in this build.** Requires a trained model (and ideally a GPU) that is not bundled. No fake fallback is provided: use a supported operation or add a model plugin.
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `key_angle` | number | `-45.0` | -90.0 … 90.0 deg | Key light side: -90 frame-left, 0 front, +90 frame-right. |
+| `key_elevation` | number | `20.0` | 0.0 … 60.0 deg | Key light height (raises the bright side toward the forehead). |
+| `key_intensity` | number | `0.5` | 0.0 … 1.0 | Key light strength (up to +1.5 EV on the lit side). |
+| `fill` | number | `0.3` | 0.0 … 1.0 | Lifts dark areas of the face (up to +1 EV). |
+| `shadow_depth` | number | `0.0` | 0.0 … 1.0 | Darkens the side away from the key for more contrast. |
+| `feather` | number | `0.5` | 0.0 … 1.0 | Softness of the face region edge (relative to face size). |
+| `detection_confidence` | number | `0.6` | 0.3 … 0.95 | Face detector threshold. Lower finds small/turned faces but may misfire. |
 
 ## `ai_upscale` — AI Resolution Enhancement
 

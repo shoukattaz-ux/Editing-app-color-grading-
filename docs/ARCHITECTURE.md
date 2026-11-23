@@ -11,7 +11,9 @@ The repository was empty (greenfield). Build environment: Linux, 4 CPU, 15 GB RA
 | UI | **React + TypeScript + Vite**, hosted in **Electron** | Electron shell starts the engine and gives native file dialogs. |
 | Preview | Same compiled pipeline as export: **single-frame render** (960 px, any time, exact) + **640 px proxy clip** | "Preview == render" by construction; no second implementation to drift. |
 | AI background removal | **Robust Video Matting (MobileNetV3) via ONNX Runtime** | Best hair detail of the candidates; temporally stable (recurrent). GPL-3.0 – fine for personal use, re-evaluate before distributing. Runs on CPU (~10 fps at 720×1280 on 4 cores) and uses CUDA/DirectML/CoreML automatically when the matching onnxruntime build is installed. MediaPipe was evaluated and dropped: its current Python package needs system GL/EGL libraries. Weights (15 MB) download on first use, SHA-256 verified. |
-| Relighting / face correction / upscaling | **Not bundled** | Need further models (face landmarks, relighting, Real-ESRGAN). Declared *unsupported* with a clear error. See §6. |
+| Face detection & tracking | **YuNet (OpenCV Zoo, MIT) via `cv2.FaceDetectorYN`** | 230 KB, ~10 ms/frame on CPU, gives 5 landmarks; no extra runtime. Faces are tracked (IoU matching, temporal smoothing, short hold on missed frames). |
+| Face tone / relight application | Analysis pass writes a small lossless **control video** (tone / brighten / darken weights); FFmpeg blends gain/colour streams with `maskedmerge` | Keeps face work inside the normal ordered pipeline (after compositing, before the global grade) so preview == export; pixels with zero weight pass through bit-exactly. |
+| AI upscaling | **Not bundled** | Needs Real-ESRGAN-class model + GPU for practical speed. Declared *unsupported* with a clear error. |
 
 ## 3. Components
 ```
@@ -54,7 +56,8 @@ Pipeline stages (execution order, subject to `depends_on`): restore (10) → key
 | Colour grading: exposure, contrast, brightness, highlights/shadows/whites/blacks, temperature/tint, saturation, vibrance, gamma, lift/gamma/gain, RGB curves, `.cube`/`.3dl` LUT (with intensity), 6 presets | ✅ |
 | Colour wheels UI | ❌ (the underlying LGG values are editable as numbers; no wheel widget) |
 | Keyframed parameters | ❌ parameters are constant per operation; use split/duplicate to change values over time |
-| Face / skin-tone correction, face relighting | ❌ need face-landmark + segmentation models; rejected clearly |
+| Face & skin-tone correction: auto face exposure toward a target (temporally smoothed), manual face EV, skin-only warmth/tint/saturation measured from the person's own cheek colour (any skin tone) | ✅ No smoothing/reshaping, so identity is untouched. Checked on two real clips: no added flicker (jitter 1.55 → 1.10). Limits: profile/heavily turned or very small faces may not be detected (detection_confidence); neck/hands are not corrected. |
+| Face relighting: key light side/height/intensity, fill (lifts darker areas), shadow depth | ✅ **2D image-space approximation** (directional gain over the face ellipse), no 3D geometry: good for gentle corrections, cannot cast new shadows or create a rim light. Background-light matching not implemented. |
 | Denoise (hqdn3d), sharpen (unsharp), basic stabilisation (`deshake`, single pass) | ✅ (classical; limited by source) |
 | AI super-resolution | ❌ model needed |
 | Text overlay (static; `expansion=none`, text passed via file) | ✅ |
@@ -65,4 +68,4 @@ Pipeline stages (execution order, subject to `depends_on`): restore (10) → key
 | Electron shell, installer | ⚠️ written, syntax-checked, **never launched** (no display/Electron binary here); installer not built |
 
 ## 7. Roadmap
-Phase 1–3 (shell, project mgmt, blueprint engine, FFmpeg, timeline, keying, replacement) and the classical parts of phase 4–6 are done. Done since: AI background removal (RVM). Next: (a) face detection (OpenCV YuNet) → face/skin-tone correction, then relighting; (b) keyframes; (c) multi-clip source timeline; (d) colour-wheel widgets and scopes; (e) packaged installers & CI on macOS/Windows; (f) performance benchmarks on real GPUs.
+Phase 1–3 (shell, project mgmt, blueprint engine, FFmpeg, timeline, keying, replacement) and the classical parts of phase 4–6 are done. Done since: AI background removal (RVM), face tone correction and 2D relighting (YuNet). Next: (a) AI upscaling (Real-ESRGAN, GPU recommended), rim light using the AI matte; (b) keyframes; (c) multi-clip source timeline; (d) colour-wheel widgets and scopes; (e) packaged installers & CI on macOS/Windows; (f) performance benchmarks on real GPUs.
