@@ -153,3 +153,13 @@ def test_bad_source_reported(prep, media):
 def test_color_normalisation():
     assert normalize_color("green") == "#00ff00" and normalize_color("FF00aa") == "#ff00aa"
     with pytest.raises(ValueError): normalize_color("rgb(1,2,3)")
+
+
+def test_docs_are_up_to_date():
+    import json, sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import gen_docs
+    docs = Path(__file__).resolve().parents[2] / "docs"
+    assert json.loads((docs / "blueprint.schema.json").read_text()) == gen_docs.json_schema_doc(), "run backend/scripts/gen_docs.py"
+    assert (docs / "OPERATIONS.md").read_text() == gen_docs.ops_md() + "\n"

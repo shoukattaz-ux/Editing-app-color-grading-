@@ -1,0 +1,22 @@
+{
+  "name": "evp-desktop",
+  "version": "0.1.0",
+  "description": "AI Blueprint-Based Automatic Video Editor",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": { "electron": "^31.0.0", "electron-builder": "^24.13.3" },
+  "build": {
+    "appId": "app.evp.editor",
+    "productName": "EVP Editor",
+    "files": ["main.js", "preload.js"],
+    "extraResources": [
+      { "from": "../frontend/dist", "to": "frontend" },
+      { "from": "../backend", "to": "backend", "filter": ["evp/**/*.py", "requirements.txt"] }
+    ],
+    "linux": { "target": ["AppImage"] }, "mac": { "target": ["dmg"] }, "win": { "target": ["nsis"] }
+  }
+}

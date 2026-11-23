@@ -1,0 +1,722 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/evp/blueprint-1.0.json",
+  "title": "EVP editing blueprint v1.0",
+  "type": "object",
+  "required": [
+    "blueprint_version",
+    "operations"
+  ],
+  "properties": {
+    "blueprint_version": {
+      "const": "1.0"
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "source_video": {
+          "type": "string",
+          "description": "Informational only; the video is chosen in the app."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "resolution": {
+          "type": "string",
+          "default": "source",
+          "description": "'source' or 'WIDTHxHEIGHT' (even, 64..7680x4320)"
+        },
+        "fps": {
+          "oneOf": [
+            {
+              "const": "source"
+            },
+            {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 120
+            }
+          ]
+        },
+        "format": {
+          "enum": [
+            "mp4",
+            "mov"
+          ]
+        },
+        "codec": {
+          "enum": [
+            "h264",
+            "h265"
+          ]
+        },
+        "crf": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 51
+        },
+        "video_bitrate": {
+          "type": "string",
+          "pattern": "^\\d{2,6}[kKmM]$"
+        },
+        "audio_bitrate": {
+          "type": "string",
+          "pattern": "^\\d{2,4}k$"
+        },
+        "preset": {
+          "enum": [
+            "ultrafast",
+            "veryfast",
+            "fast",
+            "medium",
+            "slow"
+          ]
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          },
+          "type": {
+            "enum": [
+              "image",
+              "video",
+              "lut"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative to the project folder (no '..'); absolute paths must be inside the project."
+          }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          },
+          "type": {
+            "enum": [
+              "chroma_key",
+              "background_removal",
+              "background_replacement",
+              "color_grading",
+              "video_enhancement",
+              "text_overlay",
+              "audio_gain"
+            ]
+          },
+          "start": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "string",
+                "pattern": "^(\\d+:)?\\d{1,2}:\\d{1,2}(\\.\\d+)?$|^\\d+(\\.\\d+)?$"
+              }
+            ],
+            "default": 0
+          },
+          "end": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "string",
+                "pattern": "^(\\d+:)?\\d{1,2}:\\d{1,2}(\\.\\d+)?$|^\\d+(\\.\\d+)?$"
+              }
+            ],
+            "description": "Omit for 'until end of video'."
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "chroma_key"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "key_color": {
+                      "description": "Colour to remove: '#rrggbb', 'green' or 'blue'.",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$",
+                      "default": "#00ff00"
+                    },
+                    "similarity": {
+                      "description": "How close a pixel must be to the key colour to become transparent.",
+                      "type": "number",
+                      "minimum": 0.01,
+                      "maximum": 1.0,
+                      "default": 0.12
+                    },
+                    "blend": {
+                      "description": "Soft transition between keyed and kept pixels.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.08
+                    },
+                    "spill_suppression": {
+                      "description": "Remove green/blue colour cast from the subject's edges.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "spill_strength": {
+                      "description": "Despill mix strength.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "edge_erode": {
+                      "description": "Shrink the matte to remove fringe.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 10,
+                      "default": 0
+                    },
+                    "edge_feather": {
+                      "description": "Gaussian softening of the matte edge.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 20.0,
+                      "default": 0.0
+                    },
+                    "background_color": {
+                      "description": "Fill used when no background_replacement consumes this key.",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$",
+                      "default": "#000000"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "background_removal"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "description": "'ai' (no green screen) is not available in this build.",
+                      "type": "string",
+                      "enum": [
+                        "chroma",
+                        "ai"
+                      ],
+                      "default": "chroma"
+                    },
+                    "quality": {
+                      "description": "Higher = more edge processing.",
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "standard",
+                        "high"
+                      ],
+                      "default": "high"
+                    },
+                    "edge_refinement": {
+                      "description": "Erode + feather the matte edge.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "key_color": {
+                      "description": "Colour to remove: '#rrggbb', 'green' or 'blue'.",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$",
+                      "default": "#00ff00"
+                    },
+                    "similarity": {
+                      "description": "How close a pixel must be to the key colour to become transparent.",
+                      "type": "number",
+                      "minimum": 0.01,
+                      "maximum": 1.0,
+                      "default": 0.12
+                    },
+                    "blend": {
+                      "description": "Soft transition between keyed and kept pixels.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.08
+                    },
+                    "spill_suppression": {
+                      "description": "Remove green/blue colour cast from the subject's edges.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "spill_strength": {
+                      "description": "Despill mix strength.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "background_color": {
+                      "description": "Fill used when no background_replacement consumes this removal.",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$",
+                      "default": "#000000"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "background_replacement"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "description": "Background asset. Omit to use `color`.",
+                      "type": "string"
+                    },
+                    "color": {
+                      "description": "Solid background if no asset_id.",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$",
+                      "default": "#000000"
+                    },
+                    "fit": {
+                      "description": "",
+                      "type": "string",
+                      "enum": [
+                        "cover",
+                        "contain",
+                        "stretch"
+                      ],
+                      "default": "cover"
+                    },
+                    "scale": {
+                      "description": "Additional zoom on the background.",
+                      "type": "number",
+                      "minimum": 0.1,
+                      "maximum": 4.0,
+                      "default": 1.0
+                    },
+                    "offset_x": {
+                      "description": "Horizontal shift as fraction of frame width.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "offset_y": {
+                      "description": "Vertical shift as fraction of frame height.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "blur": {
+                      "description": "Gaussian background blur (fake depth of field).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 50.0,
+                      "default": 0.0
+                    },
+                    "brightness": {
+                      "description": "Background brightness to match the subject.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "saturation": {
+                      "description": "Background saturation to match the subject.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 3.0,
+                      "default": 1.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "color_grading"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "description": "Starting look; individual controls are applied on top.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "cinematic_teal_orange",
+                        "warm_film",
+                        "cool_blue",
+                        "bleach_bypass",
+                        "faded_matte",
+                        "high_contrast_bw"
+                      ],
+                      "default": "none"
+                    },
+                    "exposure": {
+                      "description": "Exposure compensation in stops.",
+                      "type": "number",
+                      "minimum": -3.0,
+                      "maximum": 3.0,
+                      "default": 0.0
+                    },
+                    "contrast": {
+                      "description": "1.0 = unchanged.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 3.0,
+                      "default": 1.0
+                    },
+                    "brightness": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "highlights": {
+                      "description": "Lift (+) or pull down (-) highlights.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "shadows": {
+                      "description": "Lift (+) or crush (-) shadows.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "whites": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "blacks": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "temperature": {
+                      "description": "-100 cool (blue) ... +100 warm (orange).",
+                      "type": "number",
+                      "minimum": -100.0,
+                      "maximum": 100.0,
+                      "default": 0.0
+                    },
+                    "tint": {
+                      "description": "-100 green ... +100 magenta.",
+                      "type": "number",
+                      "minimum": -100.0,
+                      "maximum": 100.0,
+                      "default": 0.0
+                    },
+                    "saturation": {
+                      "description": "1.0 = unchanged.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 3.0,
+                      "default": 1.0
+                    },
+                    "vibrance": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": -2.0,
+                      "maximum": 2.0,
+                      "default": 0.0
+                    },
+                    "gamma": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": 0.1,
+                      "maximum": 5.0,
+                      "default": 1.0
+                    },
+                    "lift": {
+                      "description": "[r,g,b] shadow colour offset, each -1..1 (Lift/Gamma/Gain).",
+                      "type": "array"
+                    },
+                    "gamma_rgb": {
+                      "description": "[r,g,b] midtone colour offset, each -1..1.",
+                      "type": "array"
+                    },
+                    "gain": {
+                      "description": "[r,g,b] highlight colour offset, each -1..1.",
+                      "type": "array"
+                    },
+                    "curve_master": {
+                      "description": "Master curve control points [[x,y],...] in 0..1.",
+                      "type": "array"
+                    },
+                    "curve_red": {
+                      "description": "Red curve control points [[x,y],...] in 0..1.",
+                      "type": "array"
+                    },
+                    "curve_green": {
+                      "description": "Green curve control points [[x,y],...] in 0..1.",
+                      "type": "array"
+                    },
+                    "curve_blue": {
+                      "description": "Blue curve control points [[x,y],...] in 0..1.",
+                      "type": "array"
+                    },
+                    "lut_asset_id": {
+                      "description": "A .cube/.3dl LUT asset to apply.",
+                      "type": "string"
+                    },
+                    "lut_intensity": {
+                      "description": "Blend between graded-without-LUT and LUT.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 1.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "video_enhancement"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "denoise": {
+                      "description": "hqdn3d strength.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "sharpen": {
+                      "description": "Unsharp-mask amount.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 2.0,
+                      "default": 0.0
+                    },
+                    "stabilize": {
+                      "description": "Single-pass deshake. Modest results; fully-featured stabilisation is not claimed.",
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "stabilize_strength": {
+                      "description": "Max shift in px searched by deshake.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 64,
+                      "default": 16
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "text_overlay"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "description": "Text to draw (max 500 chars).",
+                      "type": "string"
+                    },
+                    "font_size": {
+                      "description": "",
+                      "type": "integer",
+                      "minimum": 8,
+                      "maximum": 400,
+                      "default": 48
+                    },
+                    "color": {
+                      "description": "",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$",
+                      "default": "#ffffff"
+                    },
+                    "x": {
+                      "description": "Horizontal anchor (fraction, centred).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "y": {
+                      "description": "Vertical anchor (fraction, centred).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.85
+                    },
+                    "box": {
+                      "description": "Draw a translucent box behind the text.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "box_opacity": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "text"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "audio_gain"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "gain_db": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": -60.0,
+                      "maximum": 24.0,
+                      "default": 0.0
+                    },
+                    "fade_in": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 30.0,
+                      "default": 0.0
+                    },
+                    "fade_out": {
+                      "description": "",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 30.0,
+                      "default": 0.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

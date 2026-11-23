@@ -1,0 +1,66 @@
+{
+  "blueprint_version": "1.0",
+  "project": {
+    "name": "Space Presenter",
+    "source_video": "greenscreen.mp4"
+  },
+  "output": {
+    "resolution": "source",
+    "fps": "source"
+  },
+  "assets": [
+    {
+      "id": "space_background",
+      "type": "image",
+      "path": "assets/space_background.png"
+    }
+  ],
+  "operations": [
+    {
+      "id": "operation_001",
+      "type": "background_removal",
+      "start": 0,
+      "end": 6,
+      "parameters": {
+        "quality": "high",
+        "edge_refinement": true,
+        "spill_suppression": true
+      }
+    },
+    {
+      "id": "operation_002",
+      "type": "background_replacement",
+      "start": 0,
+      "end": 6,
+      "parameters": {
+        "asset_id": "space_background",
+        "fit": "cover",
+        "blur": 2
+      },
+      "depends_on": [
+        "operation_001"
+      ]
+    },
+    {
+      "id": "operation_003",
+      "type": "color_grading",
+      "start": 1,
+      "end": 5,
+      "parameters": {
+        "preset": "cinematic_teal_orange",
+        "temperature": -5,
+        "contrast": 1.12,
+        "saturation": 1.08
+      }
+    },
+    {
+      "id": "operation_004",
+      "type": "text_overlay",
+      "start": 2,
+      "end": 4,
+      "parameters": {
+        "text": "Hello from space"
+      }
+    }
+  ]
+}

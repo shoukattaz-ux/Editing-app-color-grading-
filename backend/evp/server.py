@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Response
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import __version__
@@ -48,6 +49,8 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
     st = State(token or secrets.token_urlsafe(24), Path(data_dir or Path.home() / ".evp"))
     app = FastAPI(title="EVP backend", version=__version__)
     app.state.evp = st
+    # The UI is served from file:// or a dev server; every route except /health requires the per-launch secret token.
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges"])
 
     def auth(request: Request):
         t = request.headers.get("x-evp-token") or request.query_params.get("token")
