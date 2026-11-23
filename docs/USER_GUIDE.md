@@ -24,11 +24,19 @@ See the [README](../README.md#install). You need Python 3.10+, FFmpeg/ffprobe on
 *Effects ▸ Face*: **Face & Skin Tone Correction** finds and tracks faces automatically, evens out face brightness toward `target_brightness` (smoothly, so it never flickers) and lets you change skin warmth/tint/saturation without touching beard, eyes, hair or the background. **Face Relighting** adds a soft virtual key light from the side you choose (`key_angle` −90 = frame-left … +90 = frame-right), a `fill` that lifts dark areas, and optional `shadow_depth`. Both only change brightness/colour — never skin texture or face shape. Relighting is a 2D effect: keep it gentle. The face detector (230 KB) downloads on first use; analysis runs at ~25 fps on CPU and is cached.
 If no face is found the operation does nothing and the export log says so.
 
+## AI upscaling (CPU or GPU)
+1. Set the output resolution larger than the source (Output settings or Export, e.g. 1920x1080 or 3840x2160).
+2. *Effects ▸ Enhance ▸ AI Resolution Enhancement*. It replaces the normal scaler, so all other effects then work on the sharper frames.
+* `quality`: **fast** (default) halves the network input when the output is ≤ 2× the source (about 4× faster); **best** always uses the full frame.
+* `denoise` 0 keeps texture (and noise), 1 smooths strongly; `strength` < 1 blends with a classical upscale for a more natural look.
+* **Speed**: CPU ≈ 0.5 s per frame for a 320×180 source, ≈ 2 s for 640×360. The validator warns with an estimate when it will take over a minute. Results are cached, so later previews/exports are fast.
+* **GPU**: replace `onnxruntime` with `onnxruntime-gpu` (NVIDIA, needs CUDA 12 + cuDNN 9) or `onnxruntime-directml` (Windows, any DirectX 12 GPU). macOS uses CoreML automatically. The Export dialog shows the AI device in use. If the GPU fails (e.g. out of memory) the job continues on CPU and says so in the log.
+* It invents *plausible* detail; it cannot recover what the camera never captured.
+
 ## Shortcuts
 Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete operation · Ctrl+wheel on the timeline zooms.
 
 ## Tips & limits
 * Greenscreen: raise *similarity* if green remains, raise *blend* for softer edges, use *edge_erode* 1–2 to remove fringe, *spill_strength* for green cast on hair/skin.
-* AI upscaling still needs a model and appears disabled in *Effects* with the reason.
 * Playback of *Edited* is a proxy; colours/edges can only be judged exactly in the live frame or the final export.
 * Pause/resume uses POSIX signals: available on macOS/Linux, not on Windows.

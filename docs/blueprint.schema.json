@@ -131,7 +131,8 @@
               "text_overlay",
               "audio_gain",
               "face_tone_correction",
-              "face_relighting"
+              "face_relighting",
+              "ai_upscale"
             ]
           },
           "start": {
@@ -912,6 +913,48 @@
                       "minimum": 0.3,
                       "maximum": 0.95,
                       "default": 0.6
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "ai_upscale"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "quality": {
+                      "description": "fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size.",
+                      "type": "string",
+                      "enum": [
+                        "fast",
+                        "best"
+                      ],
+                      "default": "fast"
+                    },
+                    "denoise": {
+                      "description": "0 keeps all texture (and noise); 1 removes noise strongly (smoother).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "strength": {
+                      "description": "Blend with a classical Lanczos upscale; lower looks more natural.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 1.0
                     }
                   },
                   "additionalProperties": false

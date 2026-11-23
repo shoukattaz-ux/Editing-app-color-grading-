@@ -374,6 +374,29 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                 rep.err("MODEL_RUNTIME_MISSING", "Face operations need OpenCV >= 4.8 with the DNN module (pip install opencv-python-headless)", oid, p); continue
             if not is_installed("yunet"):
                 rep.warn("MODEL_DOWNLOAD", f"Face detector model ({MODELS['yunet'].size // 1000} KB, MIT) will be downloaded on first use", oid)
+        if otype == "ai_upscale":
+            from .ml.models import runtime_available, is_installed, MODELS, providers
+            ok, why = runtime_available()
+            try:
+                import onnx  # noqa: F401  (needed once, to convert the official weights)
+            except Exception:
+                ok, why = False, "the 'onnx' package is not installed (pip install onnx)"
+            if not ok:
+                rep.err("MODEL_RUNTIME_MISSING", f"AI upscaling unavailable: {why}", oid, p); continue
+            if not is_installed("esrgan_general"):
+                rep.warn("MODEL_DOWNLOAD", "Real-ESRGAN weights (2 x 4.9 MB, BSD-3) will be downloaded and converted on first use", oid)
+            if vid:
+                from .ml.upscale import fit_geometry, estimate_seconds_per_frame
+                fw, fh, _, _ = fit_geometry(vid.width, vid.height, output.width, output.height)
+                need = max(fw / vid.width, fh / vid.height)
+                if need <= 1.0:
+                    rep.warn("UPSCALE_NOT_NEEDED", f"Output ({output.width}x{output.height}) is not larger than the source ({vid.width}x{vid.height}); "
+                             "AI upscaling will only re-draw detail. Set output.resolution higher (e.g. 1920x1080 or 3840x2160).", oid)
+                gpu = providers()[:1] != ["CPUExecutionProvider"]
+                est = estimate_seconds_per_frame(vid.width, vid.height, params["quality"], need, gpu) * (ef - sf)
+                if est > 60:
+                    rep.warn("AI_SLOW", f"AI upscaling of {ef - sf} frames is estimated at ~{est / 60:.0f} min on "
+                             f"{'GPU' if gpu else 'CPU (no GPU runtime found)'}; the result is cached for later previews/exports.", oid)
         if spec.needs_audio and vid and not vid.has_audio:
             rep.warn("NO_AUDIO", "Source has no audio track; this operation has no effect", oid, p)
         deps = o.get("depends_on", [])

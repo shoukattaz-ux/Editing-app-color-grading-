@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Pipeline stages: lower runs earlier in the filter graph.
+STAGE_UPSCALE = 5       # AI super-resolution replaces the base scaler
 STAGE_RESTORE = 10      # stabilise / denoise
 STAGE_KEY = 20          # produce an alpha layer from the footage
 STAGE_COMPOSITE = 30    # place keyed subject over a new background
@@ -198,11 +199,13 @@ _reg(OpSpec("face_relighting", "Face Relighting", "Face", STAGE_FACE, "effects",
              "shadow_depth": Param(N, 0.0, 0.0, 1.0, desc="Darkens the side away from the key for more contrast."),
              **_FACE_COMMON}))
 
-for _t, _title, _cat in [
-    ("ai_upscale", "AI Resolution Enhancement", "Enhance"),
-]:
-    _reg(OpSpec(_t, _title, _cat, STAGE_GRADE, "effects", _title, supported=False,
-                unsupported_reason=_MODEL_REASON))
+_reg(OpSpec("ai_upscale", "AI Resolution Enhancement", "Enhance", STAGE_UPSCALE, "video",
+            "Real-ESRGAN super-resolution (x4 network, BSD-3) used instead of the normal scaler when the output is larger than "
+            "the source. Runs on CPU or GPU (ONNX Runtime). It reconstructs plausible detail; it cannot recover detail that "
+            "was never recorded, and on CPU it is slow (~0.5-3 s per frame).",
+            {"quality": Param(E, "fast", enum=("fast", "best"), desc="fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size."),
+             "denoise": Param(N, 0.5, 0.0, 1.0, desc="0 keeps all texture (and noise); 1 removes noise strongly (smoother)."),
+             "strength": Param(N, 1.0, 0.0, 1.0, desc="Blend with a classical Lanczos upscale; lower looks more natural.")}))
 _reg(OpSpec("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying", STAGE_KEY, "effects",
             "Hair & Edge Refinement (matting)", supported=False,
             unsupported_reason="Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. "

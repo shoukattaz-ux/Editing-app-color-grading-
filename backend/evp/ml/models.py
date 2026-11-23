@@ -21,6 +21,14 @@ MODELS = {
                      "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
                      "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828", 14975696, "GPL-3.0",
                      "Robust Video Matting (MobileNetV3) - temporally consistent human matting with hair detail"),
+    "esrgan_general": ModelInfo("esrgan_general", "realesr-general-x4v3.pth",
+                                "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+                                "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292", 4885111, "BSD-3-Clause",
+                                "Real-ESRGAN general x4 v3 (SRVGGNetCompact) - fast real-world super-resolution"),
+    "esrgan_wdn": ModelInfo("esrgan_wdn", "realesr-general-wdn-x4v3.pth",
+                            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth",
+                            "1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca", 4885111, "BSD-3-Clause",
+                            "Real-ESRGAN general x4 v3, with-denoise variant (used for the denoise slider)"),
     "yunet": ModelInfo("yunet", "face_detection_yunet_2023mar.onnx",
                        "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
                        "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4", 232589, "MIT",
@@ -84,3 +92,31 @@ def ensure_model(name: str, allow_download: bool = True) -> Path:
     finally:
         tmp.unlink(missing_ok=True)
     return p
+
+
+def providers() -> list[str]:
+    """ONNX Runtime execution providers in preference order (GPU first when the installed build supports it)."""
+    try:
+        import onnxruntime as ort
+    except Exception:
+        return []
+    avail = ort.get_available_providers()
+    return [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider") if p in avail] + ["CPUExecutionProvider"]
+
+
+def make_session(model_path: str, threads: int | None = None):
+    """ONNX session on the best available device; falls back to CPU if the GPU provider fails to initialise."""
+    import onnxruntime as ort
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = threads or os.cpu_count() or 4
+    try:
+        return ort.InferenceSession(str(model_path), so, providers=providers())
+    except Exception:
+        return ort.InferenceSession(str(model_path), so, providers=["CPUExecutionProvider"])
+
+
+def make_session_cpu(model_path: str, threads: int | None = None):
+    import onnxruntime as ort
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = threads or os.cpu_count() or 4
+    return ort.InferenceSession(str(model_path), so, providers=["CPUExecutionProvider"])

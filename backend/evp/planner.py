@@ -17,6 +17,10 @@ class Plan:
     total_frames: int = 0
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
     face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
+    upscales: dict = field(default_factory=dict)                  # op id -> ml.upscale.UpscaleRef (filled by the engine)
+
+    def upscale_ops(self) -> list[Operation]:
+        return [o for o in self.steps if o.type == "ai_upscale"]
 
     def face_ops(self) -> list[Operation]:
         return [o for o in self.steps if o.type in ("face_tone_correction", "face_relighting")]
@@ -70,6 +74,11 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
         for b in repl[i + 1:]:
             if _overlap(a, b):
                 rep.err("OVERLAP_CONFLICT", f"Background replacements '{a.id}' and '{b.id}' overlap in time; only one background can be active", a.id)
+    ups = [o for o in ops if o.type == "ai_upscale"]
+    for i, a in enumerate(ups):
+        for b in ups[i + 1:]:
+            if _overlap(a, b):
+                rep.err("OVERLAP_CONFLICT", f"AI upscale operations '{a.id}' and '{b.id}' overlap; use one per time range", a.id)
     keyers = [o for o in ops if OPERATIONS[o.type].provides_alpha]
     for i, a in enumerate(keyers):
         for b in keyers[i + 1:]:

@@ -296,6 +296,15 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             cur = masked(cur, gain(4), mg)      # = face.UP_GAIN
             cur = masked(cur, gain(0.25), mb)   # = face.DOWN_GAIN
             cur = g.add([cur], "scale=iw:ih:flags=neighbor,format=yuv420p")
+        elif t == "ai_upscale":
+            ref = plan.upscales.get(op.id)
+            if ref is None:
+                raise RuntimeError(f"AI upscale for '{op.id}' was not generated")
+            inputs.append(["-i", ref.path])
+            u = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:start_mode=add:stop_mode=add:color=black,"
+                      f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=lanczos,setsar=1,format=yuv420p")
+            en = enable(op)
+            cur = g.add([cur, u], (f"overlay=enable='{en}':shortest=1" if en else "overlay=shortest=1") + ",format=yuv420p")
         elif t == "video_enhancement":
             f = []
             if p["stabilize"]: f.append(f"deshake=rx={p['stabilize_strength']}:ry={p['stabilize_strength']}")

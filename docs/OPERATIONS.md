@@ -171,9 +171,15 @@ Timeline track: **effects**
 
 ## `ai_upscale` — AI Resolution Enhancement
 
-AI Resolution Enhancement
+Real-ESRGAN super-resolution (x4 network, BSD-3) used instead of the normal scaler when the output is larger than the source. Runs on CPU or GPU (ONNX Runtime). It reconstructs plausible detail; it cannot recover detail that was never recorded, and on CPU it is slow (~0.5-3 s per frame).
 
-> **Not available in this build.** Requires a trained model (and ideally a GPU) that is not bundled. No fake fallback is provided: use a supported operation or add a model plugin.
+Timeline track: **video**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `quality` | enum | `fast` | fast, best | fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size. |
+| `denoise` | number | `0.5` | 0.0 … 1.0 | 0 keeps all texture (and noise); 1 removes noise strongly (smoother). |
+| `strength` | number | `1.0` | 0.0 … 1.0 | Blend with a classical Lanczos upscale; lower looks more natural. |
 
 ## `hair_edge_refinement` — Hair & Edge Refinement (matting)
 

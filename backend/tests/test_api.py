@@ -41,7 +41,7 @@ def test_requires_token(client):
 def test_schema_lists_registry(client):
     s = client.get("/api/schema", headers=H).json()
     assert s["operations"]["color_grading"]["parameters"]["contrast"]["maximum"] == 3.0
-    assert s["operations"]["ai_upscale"]["supported"] is False
+    assert s["operations"]["hair_edge_refinement"]["supported"] is False
 
 
 def test_no_project_gives_409(client):
@@ -96,7 +96,7 @@ def test_export_job_lifecycle_and_failure_paths(client, proj, media):
     assert j["state"] == "done" and "/exports/" in j["output"] and ".." not in r["output"]
     assert client.post(f"/api/jobs/{r['job']['id']}/resume", headers=H).status_code == 409
     assert client.get("/api/jobs/nope", headers=H).status_code == 404
-    inv = client.post("/api/render", headers=H, json={"blueprint": bp(ops=[{"id": "x", "type": "ai_upscale", "start": 0, "end": 1}]), "preset": "export"})
+    inv = client.post("/api/render", headers=H, json={"blueprint": bp(ops=[{"id": "x", "type": "hair_edge_refinement", "start": 0, "end": 1}]), "preset": "export"})
     assert inv.status_code == 422
 
 

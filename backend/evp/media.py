@@ -101,7 +101,16 @@ def hardware_report() -> dict:
             hw.append(name)
     return {"cpu_count": os.cpu_count(), "ffmpeg": subprocess.run([ffmpeg_bin(), "-version"], capture_output=True, text=True).stdout.splitlines()[0],
             "encoders_available": sorted(e for e in encoders() if e in ("libx264", "libx265")),
-            "hardware_encoders_working": hw}
+            "hardware_encoders_working": hw,
+            "ai_devices": _ai_devices()}
+
+
+def _ai_devices() -> list[str]:
+    try:
+        from .ml.models import providers
+        return [p.replace("ExecutionProvider", "") for p in providers()]
+    except Exception:
+        return []
 
 
 @functools.lru_cache(maxsize=16)

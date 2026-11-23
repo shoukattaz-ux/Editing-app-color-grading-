@@ -46,12 +46,26 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
     """Generate (or reuse cached) AI mattes for every 'ai' background_removal in the plan.
     frame=None -> whole operation range (export/proxy). frame=N -> a cheap single-frame matte for live preview,
     unless the full-range matte is already cached."""
-    keyers, faces = plan.ai_keyers(), plan.face_ops()
-    if not keyers and not faces: return
+    keyers, faces, ups = plan.ai_keyers(), plan.face_ops(), plan.upscale_ops()
+    if not keyers and not faces and not ups: return
     out = plan.blueprint.output
     W, H, fps = out.width, out.height, out.fps
-    total = sum(k.end_frame - k.start_frame for k in keyers + faces)
+    total = sum(k.end_frame - k.start_frame for k in keyers + faces + ups)
     done = 0
+    if ups:
+        from .ml.upscale import generate_upscale, upscale_key
+        v = plan.video
+        for u in ups:
+            n = u.end_frame - u.start_frame
+            cached = (Path(cache_dir) / "upscale" / f"up_{upscale_key(source, u, W, H, fps, u.start_frame, n)}.mkv").is_file()
+            if frame is None or cached:
+                cb = (lambda i, _n, d=done, op=u: progress(d + i, total, op.id, "AI upscaling")) if progress else None
+                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, u.start_frame, n, cache_dir, cb, cancel)
+            else:
+                fr = min(max(frame, u.start_frame), u.end_frame - 1)
+                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, fr, 1, cache_dir)
+            done += n
+    if not keyers and not faces: return
     if faces:
         from .ml.face import generate_control, control_key
         for f in faces:
@@ -152,9 +166,10 @@ class Job:
                 raise RuntimeError("Insufficient disk space for the export (need roughly "
                                    f"{estimate_bytes(self.plan) // 1_000_000} MB free).")
             tmp_out = self.out_path + ".part" + Path(self.out_path).suffix
-            if self.plan.ai_keyers() or self.plan.face_ops():
+            if self.plan.ai_keyers() or self.plan.face_ops() or self.plan.upscale_ops():
                 from .ml.matting import Cancelled
                 from .ml.face import Cancelled as FaceCancelled
+                from .ml.upscale import Cancelled as UpCancelled
                 self._p0, self._pw = 0.0, 0.75
                 def prog(i, n, op_id, what):
                     self.current = f"{what} '{op_id}': frame {i}/{n}"
@@ -163,9 +178,16 @@ class Job:
                     if self.progress > 0.02: self.eta = el * (1 - self.progress) / self.progress
                 try:
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
-                except (Cancelled, FaceCancelled):
+                except (Cancelled, FaceCancelled, UpCancelled):
                     self.state = self.current = "cancelled"; return
                 if self.plan.mattes: self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
+                if self.plan.upscales:
+                    from .ml.models import providers
+                    self._log(f"AI upscaling done on {providers()[0].replace('ExecutionProvider', '')}: {', '.join(self.plan.upscales)}")
+                    for uid, ref in self.plan.upscales.items():
+                        if ref.gpu_fallback:
+                            self.fallback_used = True
+                            self._log(f"WARNING: GPU failed during AI upscaling of '{uid}', finished on CPU: {ref.gpu_fallback}")
                 for fid, ref in self.plan.face_controls.items():
                     self._log(f"Face analysis '{fid}': face found in {ref.faces_found}/{ref.frames} frames")
                     if ref.faces_found == 0:

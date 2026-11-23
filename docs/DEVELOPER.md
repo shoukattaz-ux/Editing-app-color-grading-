@@ -2,9 +2,9 @@
 
 ## Layout
 ```
-backend/evp/ml/{models,frames,matting,face}.py   # model store (verified download), RVM matting, face analysis
+backend/evp/ml/{models,frames,matting,face,srvgg,upscale}.py   # model store, RVM matting, face analysis, Real-ESRGAN converter + upscaler
 backend/evp/{registry,blueprint,planner,compiler,engine,media,project,security,server,cli,samples}.py
-backend/tests/          # 101 tests (+2 opt-in: EVP_TEST_PERSON_VIDEO=clip.mp4); real FFmpeg renders + pixel assertions
+backend/tests/          # 108 tests (+2 opt-in: EVP_TEST_PERSON_VIDEO=clip.mp4); real FFmpeg renders + pixel assertions
 backend/scripts/gen_docs.py   # regenerates docs/blueprint.schema.json + docs/OPERATIONS.md (a test fails if stale)
 frontend/src/           # model.ts (pure logic, vitest) · App/Preview/Timeline/Properties/Sidebar (React)
 electron/               # main.js, preload.js, electron-builder config

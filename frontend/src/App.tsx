@@ -219,7 +219,7 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
           <label className="field"><span className="fl">audio bitrate</span><select value={o.audio_bitrate ?? "192k"} onChange={e => set({ audio_bitrate: e.target.value })}>{["128k", "192k", "256k", "320k"].map(r => <option key={r}>{r}</option>)}</select></label>
           <label className="field"><span className="fl">encoder</span><select value={enc} onChange={e => setEnc(e.target.value)}><option value="auto">Auto (GPU if it works, else CPU)</option><option value="cpu">CPU only</option></select></label>
         </div>
-        {sys && <p className="muted">{sys.cpu_count} CPU threads · hardware encoders: {sys.hardware_encoders_working.length ? sys.hardware_encoders_working.join(", ") : "none detected (CPU encode)"}</p>}
+        {sys && <p className="muted">{sys.cpu_count} CPU threads · hardware encoders: {sys.hardware_encoders_working.length ? sys.hardware_encoders_working.join(", ") : "none detected (CPU encode)"} · AI device: {sys.ai_devices?.[0] ?? "unavailable"}{sys.ai_devices?.[0] === "CPU" ? " (install onnxruntime-gpu / -directml for GPU)" : ""}</p>}
         {exportJob && <JobBar job={exportJob} api={api} onUpdate={j => { setExportJob(j); setJob(j); }} />}
         {exportJob && <><div className="muted">{exportJob.current}{exportJob.hardware_fallback ? " · GPU encoder failed, used CPU" : ""}</div>
           {exportJob.state === "done" && <div className="issue ok"><Icon n="check" size={14} /> Saved to {exportJob.output}</div>}
