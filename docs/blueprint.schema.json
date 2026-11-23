@@ -261,7 +261,7 @@
                   "type": "object",
                   "properties": {
                     "mode": {
-                      "description": "'ai' (no green screen) is not available in this build.",
+                      "description": "'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = green/blue screen.",
                       "type": "string",
                       "enum": [
                         "chroma",
@@ -269,8 +269,43 @@
                       ],
                       "default": "chroma"
                     },
+                    "model": {
+                      "description": "[ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable.",
+                      "type": "string",
+                      "enum": [
+                        "rvm"
+                      ],
+                      "default": "rvm"
+                    },
+                    "detail": {
+                      "description": "[ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture.",
+                      "type": "string",
+                      "enum": [
+                        "fast",
+                        "balanced",
+                        "high"
+                      ],
+                      "default": "fast"
+                    },
+                    "matte_threshold": {
+                      "description": "[ai] Alpha below this becomes fully transparent (removes faint background haze).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 0.5,
+                      "default": 0.03
+                    },
+                    "despeckle": {
+                      "description": "[ai] Remove background blobs that are not connected to the person.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "edge_color_fix": {
+                      "description": "[ai] Replace old-background colour in soft hair edges with the model's estimated foreground colour (removes halos).",
+                      "type": "boolean",
+                      "default": true
+                    },
                     "quality": {
-                      "description": "Higher = more edge processing.",
+                      "description": "[chroma] Higher = more edge processing.",
                       "type": "string",
                       "enum": [
                         "draft",
@@ -280,7 +315,7 @@
                       "default": "high"
                     },
                     "edge_refinement": {
-                      "description": "Erode + feather the matte edge.",
+                      "description": "[chroma] Erode + feather the matte edge.",
                       "type": "boolean",
                       "default": true
                     },

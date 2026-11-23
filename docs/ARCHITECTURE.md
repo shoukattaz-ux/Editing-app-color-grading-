@@ -10,7 +10,8 @@ The repository was empty (greenfield). Build environment: Linux, 4 CPU, 15 GB RA
 | Engine | **Python 3.10+ / FastAPI** local service | Easy to add OpenCV/PyTorch modules later. Bound to `127.0.0.1`, per-launch secret token, CORS open only because the token is required. |
 | UI | **React + TypeScript + Vite**, hosted in **Electron** | Electron shell starts the engine and gives native file dialogs. |
 | Preview | Same compiled pipeline as export: **single-frame render** (960 px, any time, exact) + **640 px proxy clip** | "Preview == render" by construction; no second implementation to drift. |
-| Segmentation / relighting / upscaling | **Not bundled** | Need trained models (e.g. MediaPipe Selfie Segmentation – Apache-2.0, RobustVideoMatting – GPL-3.0, Real-ESRGAN – BSD-3) and ideally a GPU. Declared in the registry as *unsupported* with a clear error. See §6. |
+| AI background removal | **Robust Video Matting (MobileNetV3) via ONNX Runtime** | Best hair detail of the candidates; temporally stable (recurrent). GPL-3.0 – fine for personal use, re-evaluate before distributing. Runs on CPU (~10 fps at 720×1280 on 4 cores) and uses CUDA/DirectML/CoreML automatically when the matching onnxruntime build is installed. MediaPipe was evaluated and dropped: its current Python package needs system GL/EGL libraries. Weights (15 MB) download on first use, SHA-256 verified. |
+| Relighting / face correction / upscaling | **Not bundled** | Need further models (face landmarks, relighting, Real-ESRGAN). Declared *unsupported* with a clear error. See §6. |
 
 ## 3. Components
 ```
@@ -46,7 +47,8 @@ Pipeline stages (execution order, subject to `depends_on`): restore (10) → key
 |---|---|
 | Green/blue/custom-colour chroma key, spill suppression, edge erode/feather | ✅ implemented (FFmpeg) |
 | Background removal – `chroma` mode | ✅ |
-| Background removal – `ai` mode (no green screen), hair matting, edge refinement beyond erode/feather | ❌ needs a segmentation/matting model – rejected with `UNSUPPORTED_OPERATION` |
+| Background removal – `ai` mode (no green screen): person matting with hair detail, despeckle, edge colour decontamination (model foreground colour in soft edges) | ✅ RVM. Matte cached per project and reused by previews/proxies/exports. Checked by eye on two real phone clips (busy wallpaper + low light). Limits: motion-blurred hands become partly transparent; with `detail` balanced/high, busy patterned walls next to the body can leak in (default `fast` is most robust). Only people are matted (not objects/pets). |
+| Separate hair refinement pass for **chroma** keys | ❌ (AI mode already gives hair-level alpha) |
 | Background replacement: image / video (looped) / colour, fit, zoom, offset, blur, brightness/saturation matching | ✅ |
 | Depth-aware compositing, perspective matching | ❌ not implemented |
 | Colour grading: exposure, contrast, brightness, highlights/shadows/whites/blacks, temperature/tint, saturation, vibrance, gamma, lift/gamma/gain, RGB curves, `.cube`/`.3dl` LUT (with intensity), 6 presets | ✅ |
@@ -63,4 +65,4 @@ Pipeline stages (execution order, subject to `depends_on`): restore (10) → key
 | Electron shell, installer | ⚠️ written, syntax-checked, **never launched** (no display/Electron binary here); installer not built |
 
 ## 7. Roadmap
-Phase 1–3 (shell, project mgmt, blueprint engine, FFmpeg, timeline, keying, replacement) and the classical parts of phase 4–6 are done. Next: (a) model plugin interface (`evp/plugins/`) with MediaPipe/RVM segmentation → enables `background_removal: ai`, hair refinement, face tone/relight; (b) keyframes; (c) multi-clip source timeline; (d) colour-wheel widgets and scopes; (e) packaged installers & CI on macOS/Windows; (f) performance benchmarks on real GPUs.
+Phase 1–3 (shell, project mgmt, blueprint engine, FFmpeg, timeline, keying, replacement) and the classical parts of phase 4–6 are done. Done since: AI background removal (RVM). Next: (a) face detection (OpenCV YuNet) → face/skin-tone correction, then relighting; (b) keyframes; (c) multi-clip source timeline; (d) colour-wheel widgets and scopes; (e) packaged installers & CI on macOS/Windows; (f) performance benchmarks on real GPUs.

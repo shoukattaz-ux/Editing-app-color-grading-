@@ -54,7 +54,19 @@ def probe(path: str | Path) -> VideoInfo:
     dur = float(v.get("duration") or info.get("format", {}).get("duration") or 0)
     if dur <= 0:
         raise MediaError("Could not determine video duration")
-    return VideoInfo(duration=dur, fps=round(fps, 3), width=int(v["width"]), height=int(v["height"]),
+    w, h = int(v["width"]), int(v["height"])
+    # phones store portrait video as landscape + a rotation flag; FFmpeg auto-rotates on decode, so report display size
+    rot = 0
+    for sd in v.get("side_data_list", []) or []:
+        if "rotation" in sd:
+            try: rot = int(float(sd["rotation"]))
+            except (TypeError, ValueError): pass
+    if not rot and "rotate" in (v.get("tags") or {}):
+        try: rot = int(v["tags"]["rotate"])
+        except ValueError: pass
+    if abs(rot) % 180 == 90:
+        w, h = h, w
+    return VideoInfo(duration=dur, fps=round(fps, 3), width=w, height=h,
                      has_audio=any(s.get("codec_type") == "audio" for s in info["streams"]),
                      codec=v.get("codec_name", ""))
 

@@ -13,11 +13,18 @@ See the [README](../README.md#install). You need Python 3.10+, FFmpeg/ffprobe on
 7. **Export**: resolution, fps, codec, CRF/bitrate, container, audio bitrate. Progress, ETA, Pause/Resume/Cancel/Retry, and the FFmpeg log are shown. Files go to `<project>.evproj/exports/`.
 8. **Save** (Ctrl+S) keeps a restorable version (Projects tab). Edits are also autosaved a second after each change; after a crash you'll be offered recovery.
 
+## AI background removal (no green screen)
+*Backgrounds ▸ AI remove background* adds `background_removal` with `mode: "ai"` over the whole clip; then pick a background (image, video or colour). The first use downloads the 15 MB model to `~/.evp/models`. The matte is computed once per clip/settings (progress shows "AI matting … frame n/N"; about 10 frames/s on a 4-core CPU at 720p) and then reused, so later previews and exports are fast.
+* `detail`: **fast** (default) is the most robust on busy or patterned walls; **balanced/high** give finer hair on plain backgrounds but are slower and may pick up wall texture.
+* `despeckle` removes background blobs not touching the person; `matte_threshold` removes faint haze; `edge_color_fix` removes the old background's colour from hair edges (halo).
+* Works for people only. Fast hand movement (motion blur) can look partly transparent.
+* Phone videos recorded in portrait are handled automatically (rotation metadata).
+
 ## Shortcuts
 Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete operation · Ctrl+wheel on the timeline zooms.
 
 ## Tips & limits
 * Greenscreen: raise *similarity* if green remains, raise *blend* for softer edges, use *edge_erode* 1–2 to remove fringe, *spill_strength* for green cast on hair/skin.
-* Features that need a model (AI background removal, relighting, face tone, AI upscaling) appear disabled in *Effects* with the reason.
+* Features that still need a model (relighting, face tone, AI upscaling) appear disabled in *Effects* with the reason.
 * Playback of *Edited* is a proxy; colours/edges can only be judged exactly in the live frame or the final export.
 * Pause/resume uses POSIX signals: available on macOS/Linux, not on Windows.

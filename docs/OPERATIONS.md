@@ -21,15 +21,20 @@ Timeline track: **effects** · provides an alpha layer for `background_replaceme
 
 ## `background_removal` — Background Removal
 
-Remove the background. Mode 'chroma' (green/blue screen) is implemented; mode 'ai' needs a segmentation model.
+Remove the background. 'ai' works on ordinary footage (no green screen) using the Robust Video Matting model; 'chroma' keys a green/blue screen.
 
 Timeline track: **effects** · provides an alpha layer for `background_replacement`
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
-| `mode` | enum | `chroma` | chroma, ai | 'ai' (no green screen) is not available in this build. |
-| `quality` | enum | `high` | draft, standard, high | Higher = more edge processing. |
-| `edge_refinement` | boolean | `True` |  | Erode + feather the matte edge. |
+| `mode` | enum | `chroma` | chroma, ai | 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = green/blue screen. |
+| `model` | enum | `rvm` | rvm | [ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable. |
+| `detail` | enum | `fast` | fast, balanced, high | [ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture. |
+| `matte_threshold` | number | `0.03` | 0.0 … 0.5 | [ai] Alpha below this becomes fully transparent (removes faint background haze). |
+| `despeckle` | boolean | `True` |  | [ai] Remove background blobs that are not connected to the person. |
+| `edge_color_fix` | boolean | `True` |  | [ai] Replace old-background colour in soft hair edges with the model's estimated foreground colour (removes halos). |
+| `quality` | enum | `high` | draft, standard, high | [chroma] Higher = more edge processing. |
+| `edge_refinement` | boolean | `True` |  | [chroma] Erode + feather the matte edge. |
 | `key_color` | color | `#00ff00` |  | Colour to remove: '#rrggbb', 'green' or 'blue'. |
 | `similarity` | number | `0.12` | 0.01 … 1.0 | How close a pixel must be to the key colour to become transparent. |
 | `blend` | number | `0.08` | 0.0 … 1.0 | Soft transition between keyed and kept pixels. |
@@ -139,15 +144,15 @@ Face Relighting
 
 > **Not available in this build.** Requires a trained model (and ideally a GPU) that is not bundled. No fake fallback is provided: use a supported operation or add a model plugin.
 
-## `hair_edge_refinement` — Hair & Edge Refinement (matting)
-
-Hair & Edge Refinement (matting)
-
-> **Not available in this build.** Requires a trained model (and ideally a GPU) that is not bundled. No fake fallback is provided: use a supported operation or add a model plugin.
-
 ## `ai_upscale` — AI Resolution Enhancement
 
 AI Resolution Enhancement
 
 > **Not available in this build.** Requires a trained model (and ideally a GPU) that is not bundled. No fake fallback is provided: use a supported operation or add a model plugin.
+
+## `hair_edge_refinement` — Hair & Edge Refinement (matting)
+
+Hair & Edge Refinement (matting)
+
+> **Not available in this build.** Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. A separate refinement pass for chroma keys is not implemented.
 

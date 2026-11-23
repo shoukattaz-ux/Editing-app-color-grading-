@@ -361,7 +361,13 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                 if a.type not in ps.asset_types:
                     rep.err("ASSET_TYPE_MISMATCH", f"Asset '{a.id}' is a {a.type}; '{pn}' needs {'/'.join(ps.asset_types)}", oid, f"{p}.parameters.{pn}")
         if otype == "background_removal" and params["mode"] == "ai":
-            rep.err("UNSUPPORTED_OPERATION", "background_removal mode 'ai' (segmentation without green screen) needs a model that is not bundled. Use mode 'chroma' or footage shot on a solid-colour screen.", oid, f"{p}.parameters.mode"); continue
+            from .ml.models import runtime_available, is_installed, MODELS
+            ok, why = runtime_available()
+            if not ok:
+                rep.err("MODEL_RUNTIME_MISSING", f"AI background removal unavailable: {why}", oid, f"{p}.parameters.mode"); continue
+            if not is_installed(params["model"]):
+                m = MODELS[params["model"]]
+                rep.warn("MODEL_DOWNLOAD", f"Model '{m.name}' ({m.size // 1_000_000} MB, {m.license}) will be downloaded on first use", oid)
         if spec.needs_audio and vid and not vid.has_audio:
             rep.warn("NO_AUDIO", "Source has no audio track; this operation has no effect", oid, p)
         deps = o.get("depends_on", [])

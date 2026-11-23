@@ -180,6 +180,7 @@ function JobBar({ job, api, onUpdate, compact }: { job: JobState; api: Api; onUp
     <div className={`jobbar ${job.state}`}>
       <span>{job.kind === "proxy" ? "Preview" : "Export"}: {job.state}</span>
       <progress value={job.progress} max={1} aria-label="progress" /><span>{Math.round(job.progress * 100)}%</span>{live && <span>ETA {fmtEta(job.eta_seconds)}</span>}
+      {live && job.current.startsWith("AI matting") && <span className="muted">{job.current}</span>}
       {live && job.state === "running" && <Btn label="Pause" onClick={() => act("pause")} />}{job.state === "paused" && <Btn label="Resume" onClick={() => act("resume")} />}
       {live && <Btn label="Cancel" kind="danger" onClick={() => act("cancel")} />}{(job.state === "failed" || job.state === "cancelled") && <Btn label="Retry" onClick={() => act("retry")} />}
       {job.error && <span className="err-text" title={job.error}>{job.error.slice(0, 80)}</span>}

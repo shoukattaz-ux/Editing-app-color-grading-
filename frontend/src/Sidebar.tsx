@@ -124,7 +124,11 @@ function BackgroundsTab({ ctx }: { ctx: Ctx }) {
   return (<>
     <h3>Backgrounds</h3><p className="muted">Replace the removed background with an image, video or colour.</p>
     {!hasKey && <div className="issue warning"><Icon n="warn" size={14} /> No chroma key / background removal operation yet — add one in Effects, or a replacement will be reported as having no alpha source.</div>}
-    <Btn icon="plus" label="Solid colour background" onClick={() => add()} disabled={!ctx.video} />
+    <div className="btn-row">
+      <Btn icon="wand" kind={hasKey ? undefined : "primary"} label="AI remove background" disabled={!ctx.video} title="Person matting without a green screen (Robust Video Matting; model downloads once, ~15 MB)"
+        onClick={() => { const d = ctx.video!.duration; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, ctx.schema.operations["background_removal"], 0, d); id = r.id; return m.setParam(r.bp, r.id, "mode", "ai"); }); setTimeout(() => ctx.setSel(id), 0); }} />
+      <Btn icon="plus" label="Solid colour background" onClick={() => add()} disabled={!ctx.video} />
+    </div>
     {bgs.length === 0 ? <Empty icon="image" title="No background assets">Import images or videos in the Assets tab.</Empty> :
       bgs.map(a => <button key={a.id} className="item" disabled={!ctx.video} onClick={() => add(a.id)}><Icon n={a.type === "image" ? "image" : "film"} size={14} /> {a.id} <em>{a.path}</em></button>)}
   </>);

@@ -122,10 +122,16 @@ _reg(OpSpec("chroma_key", "Chroma Key", "Keying", STAGE_KEY, "effects",
             {**_KEY_PARAMS, "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this key.")},
             provides_alpha=True))
 _reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "effects",
-            "Remove the background. Mode 'chroma' (green/blue screen) is implemented; mode 'ai' needs a segmentation model.",
-            {"mode": Param(E, "chroma", enum=("chroma", "ai"), desc="'ai' (no green screen) is not available in this build."),
-             "quality": Param(E, "high", enum=("draft", "standard", "high"), desc="Higher = more edge processing."),
-             "edge_refinement": Param(B, True, desc="Erode + feather the matte edge."),
+            "Remove the background. 'ai' works on ordinary footage (no green screen) using the Robust Video Matting model; "
+            "'chroma' keys a green/blue screen.",
+            {"mode": Param(E, "chroma", enum=("chroma", "ai"), desc="'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = green/blue screen."),
+             "model": Param(E, "rvm", enum=("rvm",), desc="[ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable."),
+             "detail": Param(E, "fast", enum=("fast", "balanced", "high"), desc="[ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture."),
+             "matte_threshold": Param(N, 0.03, 0.0, 0.5, desc="[ai] Alpha below this becomes fully transparent (removes faint background haze)."),
+             "despeckle": Param(B, True, desc="[ai] Remove background blobs that are not connected to the person."),
+             "edge_color_fix": Param(B, True, desc="[ai] Replace old-background colour in soft hair edges with the model's estimated foreground colour (removes halos)."),
+             "quality": Param(E, "high", enum=("draft", "standard", "high"), desc="[chroma] Higher = more edge processing."),
+             "edge_refinement": Param(B, True, desc="[chroma] Erode + feather the matte edge."),
              **{k: v for k, v in _KEY_PARAMS.items() if k not in ("edge_erode", "edge_feather")},
              "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this removal.")},
             provides_alpha=True))
@@ -166,11 +172,14 @@ _reg(OpSpec("audio_gain", "Audio Gain", "Audio", STAGE_AUDIO, "audio",
 for _t, _title, _cat in [
     ("face_tone_correction", "Face & Skin Tone Correction", "Face"),
     ("face_relighting", "Face Relighting", "Face"),
-    ("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying"),
     ("ai_upscale", "AI Resolution Enhancement", "Enhance"),
 ]:
     _reg(OpSpec(_t, _title, _cat, STAGE_GRADE, "effects", _title, supported=False,
                 unsupported_reason=_MODEL_REASON))
+_reg(OpSpec("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying", STAGE_KEY, "effects",
+            "Hair & Edge Refinement (matting)", supported=False,
+            unsupported_reason="Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. "
+                               "A separate refinement pass for chroma keys is not implemented."))
 
 
 def json_schema() -> dict:

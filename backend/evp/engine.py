@@ -42,6 +42,29 @@ def prepare(blueprint: Any, source: str | None, policy: PathPolicy, base_dir: Pa
     return Prepared(rep, plan, video)
 
 
+def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel=None, frame: int | None = None) -> None:
+    """Generate (or reuse cached) AI mattes for every 'ai' background_removal in the plan.
+    frame=None -> whole operation range (export/proxy). frame=N -> a cheap single-frame matte for live preview,
+    unless the full-range matte is already cached."""
+    keyers = plan.ai_keyers()
+    if not keyers: return
+    from .ml.matting import generate_matte, matte_key
+    out = plan.blueprint.output
+    W, H, fps = out.width, out.height, out.fps
+    total = sum(k.end_frame - k.start_frame for k in keyers)
+    done = 0
+    for k in keyers:
+        n = k.end_frame - k.start_frame
+        full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n)}.mkv"
+        if frame is None or full.is_file():
+            cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id)) if progress else None
+            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel)
+        else:
+            f = min(max(frame, k.start_frame), k.end_frame - 1)
+            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, f, 1, cache_dir, warmup=6)
+        done += n
+
+
 def free_space_ok(path: Path, needed: int) -> bool:
     return shutil.disk_usage(path).free > needed
 
@@ -71,6 +94,7 @@ class Job:
         self._lock = threading.Lock()
         self.started = 0.0
         self.compiled: Compiled | None = None
+        self._p0, self._pw = 0.0, 1.0          # progress window of the encode phase
 
     def to_json(self) -> dict:
         return {"id": self.id, "kind": self.kind, "state": self.state, "progress": round(self.progress, 4),
@@ -114,6 +138,20 @@ class Job:
                 raise RuntimeError("Insufficient disk space for the export (need roughly "
                                    f"{estimate_bytes(self.plan) // 1_000_000} MB free).")
             tmp_out = self.out_path + ".part" + Path(self.out_path).suffix
+            if self.plan.ai_keyers():
+                from .ml.matting import Cancelled
+                self._p0, self._pw = 0.0, 0.75
+                def prog(i, n, op_id):
+                    self.current = f"AI matting '{op_id}': frame {i}/{n}"
+                    self.progress = min(0.75, 0.75 * i / max(1, n))
+                    el = time.time() - self.started
+                    if self.progress > 0.02: self.eta = el * (1 - self.progress) / self.progress
+                try:
+                    ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
+                except Cancelled:
+                    self.state = self.current = "cancelled"; return
+                self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
+                self._p0, self._pw = 0.75, 0.25
             ok = self._attempt(tmp_out, self.opts)
             if not ok and not self._cancel.is_set() and self.opts.encoder != "cpu":
                 self._log("Hardware encoder failed; retrying on CPU (libx264/libx265).")
@@ -152,7 +190,7 @@ class Job:
             if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
                 try:
                     sec = int(line.split("=")[1]) / 1_000_000
-                    self.progress = min(0.999, max(0.0, sec / dur))
+                    self.progress = min(0.999, self._p0 + self._pw * max(0.0, min(1.0, sec / dur)))
                     el = time.time() - self.started
                     if self.progress > 0.03: self.eta = el * (1 - self.progress) / self.progress
                 except ValueError: pass
@@ -172,6 +210,7 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
     """Single processed frame as PNG (same pipeline as export, so preview == render)."""
     t = min(max(0.0, t), max(0.0, plan.video.duration - 1.0 / plan.blueprint.output.fps))
     wd = work_dir or tempfile.mkdtemp(prefix="evp_f_")
+    ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)
     try:
         r = subprocess.run(c.args, capture_output=True, timeout=120)

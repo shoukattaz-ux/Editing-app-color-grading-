@@ -15,6 +15,10 @@ class Plan:
     alpha_source: dict[str, str] = field(default_factory=dict)    # replacement id -> keyer id
     consumed_keyers: set[str] = field(default_factory=set)
     total_frames: int = 0
+    mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
+
+    def ai_keyers(self) -> list[Operation]:
+        return [o for o in self.steps if o.type == "background_removal" and o.params.get("mode") == "ai"]
 
     def describe(self) -> list[dict]:
         return [{"order": i + 1, "id": o.id, "type": o.type, "start": o.start, "end": o.end,
@@ -76,7 +80,7 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
     for o in ops:
         if o.type == "chroma_key" or o.type == "background_removal":
             kc = o.params["key_color"]
-            if o.params["spill_suppression"] and _dominant(kc) is None:
+            if o.params.get("mode", "chroma") == "chroma" and o.params["spill_suppression"] and _dominant(kc) is None:
                 rep.warn("SPILL_UNSUPPORTED_COLOR", f"Spill suppression only supports green/blue-dominant key colours ({kc}); it is skipped", o.id)
 
     if rep.errors:

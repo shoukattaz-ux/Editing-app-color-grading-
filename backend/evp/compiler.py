@@ -92,6 +92,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     asset_input: dict[str, int] = {}
     wd = work_dir or tempfile.mkdtemp(prefix="evp_")
     seek = opts.t_start or 0.0
+    seek_f = round(seek * fps)          # all streams use frame-index timestamps (time base 1/fps) so they align exactly
 
     def enable(op: Operation) -> str | None:
         if op.start_frame <= 0 and op.end_frame >= plan.total_frames:
@@ -126,12 +127,32 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         return ranged_block(cur, op, lambda s: g.add([s], ",".join(filters)))
 
     # ---- base: source -> constant fps, output size
-    cur = g.add(["0:v"], f"fps={fps:g},setpts=PTS-STARTPTS+{seek:.6f}/TB,"
+    cur = g.add(["0:v"], f"fps={fps:g},setpts=N+{seek_f},"
                 f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv420p", "v0")
 
     def make_keyed(src: str, k: Operation) -> str:
         p = k.params
+        if k.type == "background_removal" and p["mode"] == "ai":
+            ref = plan.mattes.get(k.id)
+            if ref is None:
+                raise RuntimeError(f"AI matte for '{k.id}' was not generated")
+            inputs.append(["-i", ref.path])
+            # matte file covers [start_frame, start_frame+frames): pad before with opaque, clone after, align to (seeked) timeline
+            m = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:color=white:stop=-1:stop_mode=clone,"
+                      f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H},format=gray")
+            colour = src
+            m, m_edge = g.split(m) if ref.fgr_path else (m, None)
+            if ref.fgr_path:
+                inputs.append(["-i", ref.fgr_path])
+                fg = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:stop=-1:stop_mode=clone,"
+                           f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}")
+                # take the model's foreground colour only in semi-transparent edges (weight = (1-alpha)*4), keep the
+                # (possibly already processed) frame elsewhere
+                w = g.add([m_edge], "lut=y='clip((255-val)*4\\,0\\,255)',format=gray")
+                a_rgb, b_rgb = g.add([src], "format=gbrp"), g.add([fg], "format=gbrp")
+                colour = g.add([a_rgb, b_rgb, g.add([w], "format=gbrp")], "maskedmerge")
+            return g.add([g.add([colour], "format=rgba"), m], "alphamerge,format=rgba")
         erode, feather = p.get("edge_erode", 0), p.get("edge_feather", 0.0)
         if k.type == "background_removal":
             q = p["quality"]
@@ -151,7 +172,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             keyed = g.add([a, g.add([b], m)], "alphamerge,format=rgba")
         return keyed
 
-    shift = f",setpts=PTS+{seek:.6f}/TB" if seek else ""   # keep generated streams aligned with a seeked source
+    shift = f",setpts=N+{seek_f}" if seek_f else ""   # keep generated streams aligned with a seeked source
 
     def bg_stream(r: Operation | None, k: Operation) -> str:
         if r is None or not r.params.get("asset_id"):
