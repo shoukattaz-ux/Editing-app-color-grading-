@@ -1,0 +1,178 @@
+"""Operation registry: the ONLY operations a blueprint may invoke.
+
+Every operation declares its parameters (type, default, limits). The validator,
+the compiler, the properties panel in the UI and the published JSON schema are
+all generated from this single source of truth.
+"""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Any
+
+# Pipeline stages: lower runs earlier in the filter graph.
+STAGE_RESTORE = 10      # stabilise / denoise
+STAGE_KEY = 20          # produce an alpha layer from the footage
+STAGE_COMPOSITE = 30    # place keyed subject over a new background
+STAGE_GRADE = 40
+STAGE_FINISH = 50       # sharpen
+STAGE_OVERLAY = 60      # text
+STAGE_AUDIO = 70
+
+TRACKS = {"video": "Video", "background": "Background", "effects": "Effects",
+          "overlay": "Overlay", "audio": "Audio"}
+
+
+@dataclass(frozen=True)
+class Param:
+    type: str                      # number | integer | boolean | string | color | enum | asset | points
+    default: Any = None
+    min: float | None = None
+    max: float | None = None
+    enum: tuple = ()
+    required: bool = False
+    desc: str = ""
+    unit: str = ""
+    asset_types: tuple = ()        # for type == "asset"
+
+    def to_json(self) -> dict:
+        d: dict[str, Any] = {"type": self.type, "description": self.desc}
+        if self.default is not None: d["default"] = self.default
+        if self.min is not None: d["minimum"] = self.min
+        if self.max is not None: d["maximum"] = self.max
+        if self.enum: d["enum"] = list(self.enum)
+        if self.required: d["required"] = True
+        if self.unit: d["unit"] = self.unit
+        if self.asset_types: d["asset_types"] = list(self.asset_types)
+        return d
+
+
+@dataclass(frozen=True)
+class OpSpec:
+    type: str
+    title: str
+    category: str
+    stage: int
+    track: str
+    description: str
+    params: dict[str, Param] = field(default_factory=dict)
+    supported: bool = True
+    unsupported_reason: str = ""
+    # does this op yield an alpha layer that background_replacement can consume?
+    provides_alpha: bool = False
+    # does it need a range? (all do; start/end default to whole video)
+    needs_audio: bool = False
+
+    def to_json(self) -> dict:
+        return {"type": self.type, "title": self.title, "category": self.category,
+                "track": self.track, "description": self.description,
+                "supported": self.supported, "unsupported_reason": self.unsupported_reason,
+                "provides_alpha": self.provides_alpha,
+                "parameters": {k: v.to_json() for k, v in self.params.items()}}
+
+
+N, I, B, S, C, E, A, PT = ("number", "integer", "boolean", "string", "color", "enum", "asset", "points")
+
+_KEY_PARAMS = {
+    "key_color": Param(C, "#00ff00", desc="Colour to remove: '#rrggbb', 'green' or 'blue'."),
+    "similarity": Param(N, 0.12, 0.01, 1.0, desc="How close a pixel must be to the key colour to become transparent."),
+    "blend": Param(N, 0.08, 0.0, 1.0, desc="Soft transition between keyed and kept pixels."),
+    "spill_suppression": Param(B, True, desc="Remove green/blue colour cast from the subject's edges."),
+    "spill_strength": Param(N, 0.5, 0.0, 1.0, desc="Despill mix strength."),
+    "edge_erode": Param(I, 0, 0, 10, unit="px", desc="Shrink the matte to remove fringe."),
+    "edge_feather": Param(N, 0.0, 0.0, 20.0, unit="px", desc="Gaussian softening of the matte edge."),
+}
+
+_COLOR_PARAMS = {
+    "preset": Param(E, "none", enum=("none", "cinematic_teal_orange", "warm_film", "cool_blue", "bleach_bypass", "faded_matte", "high_contrast_bw"),
+                    desc="Starting look; individual controls are applied on top."),
+    "exposure": Param(N, 0.0, -3.0, 3.0, unit="EV", desc="Exposure compensation in stops."),
+    "contrast": Param(N, 1.0, 0.0, 3.0, desc="1.0 = unchanged."),
+    "brightness": Param(N, 0.0, -1.0, 1.0),
+    "highlights": Param(N, 0.0, -1.0, 1.0, desc="Lift (+) or pull down (-) highlights."),
+    "shadows": Param(N, 0.0, -1.0, 1.0, desc="Lift (+) or crush (-) shadows."),
+    "whites": Param(N, 0.0, -1.0, 1.0),
+    "blacks": Param(N, 0.0, -1.0, 1.0),
+    "temperature": Param(N, 0.0, -100.0, 100.0, desc="-100 cool (blue) ... +100 warm (orange)."),
+    "tint": Param(N, 0.0, -100.0, 100.0, desc="-100 green ... +100 magenta."),
+    "saturation": Param(N, 1.0, 0.0, 3.0, desc="1.0 = unchanged."),
+    "vibrance": Param(N, 0.0, -2.0, 2.0),
+    "gamma": Param(N, 1.0, 0.1, 5.0),
+    "lift": Param(PT, None, desc="[r,g,b] shadow colour offset, each -1..1 (Lift/Gamma/Gain)."),
+    "gamma_rgb": Param(PT, None, desc="[r,g,b] midtone colour offset, each -1..1."),
+    "gain": Param(PT, None, desc="[r,g,b] highlight colour offset, each -1..1."),
+    "curve_master": Param(PT, None, desc="Master curve control points [[x,y],...] in 0..1."),
+    "curve_red": Param(PT, None, desc="Red curve control points [[x,y],...] in 0..1."),
+    "curve_green": Param(PT, None, desc="Green curve control points [[x,y],...] in 0..1."),
+    "curve_blue": Param(PT, None, desc="Blue curve control points [[x,y],...] in 0..1."),
+    "lut_asset_id": Param(A, None, asset_types=("lut",), desc="A .cube/.3dl LUT asset to apply."),
+    "lut_intensity": Param(N, 1.0, 0.0, 1.0, desc="Blend between graded-without-LUT and LUT."),
+}
+
+_MODEL_REASON = ("Requires a trained model (and ideally a GPU) that is not bundled. "
+                 "No fake fallback is provided: use a supported operation or add a model plugin.")
+
+OPERATIONS: dict[str, OpSpec] = {}
+
+
+def _reg(spec: OpSpec):
+    OPERATIONS[spec.type] = spec
+
+
+_reg(OpSpec("chroma_key", "Chroma Key", "Keying", STAGE_KEY, "effects",
+            "Key out a solid colour (green/blue screen) and composite on a background colour or the next replacement.",
+            {**_KEY_PARAMS, "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this key.")},
+            provides_alpha=True))
+_reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "effects",
+            "Remove the background. Mode 'chroma' (green/blue screen) is implemented; mode 'ai' needs a segmentation model.",
+            {"mode": Param(E, "chroma", enum=("chroma", "ai"), desc="'ai' (no green screen) is not available in this build."),
+             "quality": Param(E, "high", enum=("draft", "standard", "high"), desc="Higher = more edge processing."),
+             "edge_refinement": Param(B, True, desc="Erode + feather the matte edge."),
+             **{k: v for k, v in _KEY_PARAMS.items() if k not in ("edge_erode", "edge_feather")},
+             "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this removal.")},
+            provides_alpha=True))
+_reg(OpSpec("background_replacement", "Background Replacement", "Compositing", STAGE_COMPOSITE, "background",
+            "Place the keyed subject over an image, video or solid colour. Needs an alpha source (chroma_key/background_removal).",
+            {"asset_id": Param(A, None, asset_types=("image", "video"), desc="Background asset. Omit to use `color`."),
+             "color": Param(C, "#000000", desc="Solid background if no asset_id."),
+             "fit": Param(E, "cover", enum=("cover", "contain", "stretch")),
+             "scale": Param(N, 1.0, 0.1, 4.0, desc="Additional zoom on the background."),
+             "offset_x": Param(N, 0.0, -1.0, 1.0, desc="Horizontal shift as fraction of frame width."),
+             "offset_y": Param(N, 0.0, -1.0, 1.0, desc="Vertical shift as fraction of frame height."),
+             "blur": Param(N, 0.0, 0.0, 50.0, unit="px", desc="Gaussian background blur (fake depth of field)."),
+             "brightness": Param(N, 0.0, -1.0, 1.0, desc="Background brightness to match the subject."),
+             "saturation": Param(N, 1.0, 0.0, 3.0, desc="Background saturation to match the subject.")}))
+_reg(OpSpec("color_grading", "Color Grading", "Color", STAGE_GRADE, "effects",
+            "Exposure, contrast, tone, white balance, saturation, LGG, RGB curves, LUT, presets.", _COLOR_PARAMS))
+_reg(OpSpec("video_enhancement", "Video Enhancement", "Enhance", STAGE_RESTORE, "effects",
+            "Noise reduction, sharpening and basic stabilisation (classical algorithms; limited by source quality).",
+            {"denoise": Param(N, 0.0, 0.0, 1.0, desc="hqdn3d strength."),
+             "sharpen": Param(N, 0.0, 0.0, 2.0, desc="Unsharp-mask amount."),
+             "stabilize": Param(B, False, desc="Single-pass deshake. Modest results; fully-featured stabilisation is not claimed."),
+             "stabilize_strength": Param(I, 16, 1, 64, desc="Max shift in px searched by deshake.")}))
+_reg(OpSpec("text_overlay", "Text Overlay", "Graphics", STAGE_OVERLAY, "overlay",
+            "Draw static text.",
+            {"text": Param(S, None, required=True, desc="Text to draw (max 500 chars)."),
+             "font_size": Param(I, 48, 8, 400),
+             "color": Param(C, "#ffffff"),
+             "x": Param(N, 0.5, 0.0, 1.0, desc="Horizontal anchor (fraction, centred)."),
+             "y": Param(N, 0.85, 0.0, 1.0, desc="Vertical anchor (fraction, centred)."),
+             "box": Param(B, True, desc="Draw a translucent box behind the text."),
+             "box_opacity": Param(N, 0.5, 0.0, 1.0)}))
+_reg(OpSpec("audio_gain", "Audio Gain", "Audio", STAGE_AUDIO, "audio",
+            "Change volume over a range.",
+            {"gain_db": Param(N, 0.0, -60.0, 24.0, unit="dB"),
+             "fade_in": Param(N, 0.0, 0.0, 30.0, unit="s"),
+             "fade_out": Param(N, 0.0, 0.0, 30.0, unit="s")}, needs_audio=True))
+
+for _t, _title, _cat in [
+    ("face_tone_correction", "Face & Skin Tone Correction", "Face"),
+    ("face_relighting", "Face Relighting", "Face"),
+    ("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying"),
+    ("ai_upscale", "AI Resolution Enhancement", "Enhance"),
+]:
+    _reg(OpSpec(_t, _title, _cat, STAGE_GRADE, "effects", _title, supported=False,
+                unsupported_reason=_MODEL_REASON))
+
+
+def json_schema() -> dict:
+    """Machine readable operation catalogue (served to the UI and docs)."""
+    return {"blueprint_versions": ["1.0"], "operations": {k: v.to_json() for k, v in OPERATIONS.items()}}

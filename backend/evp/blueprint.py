@@ -1,0 +1,407 @@
+"""Blueprint parsing + strict validation -> normalised, frame-accurate model."""
+from __future__ import annotations
+import json, re
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Any
+
+from .registry import OPERATIONS, Param
+from .security import PathPolicy, PathError
+
+SUPPORTED_VERSIONS = ("1.0",)
+ID_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
+HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
+NAMED_COLORS = {"green": "#00ff00", "blue": "#0000ff", "black": "#000000", "white": "#ffffff",
+                "red": "#ff0000", "gray": "#808080", "grey": "#808080"}
+ASSET_EXT = {"image": {".png", ".jpg", ".jpeg", ".webp", ".bmp"},
+             "video": {".mp4", ".mov", ".mkv", ".webm", ".avi"},
+             "lut": {".cube", ".3dl"}}
+MAX_OPS = 2000
+MAX_BYTES = 5_000_000
+
+
+@dataclass
+class Issue:
+    level: str              # error | warning
+    code: str
+    message: str
+    op_id: str | None = None
+    path: str | None = None
+
+
+@dataclass
+class VideoInfo:
+    duration: float
+    fps: float
+    width: int
+    height: int
+    has_audio: bool = True
+    codec: str = ""
+
+
+@dataclass
+class Asset:
+    id: str
+    type: str
+    path: str                 # as written in the blueprint
+    resolved: str | None = None
+    missing: bool = False
+
+
+@dataclass
+class Operation:
+    id: str
+    type: str
+    start: float              # seconds, snapped to frame grid
+    end: float
+    start_frame: int
+    end_frame: int
+    params: dict[str, Any]
+    depends_on: list[str] = field(default_factory=list)
+    enabled: bool = True
+    label: str = ""
+
+
+@dataclass
+class OutputSettings:
+    width: int
+    height: int
+    fps: float
+    format: str = "mp4"
+    codec: str = "h264"
+    crf: int = 20
+    video_bitrate: str | None = None
+    audio_bitrate: str = "192k"
+    preset: str = "medium"
+
+
+@dataclass
+class Blueprint:
+    version: str
+    name: str
+    source_video: str
+    output: OutputSettings
+    assets: dict[str, Asset]
+    operations: list[Operation]
+
+
+@dataclass
+class Report:
+    issues: list[Issue] = field(default_factory=list)
+    blueprint: Blueprint | None = None
+
+    @property
+    def errors(self): return [i for i in self.issues if i.level == "error"]
+    @property
+    def warnings(self): return [i for i in self.issues if i.level == "warning"]
+    @property
+    def ok(self): return not self.errors and self.blueprint is not None
+
+    def err(self, code, msg, op_id=None, path=None): self.issues.append(Issue("error", code, msg, op_id, path))
+    def warn(self, code, msg, op_id=None, path=None): self.issues.append(Issue("warning", code, msg, op_id, path))
+
+    def to_json(self):
+        return {"ok": self.ok, "errors": [asdict(i) for i in self.errors],
+                "warnings": [asdict(i) for i in self.warnings]}
+
+
+def parse_time(v: Any) -> float:
+    """Seconds as number, '12.5', '1:02.250' or '00:01:02.250'."""
+    if isinstance(v, bool): raise ValueError("boolean is not a timestamp")
+    if isinstance(v, (int, float)):
+        f = float(v)
+    elif isinstance(v, str):
+        s = v.strip()
+        if re.fullmatch(r"\d+(\.\d+)?", s):
+            f = float(s)
+        elif re.fullmatch(r"(\d+:)?\d{1,2}:\d{1,2}(\.\d+)?", s):
+            parts = [float(p) for p in s.split(":")]
+            f = 0.0
+            for p in parts: f = f * 60 + p
+        else:
+            raise ValueError(f"unrecognised timestamp {v!r}")
+    else:
+        raise ValueError(f"unrecognised timestamp {v!r}")
+    if f != f or f in (float("inf"), float("-inf")) or f < 0:
+        raise ValueError("timestamp must be a finite non-negative number")
+    return f
+
+
+def normalize_color(v: Any) -> str:
+    if not isinstance(v, str): raise ValueError("colour must be a string")
+    s = v.strip().lower()
+    s = NAMED_COLORS.get(s, s)
+    if not HEX_RE.match(s): raise ValueError(f"invalid colour {v!r} (use '#rrggbb' or a name: {', '.join(NAMED_COLORS)})")
+    return "#" + s.lstrip("#")
+
+
+def _coerce(name: str, spec: Param, v: Any) -> Any:
+    t = spec.type
+    if t == "number" or t == "integer":
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(f"'{name}' must be a number")
+        if v != v or abs(v) == float("inf"): raise ValueError(f"'{name}' must be finite")
+        if t == "integer":
+            if float(v) != int(v): raise ValueError(f"'{name}' must be an integer")
+            v = int(v)
+        if spec.min is not None and v < spec.min: raise ValueError(f"'{name}'={v} below minimum {spec.min}")
+        if spec.max is not None and v > spec.max: raise ValueError(f"'{name}'={v} above maximum {spec.max}")
+        return v
+    if t == "boolean":
+        if not isinstance(v, bool): raise ValueError(f"'{name}' must be true/false")
+        return v
+    if t == "string":
+        if not isinstance(v, str): raise ValueError(f"'{name}' must be a string")
+        if len(v) > 500: raise ValueError(f"'{name}' longer than 500 characters")
+        return v
+    if t == "color": return normalize_color(v)
+    if t == "enum":
+        if v not in spec.enum: raise ValueError(f"'{name}'={v!r} not one of {list(spec.enum)}")
+        return v
+    if t == "asset":
+        if not isinstance(v, str) or not ID_RE.match(v): raise ValueError(f"'{name}' must be an asset id")
+        return v
+    if t == "points":
+        if not isinstance(v, list) or not (2 <= len(v) <= 16 if name.startswith("curve") else len(v) == 3):
+            raise ValueError(f"'{name}' has wrong length")
+        if name.startswith("curve"):
+            out = []
+            for p in v:
+                if not (isinstance(p, list) and len(p) == 2 and all(isinstance(q, (int, float)) and not isinstance(q, bool) and 0 <= q <= 1 for q in p)):
+                    raise ValueError(f"'{name}' points must be [x,y] in 0..1")
+                out.append([float(p[0]), float(p[1])])
+            xs = [p[0] for p in out]
+            if xs != sorted(xs) or len(set(xs)) != len(xs): raise ValueError(f"'{name}' x values must be strictly increasing")
+            return out
+        if not all(isinstance(q, (int, float)) and not isinstance(q, bool) and -1 <= q <= 1 for q in v):
+            raise ValueError(f"'{name}' values must be within -1..1")
+        return [float(q) for q in v]
+    raise ValueError(f"internal: unknown param type {t}")
+
+
+def apply_params(op_type: str, raw: Any) -> tuple[dict, list[str]]:
+    """Validate raw params against registry; returns (params with defaults, error messages)."""
+    spec = OPERATIONS[op_type]
+    errs: list[str] = []
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    for k in raw:
+        if k not in spec.params: errs.append(f"unknown parameter '{k}' for {op_type}")
+    for name, p in spec.params.items():
+        if name in raw and raw[name] is not None:
+            try: out[name] = _coerce(name, p, raw[name])
+            except ValueError as e: errs.append(str(e))
+        elif p.required: errs.append(f"missing required parameter '{name}'")
+        else: out[name] = p.default
+    return out, errs
+
+
+def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolicy | None = None,
+                    base_dir: Path | None = None) -> Report:
+    rep = Report()
+    if isinstance(text_or_obj, (str, bytes)):
+        if len(text_or_obj) > MAX_BYTES:
+            rep.err("TOO_LARGE", "Blueprint exceeds 5 MB"); return rep
+        try: data = json.loads(text_or_obj)
+        except json.JSONDecodeError as e:
+            rep.err("INVALID_JSON", f"Not valid JSON: {e.msg} (line {e.lineno}, column {e.colno})"); return rep
+    else:
+        data = text_or_obj
+    if not isinstance(data, dict):
+        rep.err("INVALID_STRUCTURE", "Blueprint root must be a JSON object"); return rep
+
+    ver = data.get("blueprint_version")
+    if ver not in SUPPORTED_VERSIONS:
+        rep.err("UNSUPPORTED_VERSION", f"blueprint_version {ver!r} not supported (supported: {', '.join(SUPPORTED_VERSIONS)})"); return rep
+    known = {"blueprint_version", "project", "output", "assets", "operations", "$schema", "video"}
+    for k in data:
+        if k not in known: rep.warn("UNKNOWN_FIELD", f"Unknown top-level field '{k}' ignored", path=k)
+
+    project = data.get("project") if isinstance(data.get("project"), dict) else {}
+    if "project" in data and not isinstance(data["project"], dict):
+        rep.err("INVALID_STRUCTURE", "'project' must be an object", path="project")
+    name = str(project.get("name", "Untitled"))[:200]
+    source_video = str(project.get("source_video", ""))[:500]
+
+    # ---- video & output
+    vid = video
+    if vid is None:
+        rep.warn("NO_VIDEO", "No source video loaded: timestamps cannot be checked against the video duration.")
+    out_in = data.get("output") if isinstance(data.get("output"), dict) else {}
+    if "output" in data and not isinstance(data["output"], dict):
+        rep.err("INVALID_STRUCTURE", "'output' must be an object", path="output")
+    w = h = None
+    res = out_in.get("resolution", "source")
+    if res == "source":
+        if vid: w, h = vid.width, vid.height
+    elif isinstance(res, str) and re.fullmatch(r"\d{2,5}x\d{2,5}", res):
+        w, h = (int(x) for x in res.split("x"))
+        if w % 2 or h % 2 or w > 7680 or h > 4320 or w < 64 or h < 64:
+            rep.err("INVALID_PARAMETER", f"output.resolution {res}: sides must be even, between 64 and 7680x4320", path="output.resolution")
+    else:
+        rep.err("INVALID_PARAMETER", "output.resolution must be 'source' or 'WIDTHxHEIGHT'", path="output.resolution")
+    fps = out_in.get("fps", "source")
+    if fps == "source": fps_v = vid.fps if vid else 30.0
+    elif isinstance(fps, (int, float)) and not isinstance(fps, bool) and 1 <= fps <= 120: fps_v = float(fps)
+    else:
+        rep.err("INVALID_PARAMETER", "output.fps must be 'source' or a number 1..120", path="output.fps"); fps_v = vid.fps if vid else 30.0
+    fmt = out_in.get("format", "mp4")
+    if fmt not in ("mp4", "mov"): rep.err("INVALID_PARAMETER", "output.format must be 'mp4' or 'mov'", path="output.format"); fmt = "mp4"
+    codec = out_in.get("codec", "h264")
+    if codec not in ("h264", "h265"): rep.err("INVALID_PARAMETER", "output.codec must be 'h264' or 'h265'", path="output.codec"); codec = "h264"
+    crf = out_in.get("crf", 20)
+    if not isinstance(crf, int) or isinstance(crf, bool) or not 0 <= crf <= 51:
+        rep.err("INVALID_PARAMETER", "output.crf must be an integer 0..51", path="output.crf"); crf = 20
+    vb = out_in.get("video_bitrate")
+    if vb is not None and not (isinstance(vb, str) and re.fullmatch(r"\d{2,6}[kKmM]", vb)):
+        rep.err("INVALID_PARAMETER", "output.video_bitrate must look like '8M' or '5000k'", path="output.video_bitrate"); vb = None
+    ab = out_in.get("audio_bitrate", "192k")
+    if not (isinstance(ab, str) and re.fullmatch(r"\d{2,4}k", ab)):
+        rep.err("INVALID_PARAMETER", "output.audio_bitrate must look like '192k'", path="output.audio_bitrate"); ab = "192k"
+    preset = out_in.get("preset", "medium")
+    if preset not in ("ultrafast", "veryfast", "fast", "medium", "slow"):
+        rep.err("INVALID_PARAMETER", "output.preset invalid", path="output.preset"); preset = "medium"
+    output = OutputSettings(w or 1920, h or 1080, fps_v, fmt, codec, crf, vb, ab, preset)
+    if vid and w and h and abs(w / h - vid.width / vid.height) > 0.01:
+        rep.warn("ASPECT_CHANGE", f"Output aspect {w}x{h} differs from source {vid.width}x{vid.height}; frames will be letterboxed.")
+    if vid and fps_v > vid.fps * 1.01:
+        rep.warn("FPS_UPCONVERT", f"Output fps {fps_v:g} exceeds source {vid.fps:g}: frames are duplicated, no real smoothness gained.")
+
+    # ---- assets
+    assets: dict[str, Asset] = {}
+    raw_assets = data.get("assets", [])
+    if not isinstance(raw_assets, list):
+        rep.err("INVALID_STRUCTURE", "'assets' must be an array", path="assets"); raw_assets = []
+    for i, a in enumerate(raw_assets):
+        p = f"assets[{i}]"
+        if not isinstance(a, dict): rep.err("INVALID_STRUCTURE", f"{p} must be an object", path=p); continue
+        aid, atype, apath = a.get("id"), a.get("type"), a.get("path")
+        if not isinstance(aid, str) or not ID_RE.match(aid):
+            rep.err("INVALID_ID", f"{p}.id must match [A-Za-z0-9_.-]{{1,64}}", path=p); continue
+        if aid in assets: rep.err("DUPLICATE_ID", f"Duplicate asset id '{aid}'", path=p); continue
+        if atype not in ASSET_EXT:
+            rep.err("INVALID_PARAMETER", f"Asset '{aid}': type must be one of {sorted(ASSET_EXT)}", path=p); continue
+        if not isinstance(apath, str):
+            rep.err("INVALID_PARAMETER", f"Asset '{aid}': path must be a string", path=p); continue
+        if Path(apath).suffix.lower() not in ASSET_EXT[atype]:
+            rep.err("INVALID_ASSET_EXT", f"Asset '{aid}': '{Path(apath).suffix}' is not a valid {atype} file ({', '.join(sorted(ASSET_EXT[atype]))})", path=p); continue
+        asset = Asset(aid, atype, apath)
+        if policy:
+            try:
+                r = policy.resolve(apath, base_dir)
+                asset.resolved = str(r)
+                if not r.is_file():
+                    asset.missing = True
+                    rep.err("MISSING_ASSET", f"Asset '{aid}' not found: {apath}", path=p)
+            except PathError as e:
+                asset.missing = True
+                rep.err("UNSAFE_PATH", f"Asset '{aid}': {e}", path=p)
+        assets[aid] = asset
+
+    # ---- operations
+    raw_ops = data.get("operations")
+    if not isinstance(raw_ops, list):
+        rep.err("INVALID_STRUCTURE", "'operations' must be an array"); return rep
+    if len(raw_ops) > MAX_OPS:
+        rep.err("TOO_MANY_OPERATIONS", f"At most {MAX_OPS} operations"); return rep
+    if not raw_ops: rep.warn("NO_OPERATIONS", "Blueprint contains no operations")
+    ops: list[Operation] = []
+    seen: set[str] = set()
+    fps_for_grid = output.fps if output.fps else 30.0
+    for i, o in enumerate(raw_ops):
+        p = f"operations[{i}]"
+        if not isinstance(o, dict): rep.err("INVALID_STRUCTURE", f"{p} must be an object", path=p); continue
+        oid = o.get("id")
+        if not isinstance(oid, str) or not ID_RE.match(oid):
+            rep.err("INVALID_ID", f"{p}.id missing or invalid (use [A-Za-z0-9_.-], max 64)", path=p); continue
+        if oid in seen: rep.err("DUPLICATE_ID", f"Duplicate operation id '{oid}'", oid, p); continue
+        seen.add(oid)
+        otype = o.get("type")
+        spec = OPERATIONS.get(otype) if isinstance(otype, str) else None
+        if spec is None:
+            rep.err("UNKNOWN_OPERATION", f"Operation type {otype!r} does not exist. Supported: {', '.join(k for k, v in OPERATIONS.items() if v.supported)}", oid, p); continue
+        if not spec.supported:
+            rep.err("UNSUPPORTED_OPERATION", f"'{otype}' is recognised but not available: {spec.unsupported_reason}", oid, p); continue
+        for k in o:
+            if k not in {"id", "type", "start", "end", "parameters", "depends_on", "enabled", "label", "note"}:
+                rep.warn("UNKNOWN_FIELD", f"Unknown field '{k}' on operation '{oid}' ignored", oid, f"{p}.{k}")
+        # timestamps
+        try: s = parse_time(o.get("start", 0))
+        except ValueError as e: rep.err("INVALID_TIMESTAMP", f"start: {e}", oid, f"{p}.start"); continue
+        dur = vid.duration if vid else None
+        if o.get("end") is None:
+            if dur is None: rep.err("INVALID_TIMESTAMP", "end omitted but video duration unknown", oid, f"{p}.end"); continue
+            e_ = dur
+        else:
+            try: e_ = parse_time(o["end"])
+            except ValueError as e: rep.err("INVALID_TIMESTAMP", f"end: {e}", oid, f"{p}.end"); continue
+        if e_ <= s: rep.err("INVALID_TIMESTAMP", f"end ({e_:g}s) must be greater than start ({s:g}s)", oid, p); continue
+        if dur is not None:
+            tol = 0.5 / fps_for_grid
+            if s >= dur - tol: rep.err("TIME_OUT_OF_RANGE", f"start {s:g}s is at/after video end ({dur:.3f}s)", oid, f"{p}.start"); continue
+            if e_ > dur + 1.0 / fps_for_grid:
+                rep.err("TIME_OUT_OF_RANGE", f"end {e_:g}s exceeds video duration {dur:.3f}s", oid, f"{p}.end"); continue
+            e_ = min(e_, dur)
+        sf, ef = round(s * fps_for_grid), round(e_ * fps_for_grid)
+        if ef <= sf: rep.err("INVALID_TIMESTAMP", "operation is shorter than one frame", oid, p); continue
+        if abs(sf / fps_for_grid - s) > 1e-3 or abs(ef / fps_for_grid - e_) > 1e-3:
+            rep.warn("TIME_SNAPPED", f"Timestamps snapped to frame grid ({sf / fps_for_grid:.4f}s-{ef / fps_for_grid:.4f}s)", oid, p)
+        # params
+        if "parameters" in o and not isinstance(o["parameters"], dict):
+            rep.err("INVALID_STRUCTURE", "'parameters' must be an object", oid, f"{p}.parameters"); continue
+        params, perrs = apply_params(otype, o.get("parameters"))
+        for m in perrs: rep.err("INVALID_PARAMETER", m, oid, f"{p}.parameters")
+        if perrs: continue
+        # asset refs
+        for pn, ps in spec.params.items():
+            if ps.type == "asset" and params.get(pn):
+                a = assets.get(params[pn])
+                if a is None:
+                    rep.err("UNKNOWN_ASSET", f"Parameter '{pn}' references unknown asset '{params[pn]}'", oid, f"{p}.parameters.{pn}"); continue
+                if a.type not in ps.asset_types:
+                    rep.err("ASSET_TYPE_MISMATCH", f"Asset '{a.id}' is a {a.type}; '{pn}' needs {'/'.join(ps.asset_types)}", oid, f"{p}.parameters.{pn}")
+        if otype == "background_removal" and params["mode"] == "ai":
+            rep.err("UNSUPPORTED_OPERATION", "background_removal mode 'ai' (segmentation without green screen) needs a model that is not bundled. Use mode 'chroma' or footage shot on a solid-colour screen.", oid, f"{p}.parameters.mode"); continue
+        if spec.needs_audio and vid and not vid.has_audio:
+            rep.warn("NO_AUDIO", "Source has no audio track; this operation has no effect", oid, p)
+        deps = o.get("depends_on", [])
+        if not isinstance(deps, list) or not all(isinstance(d, str) for d in deps):
+            rep.err("INVALID_STRUCTURE", "'depends_on' must be an array of operation ids", oid, f"{p}.depends_on"); continue
+        en = o.get("enabled", True)
+        if not isinstance(en, bool): rep.err("INVALID_PARAMETER", "'enabled' must be boolean", oid, p); continue
+        ops.append(Operation(oid, otype, sf / fps_for_grid, ef / fps_for_grid, sf, ef, params, list(deps), en,
+                             str(o.get("label", ""))[:120]))
+
+    bp = Blueprint(ver, name, source_video, output, assets, ops)
+    _check_graph(bp, rep, set(seen))
+    rep.blueprint = bp
+    return rep
+
+
+def _check_graph(bp: Blueprint, rep: Report, declared_ids: set[str]) -> None:
+    byid = {o.id: o for o in bp.operations}
+    for o in bp.operations:
+        for d in o.depends_on:
+            if d == o.id: rep.err("DEPENDENCY_CYCLE", "Operation depends on itself", o.id)
+            elif d not in byid:
+                rep.err("UNKNOWN_DEPENDENCY",
+                        f"depends_on '{d}' " + ("failed validation above" if d in declared_ids else "does not exist"), o.id)
+    # cycles (DFS)
+    state: dict[str, int] = {}
+    def visit(n: str, stack: list[str]) -> bool:
+        if state.get(n) == 2: return False
+        if state.get(n) == 1:
+            rep.err("DEPENDENCY_CYCLE", "Dependency cycle: " + " -> ".join(stack[stack.index(n):] + [n]), n); return True
+        state[n] = 1
+        for d in byid[n].depends_on:
+            if d in byid and visit(d, stack + [n]): state[n] = 2; return True
+        state[n] = 2; return False
+    for n in byid: visit(n, [])
+    # dependency must cover dependant's range when it supplies pixels/alpha
+    for o in bp.operations:
+        for d in o.depends_on:
+            dep = byid.get(d)
+            if dep and OPERATIONS[dep.type].provides_alpha and (o.start_frame < dep.start_frame or o.end_frame > dep.end_frame):
+                rep.err("DEPENDENCY_RANGE", f"'{o.id}' ({o.start:g}-{o.end:g}s) is not fully covered by its dependency '{d}' ({dep.start:g}-{dep.end:g}s)", o.id)
+            if dep and not dep.enabled and o.enabled:
+                rep.warn("DEPENDENCY_DISABLED", f"'{o.id}' depends on disabled operation '{d}'", o.id)
