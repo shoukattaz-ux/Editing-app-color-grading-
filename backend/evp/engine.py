@@ -53,6 +53,58 @@ def prepare(blueprint: Any, source: str | None, policy: PathPolicy, base_dir: Pa
     return Prepared(rep, plan, video)
 
 
+def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
+    """studio_look with auto_match: render the composite without any look, find the person by rendering it over magenta, measure, keep the settings."""
+    looks = [o for o in plan.steps if o.type == "studio_look" and o.params.get("auto_match", 0) > 0]
+    if not looks: return
+    import hashlib, json as _json, cv2
+    import numpy as np
+    from .studio import analyze
+    plan.look_auto = {}
+    for lk in looks:
+        repl = next((o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) is lk), None)
+        mtimes = [Path(a.resolved).stat().st_mtime_ns for a in plan.blueprint.assets.values() if a.resolved and Path(a.resolved).is_file()]
+        ops_sig = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o.type != "studio_look"]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, mtimes, lk.id, ops_sig, plan.edl, "auto1"], default=str).encode()).hexdigest()[:24]
+        f = Path(cache_dir) / "look" / f"auto_{key}.json"
+        if f.is_file():
+            plan.look_auto[lk.id] = _json.loads(f.read_text()); continue
+        t = ((lk.start_frame + lk.end_frame) // 2) / plan.blueprint.output.fps
+        dec = lambda png: cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1]
+        plan.measuring = True
+        try:
+            comp = dec(render_frame(plan, source, t, None, cache_dir, _measuring=True))
+            mask = np.zeros(comp.shape[:2], bool)
+            if repl is not None:                           # the person = everything that is not the magenta stand-in background
+                saved = dict(repl.params)
+                repl.params.update(asset_id=None, color="#ff00ff", shadow=0.0)
+                try: pink = dec(render_frame(plan, source, t, None, cache_dir, _measuring=True))
+                finally: repl.params.clear(); repl.params.update(saved)
+                mask = np.abs(pink.astype(int) - [255, 0, 255]).sum(2) > 120
+        finally:
+            plan.measuring = False
+        res = analyze(np.ascontiguousarray(comp), mask)
+        plan.look_auto[lk.id] = res
+        if mask.any():
+            # skin guard: render with the derived look; if skin tones moved more than a colourist would allow, ease off the colour-casting controls
+            from .studio import skin_shift
+            k = 1.0
+            for _ in range(3):
+                after = dec(render_frame(plan, source, t, None, cache_dir, _measuring=True))
+                sh = skin_shift(comp, after, mask)
+                if sh is None: break
+                deg, ratio = sh
+                res["measured"]["skin_hue_shift_deg"] = round(deg, 1); res["measured"]["skin_chroma_ratio"] = round(ratio, 2)
+                if deg <= 5.0 and 0.85 <= ratio <= 1.2: break
+                k *= max(0.3, min(0.8, 5.0 / max(deg, 5.0)))
+                for key in ("ambient_match", "tint_amount"): res[key] = round(res[key] * 0.6, 3)
+                res["saturation"] = round(1 + (res["saturation"] - 1) * 0.6, 3)
+                res["measured"]["skin_guard_steps"] = res["measured"].get("skin_guard_steps", 0) + 1
+                plan.look_auto[lk.id] = res
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res))
+        plan.look_auto[lk.id] = res
+
+
 def ensure_references(plan: Plan, source: str, cache_dir: str) -> None:
     """studio_look with a reference picture: render the frame without the correction, measure it against the reference, keep the curves."""
     looks = [o for o in plan.steps if o.type == "studio_look" and o.params.get("reference_asset_id") and o.params["reference_strength"] > 0]
@@ -224,6 +276,7 @@ class Job:
                     if self.progress > 0.02: self.eta = el * (1 - self.progress) / self.progress
                 try:
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
+                    ensure_auto(self.plan, self.source, self.work_dir)
                     ensure_references(self.plan, self.source, self.work_dir)
                 except (Cancelled, FaceCancelled, UpCancelled):
                     self.state = self.current = "cancelled"; return
@@ -299,7 +352,9 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
     t = min(max(0.0, t), max(0.0, plan.timeline_duration - 1.0 / plan.blueprint.output.fps))
     wd = work_dir or tempfile.mkdtemp(prefix="evp_f_")
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
-    if not _measuring: ensure_references(plan, source, wd)
+    if not _measuring:
+        ensure_auto(plan, source, wd)
+        ensure_references(plan, source, wd)
     c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)
     try:
         r = subprocess.run(c.args, capture_output=True, timeout=120)

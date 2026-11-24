@@ -488,3 +488,50 @@ def test_subject_edge_visible_warning(prep):
     assert "SUBJECT_EDGE_VISIBLE" in codes(subject_scale=1.05, subject_x=0.2)
     assert "SUBJECT_EDGE_VISIBLE" not in codes(subject_scale=1.3, subject_x=0.1)
     assert "SUBJECT_EDGE_VISIBLE" not in codes()
+
+
+# ---------------------------------------------------------------- auto match
+def _scene(light_left=True, dark=False, warm=True):
+    H, W = 120, 200
+    x = np.linspace(0, 1, W)[None, :, None] * np.ones((H, 1, 1))
+    base = (0.6 - 0.4 * x if light_left else 0.2 + 0.4 * x) * (0.4 if dark else 1.0)
+    rgb = np.clip(np.concatenate([base * (1.2 if warm else .8), base, base * (0.7 if warm else 1.2)], 2) * 255, 0, 255).astype(np.uint8)
+    mask = np.zeros((H, W), bool); mask[30:120, 70:130] = True
+    return rgb, mask
+
+
+def test_auto_analysis_reads_the_scene_like_a_colourist():
+    from evp.studio import analyze
+    a, m = _scene(light_left=True, warm=True); a[m] = (90, 70, 60)
+    r = analyze(a, m)
+    assert r["shadow_dx"] > 0                                   # light on the left -> shadow falls right
+    assert int(r["highlight_tint"][1:3], 16) > int(r["highlight_tint"][5:7], 16)      # warm light colour (R > B)
+    b, m2 = _scene(light_left=False, dark=True, warm=False); b[m2] = (200, 160, 150)
+    r2 = analyze(b, m2)
+    assert r2["shadow_dx"] < 0 and r2["vignette"] > r["vignette"]                    # darker room -> stronger vignette
+    assert r2["subject_exposure"] < 0 and r["subject_exposure"] >= 0                 # a subject far brighter than the room is pulled down
+    for res in (r, r2):
+        assert 0.1 <= res["contrast"] <= 0.35 and res["ambient_match"] <= 0.18 and res["tint_amount"] <= 0.15   # conservative by design
+
+
+def test_skin_guard_measures_hue_shift():
+    from evp.studio import skin_shift
+    skin = np.full((80, 80, 3), (190, 130, 110), np.uint8); mask = np.ones((80, 80), bool)
+    assert skin_shift(skin, skin, mask)[0] < 0.5
+    warm = np.full_like(skin, (215, 125, 80))
+    deg, ratio = skin_shift(skin, warm, mask)
+    assert deg > 3 and ratio > 1
+    assert skin_shift(np.zeros_like(skin), np.zeros_like(skin), mask) is None          # no skin -> nothing to guard
+
+
+def test_studio_look_auto_match_fills_in_settings_and_explicit_values_win(prep, media):
+    p = prep(bp(ops=[KEY, REPL, _look(auto_match=1.0)], assets=ASSETS))
+    assert p.plan, p.report.errors
+    render_frame(p.plan, media["video"], 1.0, None, str(media["dir"]))
+    auto = p.plan.look_auto["l"]
+    assert {"contrast", "vignette", "highlight_tint", "measured"} <= set(auto) and "light_side_x" in auto["measured"]
+    assert any(s["auto"] for s in p.plan.describe() if s["id"] == "l")                  # reported to the user
+    from evp.studio import resolve
+    assert resolve(p.plan.steps[-1].params, auto)["vignette"] == auto["vignette"]
+    assert resolve({**p.plan.steps[-1].params, "vignette": 0.0}, auto)["vignette"] == 0.0
+    assert resolve({"preset": "none", "auto_match": 0.0}, auto)["vignette"] == 0.0     # off = off

@@ -14,6 +14,8 @@ class Plan:
     steps: list[Operation] = field(default_factory=list)          # execution order (enabled ops only)
     alpha_source: dict[str, str] = field(default_factory=dict)    # replacement id -> keyer id
     consumed_keyers: set[str] = field(default_factory=set)
+    look_auto: dict = field(default_factory=dict)                 # studio_look id -> measured settings (filled by the engine)
+    measuring: bool = False                                       # engine is measuring the composite: studio looks are skipped
     look_curves: dict = field(default_factory=dict)               # studio_look id -> [r, g, b] curve points matched to its reference picture (filled by the engine)
     look_for: dict[str, Operation] = field(default_factory=dict)  # replacement id -> the studio_look that integrates the subject into it
     total_frames: int = 0
@@ -38,7 +40,7 @@ class Plan:
     def describe(self) -> list[dict]:
         return [{"order": i + 1, "id": o.id, "type": o.type, "start": o.start, "end": o.end,
                  "stage": OPERATIONS[o.type].stage,
-                 "alpha_source": self.alpha_source.get(o.id)} for i, o in enumerate(self.steps)]
+                 "alpha_source": self.alpha_source.get(o.id), "auto": self.look_auto.get(o.id)} for i, o in enumerate(self.steps)]
 
 
 def _overlap(a: Operation, b: Operation) -> bool:

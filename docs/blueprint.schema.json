@@ -884,6 +884,19 @@
                       "minimum": 0.5,
                       "maximum": 1.5
                     },
+                    "auto_match": {
+                      "description": "Measure the background (and the subject) and set the controls you did not set yourself, the way a colourist reads a scene: light and shadow colours, which side the light comes from (drives the cast shadow), contrast, saturation, glow, vignette, depth, subject exposure, edge light. 0 = off, 1 = fully automatic. Your own values always win. The measured values are reported with the plan.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "subject_exposure": {
+                      "description": "[needs background_replacement] Brighten or darken only the subject to sit naturally in the scene.",
+                      "type": "number",
+                      "minimum": -1.5,
+                      "maximum": 1.5
+                    },
                     "reference_asset_id": {
                       "description": "A reference picture whose overall colour and tone you want. The app measures how the finished frame differs from it (per colour channel, mid-point frame of the look's range) and adds the correction as RGB curves. It matches colour and tone only - not content, framing or lighting direction.",
                       "type": "string"

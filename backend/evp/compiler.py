@@ -334,13 +334,15 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         """make the keyed subject belong to the new scene: depth of field, the background's colour on the subject, its light wrapping the edges"""
         if L["depth"] > 0:
             bgs = g.add([bgs], f"gblur=sigma={L['depth'] * 8 * scale_px:.3f}")
-        amb, wrap = L["ambient_match"], L["light_wrap"]
-        if amb <= 0 and wrap <= 0:
+        amb, wrap, ev = L["ambient_match"], L["light_wrap"], L.get("subject_exposure", 0.0)
+        if amb <= 0 and wrap <= 0 and ev == 0:
             return bgs, fg
         b_main, b_amb, b_wrap = splitn(bgs, 3)
         f_col, f_a = splitn(fg, 2)
         a_keep, a_edge, a_blur = splitn(g.add([f_a], "alphaextract"), 3)
         col = g.add([f_col], "format=gbrp")
+        if ev:                                                    # subject only: sit naturally in the scene's exposure
+            col = g.add([col], "lutrgb=" + ":".join(f"{c}='clip(val*{2 ** ev:.4f}\\,0\\,maxval)'" for c in "rgb"))
         for unused in ([b_amb] if amb <= 0 else []) + ([b_wrap, a_edge, a_blur] if wrap <= 0 else []):
             g.parts.append(f"[{unused}]nullsink")
         if amb > 0:
@@ -375,7 +377,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             rgb = g.add([g.add([base], "format=gbrp"), g.add([hi], "format=gbrp")], f"blend=all_mode=screen:all_opacity={L['glow']:.3f}")
         tail = [cs.rgb_to_yuv()]
         if L["vignette"] > 0:
-            tail.append(f"vignette=angle={1.1 - 0.6 * L['vignette']:.3f}:mode=forward:eval=init")
+            tail.append(f"vignette=angle={0.1 + 0.9 * L['vignette']:.3f}:mode=forward:eval=init")
         if L["clarity"] > 0:
             tail.append(f"unsharp=lx=13:ly=13:la={0.7 * L['clarity']:.3f}:cx=13:cy=13:ca=0")
         if L["saturation"] != 1:
@@ -407,18 +409,19 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
 
     def composite(cur: str, k: Operation, r: Operation | None) -> str:
         rng = r or k
-        L = plan.look_for.get(r.id) if r else None
-        look = resolve_look(L.params) if L else None
+        L = plan.look_for.get(r.id) if r and not plan.measuring else None
+        look = resolve_look(L.params, plan.look_auto.get(L.id)) if L else None
         rp = r.params if r else {}
         moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
-        shadow = bool(r) and rp["shadow"] > 0
+        sp = rp if (r and rp["shadow"] > 0) else (look if look and look.get("shadow", 0) > 0 else None)      # a look's measured shadow applies only if the background has none of its own
+        shadow = bool(r) and sp is not None
         def build(src: str) -> str:
             bgs, fg = bg_stream(r, k), make_keyed(src, k)
             if moved: fg = place_subject(fg, rp)
             sh = None
             if shadow:
                 fg, f_sh = splitn(fg, 2)
-                sh = cast_shadow(f_sh, rp)
+                sh = cast_shadow(f_sh, sp)
             if look: bgs, fg = integrate(bgs, fg, look)
             if sh: bgs = g.add([bgs, sh], "overlay=shortest=1:format=auto,format=rgba")
             return g.add([bgs, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
@@ -488,7 +491,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                     return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={k:.3f}")  # first input is the "top" layer
                 cur = ranged_block(cur, op, build)
         elif t == "studio_look":
-            L = resolve_look(p)
+            if plan.measuring: continue
+            L = resolve_look(p, plan.look_auto.get(op.id))
             cur = ranged_block(cur, op, lambda s_: look_block(s_, L, plan.look_curves.get(op.id)))
         elif t in ("face_tone_correction", "face_relighting"):
             ref = plan.face_controls.get(op.id)

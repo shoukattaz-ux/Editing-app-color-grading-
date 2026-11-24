@@ -131,6 +131,8 @@ Timeline track: **effects**
 | `clarity` | number |  | 0.0 … 1.0 | Local contrast (mid-frequency sharpening). |
 | `grain` | number |  | 0.0 … 1.0 | Fine film grain; also hides banding and the 'digital' look of a composite. |
 | `saturation` | number |  | 0.5 … 1.5 | Overall saturation. |
+| `auto_match` | number | `0.0` | 0.0 … 1.0 | Measure the background (and the subject) and set the controls you did not set yourself, the way a colourist reads a scene: light and shadow colours, which side the light comes from (drives the cast shadow), contrast, saturation, glow, vignette, depth, subject exposure, edge light. 0 = off, 1 = fully automatic. Your own values always win. The measured values are reported with the plan. |
+| `subject_exposure` | number |  | -1.5 … 1.5 EV | [needs background_replacement] Brighten or darken only the subject to sit naturally in the scene. |
 | `reference_asset_id` | asset |  |  | A reference picture whose overall colour and tone you want. The app measures how the finished frame differs from it (per colour channel, mid-point frame of the look's range) and adds the correction as RGB curves. It matches colour and tone only - not content, framing or lighting direction. |
 | `reference_strength` | number | `0.8` | 0.0 … 1.0 | How much of the measured correction to apply. |
 
