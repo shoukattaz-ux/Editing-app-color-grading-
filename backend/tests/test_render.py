@@ -626,3 +626,26 @@ def test_screen_key_validation_and_unsupported_op_message(prep):
     assert any(e.code == "INVALID_PARAMETER" for e in r.report.errors)
     h = prep(bp(ops=[{"id": "h", "type": "hair_edge_refinement", "start": 0}]))
     assert any("screen" in e.message for e in h.report.errors)         # tells you where hair refinement lives now
+
+
+def test_preview_after_auto_measuring_uses_the_matte_of_its_own_frame(tmp_path):
+    """Regression: auto_match / reference measuring renders another frame (the look's middle) and used to leave THAT frame's matte
+    in the plan, so the first preview of any other frame came out wrong (dark, wrong matte). First render must equal a later one."""
+    from evp.security import PathPolicy
+    from evp.engine import prepare
+    I, a, F = _hair_scene(W=160, H=120)
+    cv2.imwrite(str(tmp_path / "in.png"), I[:, :, ::-1])
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-loop", "1", "-framerate", "25", "-t", "2", "-i", str(tmp_path / "in.png"), "-vf", "format=yuv420p",
+                    "-c:v", "libx264", "-qp", "0", str(tmp_path / "in.mp4")], check=True)
+    bgim = np.full((120, 160, 3), (150, 90, 70), np.uint8); cv2.imwrite(str(tmp_path / "bg.png"), bgim)
+    ops = [{"id": "k", "type": "background_removal", "start": 0, "parameters": {"mode": "screen"}},
+           {"id": "r", "type": "background_replacement", "start": 0, "parameters": {"asset_id": "bg", "fit": "stretch"}, "depends_on": ["k"]},
+           {"id": "l", "type": "studio_look", "start": 0, "parameters": {"preset": "none", "auto_match": 1.0}}]
+    p = prepare(bp(ops=ops, assets=[{"id": "bg", "type": "image", "path": "bg.png"}], output={"resolution": "source", "fps": "source"}),
+                str(tmp_path / "in.mp4"), PathPolicy([tmp_path]), tmp_path)
+    assert p.plan, [e.message for e in p.report.errors]
+    dec = lambda png: cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR).astype(float)
+    first = dec(render_frame(p.plan, str(tmp_path / "in.mp4"), 0.12, None, str(tmp_path)))          # computes the auto settings (measures at ~1 s)
+    again = dec(render_frame(p.plan, str(tmp_path / "in.mp4"), 0.12, None, str(tmp_path)))
+    assert np.abs(first - again).mean() < 1.0, np.abs(first - again).mean()
+    assert 40 < first.mean() < 200

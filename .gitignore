@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 *.evproj/
 .venv/
+
+# build outputs
+/build/
+/release/

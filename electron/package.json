@@ -1,22 +1,87 @@
 {
   "name": "evp-desktop",
   "version": "0.1.0",
-  "description": "AI Blueprint-Based Automatic Video Editor",
+  "description": "EVP Editor - AI blueprint-based automatic video editor",
   "main": "main.js",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "smoke": "electron . --no-sandbox",
+    "dist": "electron-builder --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
   },
-  "devDependencies": { "electron": "^31.0.0", "electron-builder": "^24.13.3" },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
   "build": {
     "appId": "app.evp.editor",
     "productName": "EVP Editor",
-    "files": ["main.js", "preload.js"],
-    "extraResources": [
-      { "from": "../frontend/dist", "to": "frontend" },
-      { "from": "../backend", "to": "backend", "filter": ["evp/**/*.py", "requirements.txt"] }
+    "copyright": "Copyright (c) EVP",
+    "directories": {
+      "output": "../release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
     ],
-    "linux": { "target": ["AppImage"] }, "mac": { "target": ["dmg"] }, "win": { "target": ["nsis"] }
-  }
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend"
+      },
+      {
+        "from": "../build/engine",
+        "to": "engine"
+      },
+      {
+        "from": "../build/ffmpeg",
+        "to": "ffmpeg"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "EVP Editor",
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo",
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.video",
+      "icon": "build/icon.png"
+    }
+  },
+  "author": "EVP"
 }

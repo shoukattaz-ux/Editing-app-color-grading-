@@ -30,5 +30,8 @@ python -m evp.cli run --video my.mp4 --blueprint my.blueprint.json --out out.mp4
 ```
 Optional: NVIDIA/Intel/Apple hardware encoders are used automatically when a real test encode succeeds. Installers: `cd electron && npm run dist` (untested).
 
+## Desktop app (Windows installer)
+`scripts\build-windows.ps1` (or the **Desktop app** GitHub workflow) builds a one-click installer with the engine and FFmpeg bundled - see [docs/DESKTOP.md](docs/DESKTOP.md). Optional problem reports go to *your own* Cloudflare R2 bucket (Settings > Problem reports); keys are never stored in the source or the installer.
+
 ## Docs
 [User guide](docs/USER_GUIDE.md) · [Blueprint format](docs/BLUEPRINT.md) · [Operation reference](docs/OPERATIONS.md) · [Architecture & plan](docs/ARCHITECTURE.md) · [Developer guide](docs/DEVELOPER.md)

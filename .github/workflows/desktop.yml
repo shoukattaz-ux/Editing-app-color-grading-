@@ -1,0 +1,47 @@
+name: Desktop app
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Python dependencies
+        run: pip install -r backend/requirements.txt pyinstaller
+      - name: Backend tests
+        run: python -m pytest -q backend/tests -x
+      - name: Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npx vitest run
+          npm run build
+      - name: FFmpeg
+        run: python scripts/fetch_ffmpeg.py
+      - name: Freeze the engine
+        run: python scripts/build_engine.py
+      - name: Installer
+        working-directory: electron
+        run: |
+          npm ci
+          npx electron-builder --win --publish never
+      - name: Smoke test the unpacked app
+        working-directory: release/win-unpacked
+        shell: pwsh
+        run: |
+          $env:EVP_SMOKE = "1"
+          $out = & ".\EVP Editor.exe" 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch "SMOKE") { throw "the packaged app did not start" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EVP-Editor-Windows
+          path: |
+            release/*.exe

@@ -276,9 +276,9 @@ class Job:
                     el = time.time() - self.started
                     if self.progress > 0.02: self.eta = el * (1 - self.progress) / self.progress
                 try:
-                    ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
-                    ensure_auto(self.plan, self.source, self.work_dir)
+                    ensure_auto(self.plan, self.source, self.work_dir)          # measuring renders first, then the real (full-range) analyses
                     ensure_references(self.plan, self.source, self.work_dir)
+                    ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
                 except (Cancelled, FaceCancelled, UpCancelled):
                     self.state = self.current = "cancelled"; return
                 if self.plan.mattes: self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
@@ -355,10 +355,11 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
     """Single processed frame as PNG (same pipeline as export, so preview == render)."""
     t = min(max(0.0, t), max(0.0, plan.timeline_duration - 1.0 / plan.blueprint.output.fps))
     wd = work_dir or tempfile.mkdtemp(prefix="evp_f_")
-    ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     if not _measuring:
+        # measuring renders look at another frame and leave THEIR mattes/analyses in the plan, so they run first and this frame's go last
         ensure_auto(plan, source, wd)
         ensure_references(plan, source, wd)
+    ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)
     try:
         r = subprocess.run(c.args, capture_output=True, timeout=120)

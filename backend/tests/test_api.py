@@ -214,7 +214,7 @@ def test_report_failure_is_queued_and_retried_and_auto_reports_are_rate_limited(
 
 def test_report_endpoint_must_be_an_r2_address():
     from evp.reporter import validate_endpoint
-    assert validate_endpoint("https://94cd5cc82406d3f30d1eb8b8c245d661.r2.cloudflarestorage.com/") .endswith(".r2.cloudflarestorage.com")
+    assert validate_endpoint("https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/") .endswith(".r2.cloudflarestorage.com")
     for bad in ("http://abc.r2.cloudflarestorage.com", "https://evil.example.com", "https://r2.cloudflarestorage.com.evil.com", "ftp://x"):
         with pytest.raises(ValueError): validate_endpoint(bad)
 

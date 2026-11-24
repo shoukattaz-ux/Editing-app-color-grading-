@@ -324,8 +324,8 @@ function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: Projec
         <p className="muted">Import a video, paste the editing blueprint produced by your AI, and the engine executes it. Everything stays editable.</p>
         <h3>New project</h3>
         <label className="field"><span className="fl">name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
-        <label className="field"><span className="fl">save in folder</span><div className="slider-row"><input value={parent} onChange={e => setParent(e.target.value)} placeholder="/path/to/Projects" /><Btn label="Browse" onClick={async () => { const p = await askPath("Folder for the project", "any"); if (p) setParent(p); }} /></div></label>
-        <label className="field"><span className="fl">original video (optional now)</span><div className="slider-row"><input value={source} onChange={e => setSource(e.target.value)} placeholder="/path/to/video.mp4" /><Btn label="Browse" onClick={async () => { const p = await askPath("Original video", "video"); if (p) setSource(p); }} /></div></label>
+        <label className="field"><span className="fl">save in folder</span><div className="slider-row"><input value={parent} onChange={e => setParent(e.target.value)} placeholder="Choose a folder…" /><Btn label="Browse" onClick={async () => { const p = await askPath("Folder for the project", "any"); if (p) setParent(p); }} /></div></label>
+        <label className="field"><span className="fl">original video (optional now)</span><div className="slider-row"><input value={source} onChange={e => setSource(e.target.value)} placeholder="Choose a video file…" /><Btn label="Browse" onClick={async () => { const p = await askPath("Original video", "video"); if (p) setSource(p); }} /></div></label>
         <Btn kind="primary" icon="plus" label="Create project" disabled={!name.trim() || !parent.trim()} onClick={() => go(() => api.newProject(parent.trim(), name.trim(), source.trim() || undefined))} />
       </div>
       <div className="panel">
