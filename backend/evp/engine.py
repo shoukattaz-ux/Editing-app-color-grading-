@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .blueprint import parse_blueprint, Report, VideoInfo
+from .repair import parse_lenient
 from .compiler import compile_plan, RenderOptions, Compiled
 from .media import probe, MediaError
 from .planner import build_plan, Plan
@@ -19,11 +20,13 @@ class Prepared:
     report: Report
     plan: Plan | None
     video: VideoInfo | None
+    repaired: dict | None = None        # the blueprint after lenient repair (None when nothing was repaired / strict)
 
     def to_json(self) -> dict:
         d = self.report.to_json()
         d["plan"] = self.plan.describe() if self.plan else []
         d["video"] = self.video.__dict__ if self.video else None
+        d["repaired"] = self.repaired
         bp = self.report.blueprint
         d["timeline"] = None
         if bp is not None:
@@ -40,7 +43,7 @@ class Prepared:
 
 
 def prepare(blueprint: Any, source: str | None, policy: PathPolicy, base_dir: Path | None = None,
-            video: VideoInfo | None = None) -> Prepared:
+            video: VideoInfo | None = None, strict: bool | None = None) -> Prepared:
     """Steps 1-6 of the engine: parse, validate, resolve dependencies, order."""
     if video is None and source:
         try:
@@ -48,11 +51,20 @@ def prepare(blueprint: Any, source: str | None, policy: PathPolicy, base_dir: Pa
         except MediaError as e:
             rep = Report(); rep.err("BAD_SOURCE", str(e))
             return Prepared(rep, None, None)
-    rep = parse_blueprint(blueprint, video, policy, base_dir)
+    repaired = None
+    if strict is None: strict = os.environ.get("EVP_STRICT") == "1"      # the validation test-suite pins the strict validator
+    if strict:
+        rep = parse_blueprint(blueprint, video, policy, base_dir)
+    else:                                  # lenient intake: repair what can be repaired, set aside what cannot, report every change
+        box: list = []
+        def hook(rp):
+            if video: box[:] = [build_plan(rp.blueprint, video, rp)]
+        rep, repaired = parse_lenient(blueprint, video, policy, base_dir, hook)
+        return Prepared(rep, box[0] if (rep.ok and box) else None, video, repaired)
     plan = None
     if rep.ok and video:
         plan = build_plan(rep.blueprint, video, rep)
-    return Prepared(rep, plan, video)
+    return Prepared(rep, plan, video, repaired)
 
 
 def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:

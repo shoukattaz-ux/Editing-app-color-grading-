@@ -289,7 +289,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
     ver = data.get("blueprint_version")
     if ver not in SUPPORTED_VERSIONS:
         rep.err("UNSUPPORTED_VERSION", f"blueprint_version {ver!r} not supported (supported: {', '.join(SUPPORTED_VERSIONS)})"); return rep
-    known = {"blueprint_version", "project", "output", "assets", "operations", "clips", "$schema", "video"}
+    known = {"blueprint_version", "project", "output", "assets", "operations", "clips", "$schema", "video", "strict"}
     for k in data:
         if k not in known: rep.warn("UNKNOWN_FIELD", f"Unknown top-level field '{k}' ignored", path=k)
 

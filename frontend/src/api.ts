@@ -20,7 +20,7 @@ export function connection(): { base: string; token: string } | null {
 export class ApiError extends Error { constructor(msg: string, public status: number, public body?: any) { super(msg); } }
 
 export interface Issue { level: string; code: string; message: string; op_id?: string | null; path?: string | null }
-export interface Validation { ok: boolean; errors: Issue[]; warnings: Issue[]; plan: { order: number; id: string; type: string; start: number; end: number; alpha_source: string | null }[]; video: VideoInfo | null }
+export interface Validation { ok: boolean; errors: Issue[]; warnings: Issue[]; plan: { order: number; id: string; type: string; start: number; end: number; alpha_source: string | null }[]; video: VideoInfo | null; repaired?: Blueprint | null }
 export interface VideoInfo { duration: number; fps: number; width: number; height: number; has_audio: boolean; codec: string }
 export interface ProjectState { path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean }
 export interface JobState { id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }

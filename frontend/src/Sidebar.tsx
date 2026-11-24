@@ -72,7 +72,7 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
   const check = async () => {
     const { bp, error } = m.parseBlueprintText(text);
     if (error) { const v: Validation = { ok: false, errors: [{ level: "error", code: "INVALID_JSON", message: "Not valid JSON: " + error }], warnings: [], plan: [], video: null }; setRep(v); return null; }
-    try { const v = await ctx.api.validate(bp); setRep(v); return { bp: bp!, v }; } catch (e: any) { ctx.toast(e.message, "err"); return null; }
+    try { const v = await ctx.api.validate(bp); setRep(v); return { bp: (v.repaired as Blueprint | null | undefined) ?? bp!, v }; } catch (e: any) { ctx.toast(e.message, "err"); return null; }
   };
   const run = async () => { const r = await check(); if (r?.v.ok) await ctx.executeBlueprint(r.bp); else if (r) ctx.toast("Blueprint has errors — nothing was executed", "err"); };
   return (<>
@@ -97,7 +97,7 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
 
 export function Report({ rep, onSelect }: { rep: Validation; onSelect: (id: string) => void }) {
   return (<div className="report">
-    <div className={`status ${rep.ok ? "ok" : "bad"}`}>{rep.ok ? <><Icon n="check" size={14} /> Valid — {rep.plan.length} operation(s) ready</> : <><Icon n="x" size={14} /> {rep.errors.length} error(s)</>}{rep.warnings.length ? ` · ${rep.warnings.length} warning(s)` : ""}</div>
+    <div className={`status ${rep.ok ? "ok" : "bad"}`}>{rep.ok ? <><Icon n="check" size={14} /> {rep.repaired ? "Accepted after automatic repair" : "Valid"} — {rep.plan.length} operation(s) ready</> : <><Icon n="x" size={14} /> {rep.errors.length} error(s)</>}{rep.warnings.length ? ` · ${rep.warnings.length} warning(s)` : ""}</div>
     {[...rep.errors, ...rep.warnings].map((i, k) => <div key={k} className={`issue ${i.level}`} onClick={() => i.op_id && onSelect(i.op_id)} role={i.op_id ? "button" : undefined}>
       <b>{i.code}</b> {i.op_id && <code>{i.op_id}</code>} {i.message}</div>)}
     {rep.ok && rep.plan.length > 0 && <details><summary>Execution order</summary>{rep.plan.map(p => <div className="plan" key={p.id}>{p.order}. <code>{p.id}</code> {p.type} {p.start.toFixed(2)}–{p.end.toFixed(2)}s{p.alpha_source ? ` ← alpha from ${p.alpha_source}` : ""}</div>)}</details>}

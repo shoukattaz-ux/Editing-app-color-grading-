@@ -62,3 +62,12 @@ Any operation can animate its numeric parameters over time. Parameters that can 
 
 ## Prompt template for the external AI
 > You are generating an editing blueprint for the EVP editor. Output **only** JSON conforming to `blueprint.schema.json` (version 1.0). Use only operation types listed in `OPERATIONS.md` that are not marked "Not available". Give each operation a unique `id`, timestamps in seconds, and use `depends_on` for background replacement → key. Do not reference files other than assets you list in `assets` with relative paths like `assets/name.png`. Video duration: {DURATION}s, {WIDTH}x{HEIGHT} @ {FPS}fps.
+
+## Lenient intake (default) and `"strict": true`
+The app accepts blueprints written by other AIs even when parts are wrong (`backend/evp/repair.py`). Before the strict validator runs, it
+* reads an unknown `blueprint_version` as 1.0, clamps out-of-range numbers, ignores unknown parameters and bad enum values, fixes output codec/format combinations;
+* maps common operation names (`color_grade`, `remove_background`, `title`, ...) to real ones;
+* translates nested option groups on `studio_look`/`color_grading` (`tone`, `white_balance`, `color`, `detail`, face/skin groups, 0-100 scales) into real `color_grading`, `video_enhancement` and `face_tone_correction` operations;
+* sets aside any operation, asset or clip that still fails (with its dependants) and runs the rest.
+
+Every change is a warning (`LENIENT_IMPORT`, `TRANSLATED`, `CLAMPED`, `DROPPED_PARAMETER`, `NO_MATCHING_CONTROL`, `SKIPPED_OPERATION`, `DROPPED_ASSET`, `AUTO_FIXED`, ...); nothing is skipped silently and features that do not exist are never faked. Unreadable files (not JSON, not an object, > 5 MB) are still rejected, and unsafe asset paths are still refused. Add `"strict": true` at the top level (or `strict=True` in the API) to get the old reject-everything behaviour.

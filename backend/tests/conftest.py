@@ -4,6 +4,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evp.samples import make_greenscreen, make_background, make_cube_lut
 from evp.security import PathPolicy
+import os
+os.environ.setdefault("EVP_STRICT", "1")      # existing validation tests exercise the strict validator; lenient intake has its own tests
 from evp.engine import prepare
 
 

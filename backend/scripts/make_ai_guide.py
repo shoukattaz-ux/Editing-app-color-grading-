@@ -66,11 +66,11 @@ def validate_all():
                     "-pix_fmt", "yuv420p", "-shortest", str(tmp / "in.mp4")], check=True)
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x303a4a:s=640x360", "-frames:v", "1", str(tmp / "assets/studio_bg.png")], check=True)
     for name, (_, bp) in EX.items():
-        p = prepare(bp, str(tmp / "in.mp4"), PathPolicy([tmp]), tmp)
+        p = prepare(bp, str(tmp / "in.mp4"), PathPolicy([tmp]), tmp, strict=True)
         errs = [f"{e.code}: {e.message}" for e in p.report.errors]
         if errs or not p.plan: raise SystemExit(f"example '{name}' REJECTED by the validator: {errs}")
         print("validated:", name)
-    p = prepare(WRONG, str(tmp / "in.mp4"), PathPolicy([tmp]), tmp)
+    p = prepare(WRONG, str(tmp / "in.mp4"), PathPolicy([tmp]), tmp, strict=True)
     assert p.report.errors, "the 'wrong' example must be rejected"
 
 # ------------------------------------------------------------------ PDF
@@ -107,9 +107,11 @@ def story():
     s += [P("EVP Editor — Blueprint Guide for AI models", H1),
           P("<b>What this document is.</b> The EVP Editor is a video-editing program. You (an AI model) write one JSON file — a <b>blueprint</b> — that says what to do to a video "
             "(remove a background, put a new one behind the person, colour-grade, cut, add text, …). The program checks the blueprint very strictly and then runs it. "
-            "This guide lists exactly what the program accepts, so the blueprint you write passes validation the first time.", B),
+            "This guide lists exactly what the program accepts, so the blueprint you write works the first time. "
+            "<i>Safety net:</i> the app is forgiving - out-of-range numbers are clamped, unknown settings are ignored, an operation that cannot work is skipped, "
+            "and everything it changed is listed in a report. Add <font face='Courier'>\"strict\": true</font> at the top level to make it reject instead.", B),
           P("<b>The single most important rule:</b> the program accepts <b>only</b> the operations and parameter names listed in this guide. "
-            "<b>Any unknown name, wrong type or out-of-range number is an error and nothing runs.</b> Do not invent parameters, do not nest extra objects inside parameters, "
+            "<b>Anything it does not know is dropped, and anything that cannot be repaired is skipped</b> - so the user does not get the look they asked for. Do not invent parameters, do not nest extra objects inside parameters, "
             "and do not use 0–100 scales unless the table says so. If a wanted feature is not listed, leave it out and say so in your answer — never fake it.", BOX),
           P("1. How to answer the user", H2),
           P("1) Read the user's request. 2) Pick operations from section 4. 3) Output <b>only</b> the JSON object (no comments, no trailing commas, no markdown prose inside it). "
@@ -166,11 +168,12 @@ def story():
         "<font face='Courier'>studio_look</font> is a one-step 'real studio' finish for a composite. For a plain natural grade without a new background use <font face='Courier'>color_grading</font> instead.",
         "Two overlapping <font face='Courier'>background_replacement</font>s are an error. Overlapping grades simply stack.",
         "Face tools (face_tone_correction, face_relighting) and AI tools need the person's face / models; the app reports a warning if something is missing.",
+        "Even though the app repairs mistakes, each repair means part of the request was NOT applied. Aim for zero repairs.",
         "Never claim a feature the guide does not list. If the user asks for something unsupported, omit it and tell the user."]:
         s.append(P("• " + r, B))
     s += [P("A typical mistake (this exact blueprint style was rejected)", H3),
           code(WRONG),
-          P("Rejected: <font face='Courier'>studio_look</font> has no 'white_balance', 'tone' or 'look_name'. Use <font face='Courier'>color_grading</font> with flat parameters "
+          P("Without strict mode the app would keep the studio_look and translate groups like these into real controls, but you should not rely on it. <font face='Courier'>studio_look</font> has no 'white_balance', 'tone' or 'look_name'. Use <font face='Courier'>color_grading</font> with flat parameters "
             "(temperature, tint, exposure, contrast, …) instead.", BOX),
           PageBreak(), P("4. Operation catalogue (generated from the program itself)", H1),
           P("Legend: [anim] after a name = can be animated with keyframes. “default” is used when you omit the parameter. “[ai]”, “[screen]”, “[chroma]”, “[needs background_replacement]” in a description say when a control has an effect.", B)]
