@@ -35,3 +35,11 @@ permissions) or come from the environment (`EVP_REPORT_ENDPOINT`, `EVP_REPORT_BU
 `EVP_REPORT_SECRET_ACCESS_KEY`). Do not paste them into chats or screenshots; if they have been shared, rotate them in the
 Cloudflare dashboard (R2 > Manage API tokens). If you ever hand the installer to other people, do not give them your R2 keys:
 put a small Cloudflare Worker in front of the bucket that accepts reports and holds the keys itself.
+
+## Updates
+The installed app checks GitHub Releases a few seconds after start and from Help > Check for updates. When a newer build exists it
+asks before downloading, and again before restarting to install ("Restart and install" or "Install when I quit"); it never
+restarts by itself, so an export in progress is never interrupted. Every workflow run publishes `EVP-Editor-Setup-0.1.<run number>.exe`
+plus `latest.yml` and a block map (so updates download only the changed parts). Development runs and the portable version are not
+updated automatically. The updater only trusts files published to this repository's releases; Windows still shows the
+"unknown publisher" warning because builds are not code-signed (a signing certificate removes it).

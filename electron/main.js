@@ -7,7 +7,8 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 
-const SMOKE = process.env.EVP_SMOKE === "1";            // automated check: start, load the UI, report, quit
+const SMOKE = process.env.EVP_SMOKE === "1";
+let autoUpdater = null;            // automated check: start, load the UI, report, quit
 let backend = null;
 let info = null;
 let win = null;
@@ -96,6 +97,43 @@ function splash() {
   return s;
 }
 
+// ---- updates: GitHub Releases (electron-updater). Asks before downloading and before restarting; never interrupts a render by itself.
+let manualCheck = false;
+function setupUpdates() {
+  if (!app.isPackaged && !process.env.EVP_UPDATE_URL) return;                // development runs are never updated
+  try { autoUpdater = require("electron-updater").autoUpdater; } catch (e) { log("updater unavailable", e && e.message); return; }
+  autoUpdater.autoDownload = false;
+  autoUpdater.allowPrerelease = true;                                          // our builds are published as pre-releases
+  autoUpdater.logger = { info: (m) => log("updater:", m), warn: (m) => log("updater warn:", m), error: (m) => log("updater error:", m), debug() {} };
+  if (process.env.EVP_UPDATE_URL) autoUpdater.setFeedURL({ provider: "generic", url: process.env.EVP_UPDATE_URL });   // testing / own mirror
+  autoUpdater.on("update-available", async (i) => {
+    log("update available", i.version);
+    if (SMOKE) return;
+    const r = await dialog.showMessageBox(win, { type: "info", buttons: ["Download now", "Later"], defaultId: 0, cancelId: 1, title: "Update available",
+      message: `EVP Editor ${i.version} is available`, detail: `You have ${app.getVersion()}. The download runs in the background; nothing is installed until you confirm.` });
+    if (r.response === 0) autoUpdater.downloadUpdate().catch((e) => log("download failed", e && e.message));
+  });
+  autoUpdater.on("update-not-available", () => {
+    if (manualCheck) dialog.showMessageBox(win, { type: "info", title: "Up to date", message: `EVP Editor ${app.getVersion()} is the latest version.` });
+    manualCheck = false;
+  });
+  autoUpdater.on("update-downloaded", async (i) => {
+    const r = await dialog.showMessageBox(win, { type: "question", buttons: ["Restart and install", "Install when I quit"], defaultId: 1, cancelId: 1, title: "Update ready",
+      message: `EVP Editor ${i.version} is ready to install`, detail: "Save your project and finish any export first. Restarting closes the app." });
+    if (r.response === 0) { quitting = true; autoUpdater.quitAndInstall(); } else autoUpdater.autoInstallOnAppQuit = true;
+  });
+  autoUpdater.on("error", (e) => {
+    log("update error", e && e.message);
+    if (manualCheck) dialog.showMessageBox(win, { type: "warning", title: "Update check failed", message: "Could not check for updates.", detail: String(e && e.message || e).slice(0, 400) });
+    manualCheck = false;
+  });
+}
+function checkForUpdates(manual) {
+  if (!autoUpdater) { if (manual) dialog.showMessageBox(win, { type: "info", title: "Updates", message: "Updates are only available in the installed app." }); return; }
+  manualCheck = !!manual;
+  autoUpdater.checkForUpdates().catch((e) => log("check failed", e && e.message));
+}
+
 function buildMenu() {
   const t = [
     { label: "&File", submenu: [
@@ -105,6 +143,7 @@ function buildMenu() {
     { label: "&Edit", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
     { label: "&View", submenu: [{ role: "reload" }, { role: "togglefullscreen" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, ...(app.isPackaged ? [] : [{ role: "toggleDevTools" }])] },
     { label: "&Help", submenu: [
+      { label: "Check for updates…", click: () => checkForUpdates(true) },
       { label: "About EVP Editor", click: () => dialog.showMessageBox({ type: "info", title: "EVP Editor", message: "EVP Editor " + app.getVersion(),
           detail: "AI blueprint-based video editor.\nVideo engine: " + (info ? "running on 127.0.0.1:" + info.port : "not running") + "\nLogs: " + logDir() }) },
       { label: "Problem reports…", click: () => win && win.webContents.executeJavaScript("document.querySelector('[title=\"Settings: problem reports\"]')?.click()") } ] },
@@ -150,6 +189,17 @@ app.whenReady().then(async () => {
     await waitHealthy(info.port);
     await createWindow();
     if (sp && !sp.isDestroyed()) sp.close();
+    setupUpdates();
+    if (SMOKE && process.env.EVP_UPDATE_URL && autoUpdater) {                   // test hook: report what the update check finds
+      const found = await new Promise((res) => {
+        autoUpdater.once("update-available", (i) => res({ found: i.version }));
+        autoUpdater.once("update-not-available", () => res({ found: null }));
+        autoUpdater.once("error", (e) => res({ error: String(e && e.message || e).slice(0, 200) }));
+        autoUpdater.checkForUpdates().catch((e) => res({ error: String(e && e.message || e).slice(0, 200) }));
+        setTimeout(() => res({ error: "timeout" }), 20000);
+      });
+      process.stdout.write("UPDATE " + JSON.stringify({ ...found, current: app.getVersion() }) + "\n");
+    } else if (!SMOKE) setTimeout(() => checkForUpdates(false), 8000);          // quiet check a few seconds after start
     if (SMOKE) {
       let body = "";
       for (let i = 0; i < 40; i++) {                       // wait until the UI has connected to the engine
