@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from .blueprint import Operation
+from .studio import resolve as resolve_look
 from .planner import Plan, _dominant
 from .animate import AnimChain
 from .keyframes import to_expr
@@ -322,10 +323,75 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         per_frame = zoom_anim or "offset_x" in r.keyframes or "offset_y" in r.keyframes
         return g.add([canvas, a], f"overlay={'eval=frame:' if per_frame else ''}x='(W-w)/2+{offs[0]}*W':y='(H-h)/2+{offs[1]}*H':shortest=1,format=rgba")
 
+    def splitn(src: str, n: int) -> list[str]:
+        outs = [g.label("s") for _ in range(n)]
+        g.parts.append(f"[{src}]split={n}" + "".join(f"[{o}]" for o in outs))
+        return outs
+
+    scale_px = H / 1080.0
+
+    def integrate(bgs: str, fg: str, L: dict) -> tuple[str, str]:
+        """make the keyed subject belong to the new scene: depth of field, the background's colour on the subject, its light wrapping the edges"""
+        if L["depth"] > 0:
+            bgs = g.add([bgs], f"gblur=sigma={L['depth'] * 8 * scale_px:.3f}")
+        amb, wrap = L["ambient_match"], L["light_wrap"]
+        if amb <= 0 and wrap <= 0:
+            return bgs, fg
+        b_main, b_amb, b_wrap = splitn(bgs, 3)
+        f_col, f_a = splitn(fg, 2)
+        a_keep, a_edge, a_blur = splitn(g.add([f_a], "alphaextract"), 3)
+        col = g.add([f_col], "format=gbrp")
+        for unused in ([b_amb] if amb <= 0 else []) + ([b_wrap, a_edge, a_blur] if wrap <= 0 else []):
+            g.parts.append(f"[{unused}]nullsink")
+        if amb > 0:
+            # light falling on the subject = the background heavily blurred, reduced to its colour (luma fixed at mid-grey so the
+            # subject's brightness is untouched), applied as a multiplicative cast: out = in * (1 + k * (tint/128 - 1))
+            tint = g.add([b_amb], f"scale=iw/8:ih/8:flags=area,gblur=sigma=3,scale={W}:{H}:flags=bicubic,{cs.rgb_to_yuv()},lutyuv=y=128,{cs.yuv_to_rgb('gbrp')}")
+            col = g.add([col, tint], f"blend=all_expr='clip(A*(1+{amb * 1.2:.3f}*(B/128-1))\\,0\\,255)'")
+        if wrap > 0:
+            # light wrap: just inside the subject's edge (alpha * (1 - blurred alpha)) the blurred, brightened background shows through
+            ww = max(1.0, L["wrap_width"] * scale_px)
+            edge = g.add([a_edge, g.add([a_blur], f"gblur=sigma={ww:.3f}")], f"blend=all_expr='clip(A*(255-B)/128*{wrap * 0.8:.3f}\\,0\\,255)',format=gbrp")
+            light = g.add([b_wrap], f"gblur=sigma={ww * 0.5:.3f},format=gbrp,lutrgb=r='clip(val*1.3\\,0\\,maxval)':g='clip(val*1.3\\,0\\,maxval)':b='clip(val*1.3\\,0\\,maxval)'")
+            col = g.add([col, light, edge], "maskedmerge")
+        return b_main, g.add([g.add([col], "format=rgba"), a_keep], "alphamerge,format=rgba")
+
+    def look_block(src: str, L: dict) -> str:
+        """the global finish, in RGB (curve, split-tone, bloom) then YUV (vignette, local contrast, saturation, grain)"""
+        from .studio import tint_vector
+        rgbf: list[str] = []
+        c = L["contrast"]
+        if c > 0:
+            rgbf.append("curves=master='" + curve_str([(0, 0), (0.25, 0.25 - 0.07 * c), (0.5, 0.5), (0.75, 0.75 + 0.07 * c), (1, 1)]) + "'")
+        if L["tint_amount"] > 0:
+            sr, sg, sb = tint_vector(L["shadow_tint"], L["tint_amount"]); hr, hg, hb = tint_vector(L["highlight_tint"], L["tint_amount"])
+            rgbf.append(f"colorbalance=rs={sr}:gs={sg}:bs={sb}:rh={hr}:gh={hg}:bh={hb}")
+        rgb = g.add([src], ",".join([cs.yuv_to_rgb(), *rgbf]))
+        if L["glow"] > 0:
+            base, hi = g.split(rgb)
+            thr, gain_ = L["glow_threshold"], 1.0 / max(1e-3, 1.0 - L["glow_threshold"])
+            hi = g.add([hi], "lutrgb=" + ":".join(f"{ch}='clip((val/maxval-{thr:.3f})*{gain_:.3f}\\,0\\,1)*maxval'" for ch in "rgb")
+                       + f",gblur=sigma={max(1.0, L['glow_radius'] * scale_px):.3f}")
+            rgb = g.add([g.add([base], "format=gbrp"), g.add([hi], "format=gbrp")], f"blend=all_mode=screen:all_opacity={L['glow']:.3f}")
+        tail = [cs.rgb_to_yuv()]
+        if L["vignette"] > 0:
+            tail.append(f"vignette=angle={1.1 - 0.6 * L['vignette']:.3f}:mode=forward:eval=init")
+        if L["clarity"] > 0:
+            tail.append(f"unsharp=lx=13:ly=13:la={0.7 * L['clarity']:.3f}:cx=13:cy=13:ca=0")
+        if L["saturation"] != 1:
+            tail.append(f"eq=saturation={L['saturation']:.3f}")
+        if L["grain"] > 0:
+            tail.append(f"noise=alls={L['grain'] * 14:.2f}:allf=t+u")
+        return g.add([rgb], ",".join(tail))
+
     def composite(cur: str, k: Operation, r: Operation | None) -> str:
         rng = r or k
+        L = plan.look_for.get(r.id) if r else None
+        look = resolve_look(L.params) if L else None
         def build(src: str) -> str:
-            return g.add([bg_stream(r, k), make_keyed(src, k)], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
+            bgs, fg = bg_stream(r, k), make_keyed(src, k)
+            if look: bgs, fg = integrate(bgs, fg, look)
+            return g.add([bgs, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
         return ranged_block(cur, rng, build)
 
     pre_cmd: list[list[str]] = [[]]          # sendcmd filter(s) produced by the last grade_filters() call
@@ -391,6 +457,9 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                     a, b = g.split(src)
                     return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={k:.3f}")  # first input is the "top" layer
                 cur = ranged_block(cur, op, build)
+        elif t == "studio_look":
+            L = resolve_look(p)
+            cur = ranged_block(cur, op, lambda s_: look_block(s_, L))
         elif t in ("face_tone_correction", "face_relighting"):
             ref = plan.face_controls.get(op.id)
             if ref is None:

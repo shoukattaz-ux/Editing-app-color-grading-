@@ -371,3 +371,57 @@ def test_output_is_tagged_with_the_matrix_it_was_encoded_with(tmp_path):
     out = _render_file(tmp_path, _bars(tmp_path / "bars.mp4", True), [{"id": "g", "type": "color_grading", "start": 0, "parameters": {"gain": [-0.1, 0, 0]}}], "tag")
     v = json.loads(subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", str(out)], capture_output=True, text=True).stdout)["streams"][0]
     assert (v["color_space"], v["color_range"], v["pix_fmt"]) == ("bt709", "tv", "yuv420p")
+
+
+# ---------------------------------------------------------------- studio look
+REPL = {"id": "r", "type": "background_replacement", "start": 0, "end": 3, "parameters": {"asset_id": "bg"}, "depends_on": ["k"]}
+
+
+def _look(**params):
+    return {"id": "l", "type": "studio_look", "start": 0, "end": 3, "parameters": {"preset": "none", **params}}
+
+
+def test_studio_look_ambient_match_tints_the_subject_with_the_background_colour(prep, media):
+    base = pixel(frame(prep, media, [KEY, REPL], 1.0), 160, 90)
+    lit = pixel(frame(prep, media, [KEY, REPL, _look(ambient_match=1.0)], 1.0), 160, 90)
+    bgc = pixel(frame(prep, media, [KEY, REPL], 1.0), 5, 5)                          # the new background's colour
+    assert sum(abs(a - b) for a, b in zip(base, lit)) > 6, "subject did not change"
+    # the subject moved toward the background's hue: its channel ratios now lean the way the background's do
+    lean = lambda p: (p[0] - p[2])
+    assert (lean(lit) - lean(base)) * (lean(bgc) - 128) >= 0 or abs(lean(lit) - lean(base)) > 2
+
+
+def test_studio_look_without_integration_controls_leaves_the_composite_edges_alone(prep, media):
+    """an all-zero look is a pass-through: the pipeline must not touch pixels when nothing is asked for"""
+    a = pixel(frame(prep, media, [KEY, REPL], 1.0), 160, 90)
+    b = pixel(frame(prep, media, [KEY, REPL, _look()], 1.0), 160, 90)
+    assert max(abs(x - y) for x, y in zip(a, b)) <= 1
+
+
+def test_studio_look_global_grade_vignette_darkens_corners_not_centre(prep, media):
+    plain = frame(prep, media, [], 1.0); look = frame(prep, media, [_look(vignette=1.0)], 1.0)
+    assert sum(pixel(look, 2, 2)) < sum(pixel(plain, 2, 2)) - 30
+    assert max(abs(x - y) for x, y in zip(pixel(look, 160, 90), pixel(plain, 160, 90))) <= 3
+
+
+def test_studio_look_only_inside_its_time_range(prep, media):
+    ops = [{"id": "l", "type": "studio_look", "start": 1.0, "end": 2.0, "parameters": {"preset": "studio_cool"}}]
+    a, b = pixel(frame(prep, media, ops, 0.5), 80, 60), pixel(frame(prep, media, [], 0.5), 80, 60)
+    c, d = pixel(frame(prep, media, ops, 1.5), 80, 60), pixel(frame(prep, media, [], 1.5), 80, 60)
+    assert a == b and sum(abs(x - y) for x, y in zip(c, d)) > 10
+
+
+def test_studio_look_binding_and_validation(prep):
+    codes = lambda ops: ({e.code for e in prep(bp(ops=ops, assets=ASSETS)).report.errors}, {w.code for w in prep(bp(ops=ops, assets=ASSETS)).report.warnings})
+    assert "STUDIO_NO_BACKGROUND" in codes([_look()])[1]                                    # global grade only: said out loud
+    assert "STUDIO_NO_BACKGROUND" not in codes([KEY, REPL, _look()])[1]
+    assert "OVERLAP_CONFLICT" in codes([KEY, REPL, _look(), {**_look(), "id": "l2"}])[0]
+    assert "INVALID_PARAMETER" in codes([{"id": "l", "type": "studio_look", "start": 0, "parameters": {"preset": "nope"}}])[0]
+    assert "STUDIO_RANGE_DIFFERS" in codes([KEY, REPL, {**_look(), "end": 1.0}])[1]
+
+
+def test_studio_look_presets_resolve_and_overrides_win():
+    from evp.studio import resolve, PRESETS
+    assert resolve({"preset": "studio_warm"})["glow"] == PRESETS["studio_warm"]["glow"]
+    assert resolve({"preset": "studio_warm", "glow": 0.0})["glow"] == 0.0
+    assert resolve({"preset": "none"})["vignette"] == 0.0

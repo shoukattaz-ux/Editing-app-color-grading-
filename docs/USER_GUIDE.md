@@ -24,6 +24,16 @@ The **Video** track shows your footage as clips. The original file is never chan
 * *Original* preview plays your cut timeline by jumping between clips (small hiccups at joins are normal there); *Edited* is the real result.
 * One video per project for now, and changing a cut recomputes AI effects (matting, face, upscaling) for that range, so make your cuts *before* running heavy AI.
 
+## Studio Look: make a replaced background look real
+A cut-out subject on a new background looks pasted-on because the two were never lit together. Add one `studio_look` operation after the background replacement and the app does what a compositor does by hand:
+
+1. **Ambient match** - the background's colours fall on the subject, in the direction the light is in the scene (a blue neon on the right tints the right side of the face).
+2. **Light wrap** - background light spills over the subject's edges, which removes the cut-out outline.
+3. **Depth** - the background is softened slightly so the subject stands out.
+4. **Finish over everything** - S-curve contrast, shadow/highlight colour (split-tone), soft glow around bright lights, vignette, local contrast, saturation and fine film grain, so subject and background share one look.
+
+Pick a preset (`studio_warm`, `studio_cool`, `cinematic`, `clean_bright`) and override any control, e.g. `{"preset": "studio_cool", "glow": 0.5, "grain": 0}`. Steps 1-3 need a `background_replacement` in the same time range; without one the app says so (`STUDIO_NO_BACKGROUND`) and applies step 4 only. Honest limits: it does not re-light the subject in 3D or cast shadows onto the scene - it is a colour and edge integration; for a strong result choose a background whose light direction roughly agrees with your footage, and use `face_relighting` for the face.
+
 ## Colour wheels
 Select a **Color Grading** effect: the **Colour wheels** section has **Lift** (shadows), **Gamma** (midtones) and **Gain** (highlights). Drag the puck toward a colour to push that tone range toward it (the further from the centre, the stronger); the **Master** slider brightens or darkens the range without changing its colour. **Shift-drag** = fine adjustment, **double-click** (or Delete, or *Reset*) = back to neutral, arrow keys move the puck (Shift = bigger steps). The three R/G/B boxes show and accept exact values, so a setting loaded from a blueprint appears at the right place on the wheel.
 What they do (classic lift/gamma/gain, per channel): **Lift** `out = in + lift·(1−in)` moves the black point and tapers off toward white; **Gain** `out = in·(1+gain)` scales and keeps black; **Gamma** `out = in^(2^−gamma)` bends the midtones and keeps black and white. Wheels are static (they cannot be keyframed). Watch the effect on the **Scopes**.

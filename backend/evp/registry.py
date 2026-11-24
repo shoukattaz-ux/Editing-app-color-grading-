@@ -15,6 +15,7 @@ STAGE_KEY = 20          # produce an alpha layer from the footage
 STAGE_COMPOSITE = 30    # place keyed subject over a new background
 STAGE_FACE = 35         # face tone / relight (before the global grade, like a colourist's face pass)
 STAGE_GRADE = 40
+STAGE_LOOK = 45         # studio look: the finishing grade over the whole composite
 STAGE_FINISH = 50       # sharpen
 STAGE_OVERLAY = 60      # text
 STAGE_AUDIO = 70
@@ -74,6 +75,7 @@ class OpSpec:
                 "parameters": {k: v.to_json() for k, v in self.params.items()}}
 
 
+from .studio import PRESET_NAMES
 N, I, B, S, C, E, A, PT = ("number", "integer", "boolean", "string", "color", "enum", "asset", "points")
 
 _KEY_PARAMS = {
@@ -153,6 +155,26 @@ _reg(OpSpec("background_replacement", "Background Replacement", "Compositing", S
              "saturation": Param(N, 1.0, 0.0, 3.0, desc="Background saturation to match the subject.")}))
 _reg(OpSpec("color_grading", "Color Grading", "Color", STAGE_GRADE, "effects",
             "Exposure, contrast, tone, white balance, saturation, LGG, RGB curves, LUT, presets.", _COLOR_PARAMS))
+_reg(OpSpec("studio_look", "Studio Look", "Color", STAGE_LOOK, "effects",
+            "One-step 'real studio' finish. With a background_replacement it first integrates the subject into the new scene (the background's colour falls on the subject, "
+            "its light wraps around the edges, slight depth of field), then grades the whole composite (S-curve, split-tone, highlight glow, vignette, local contrast, film grain). "
+            "Without a replacement only the global grade runs. Pick a preset; any control you set overrides it.",
+            {"preset": Param(E, "studio_warm", enum=PRESET_NAMES, desc="Starting look. Controls you set override it; 'none' starts from nothing."),
+             "ambient_match": Param(N, None, 0.0, 1.0, desc="[needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene."),
+             "light_wrap": Param(N, None, 0.0, 1.0, desc="[needs background_replacement] Background light spilling over the subject's edges - removes the 'cut-out' look."),
+             "wrap_width": Param(N, None, 1.0, 60.0, unit="px at 1080p", desc="[needs background_replacement] How far the light wrap reaches into the subject."),
+             "depth": Param(N, None, 0.0, 1.0, desc="[needs background_replacement] Extra background softness (depth of field) so the subject stands out."),
+             "contrast": Param(N, None, 0.0, 1.0, desc="S-curve strength."),
+             "shadow_tint": Param(C, None, desc="Colour pushed into the shadows (only its hue matters)."),
+             "highlight_tint": Param(C, None, desc="Colour pushed into the highlights (only its hue matters)."),
+             "tint_amount": Param(N, None, 0.0, 1.0, desc="Strength of the split-tone."),
+             "glow": Param(N, None, 0.0, 1.0, desc="Soft bloom around bright areas (lamps, screens)."),
+             "glow_threshold": Param(N, None, 0.3, 0.95, desc="Brightness above which the glow starts."),
+             "glow_radius": Param(N, None, 1.0, 60.0, unit="px at 1080p", desc="Glow spread."),
+             "vignette": Param(N, None, 0.0, 1.0, desc="Darken the frame edges."),
+             "clarity": Param(N, None, 0.0, 1.0, desc="Local contrast (mid-frequency sharpening)."),
+             "grain": Param(N, None, 0.0, 1.0, desc="Fine film grain; also hides banding and the 'digital' look of a composite."),
+             "saturation": Param(N, None, 0.5, 1.5, desc="Overall saturation.")}))
 _reg(OpSpec("video_enhancement", "Video Enhancement", "Enhance", STAGE_RESTORE, "effects",
             "Noise reduction, sharpening and basic stabilisation (classical algorithms; limited by source quality).",
             {"denoise": Param(N, 0.0, 0.0, 1.0, desc="hqdn3d strength."),

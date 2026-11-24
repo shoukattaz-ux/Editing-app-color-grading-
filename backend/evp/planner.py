@@ -14,6 +14,7 @@ class Plan:
     steps: list[Operation] = field(default_factory=list)          # execution order (enabled ops only)
     alpha_source: dict[str, str] = field(default_factory=dict)    # replacement id -> keyer id
     consumed_keyers: set[str] = field(default_factory=set)
+    look_for: dict[str, Operation] = field(default_factory=dict)  # replacement id -> the studio_look that integrates the subject into it
     total_frames: int = 0
     edl: list | None = None                                       # [(src_a, src_b)] pieces on the output grid; None = uncut source
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
@@ -77,6 +78,25 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
         if k.id not in r.depends_on:
             r.depends_on = r.depends_on + [k.id]
 
+    # --- studio looks: bind to the background replacement they integrate the subject into (if any)
+    for lk in (o for o in ops if o.type == "studio_look"):
+        reps = [byid[d] for d in lk.depends_on if d in byid and byid[d].type == "background_replacement"] or \
+               [r for r in ops if r.type == "background_replacement"]
+        reps = [r for r in reps if _overlap(r, lk)]
+        if not reps:
+            rep.warn("STUDIO_NO_BACKGROUND", f"'{lk.id}' has no background_replacement to integrate the subject into; only its global grade (contrast, tint, glow, vignette, clarity, grain) is applied", lk.id)
+            continue
+        r = sorted(reps, key=lambda c: (not (c.start_frame <= lk.start_frame and c.end_frame >= lk.end_frame), index[c.id]))[0]
+        if r.id in plan.look_for:
+            rep.err("OVERLAP_CONFLICT", f"Studio looks '{plan.look_for[r.id].id}' and '{lk.id}' both integrate into background '{r.id}'; use one", lk.id)
+            continue
+        plan.look_for[r.id] = lk
+        if (r.start_frame, r.end_frame) != (lk.start_frame, lk.end_frame):
+            rep.warn("STUDIO_RANGE_DIFFERS", f"'{lk.id}': subject integration (ambient_match, light_wrap, depth) follows background '{r.id}' ({r.start:g}-{r.end:g}s); "
+                     f"the global grade follows the look's own range ({lk.start:g}-{lk.end:g}s)", lk.id)
+        if r.id not in lk.depends_on:
+            lk.depends_on = lk.depends_on + [r.id]
+
     # --- overlap conflicts
     repl = [o for o in ops if o.type == "background_replacement"]
     for i, a in enumerate(repl):
@@ -93,7 +113,7 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
         for b in keyers[i + 1:]:
             if _overlap(a, b):
                 rep.warn("OVERLAP_STACKED", f"Keying operations '{a.id}' and '{b.id}' overlap; they are applied one after another (second keys the result of the first)", a.id)
-    for t in ("color_grading", "video_enhancement"):
+    for t in ("color_grading", "video_enhancement", "studio_look"):
         same = [o for o in ops if o.type == t]
         for i, a in enumerate(same):
             for b in same[i + 1:]:

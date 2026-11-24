@@ -54,6 +54,18 @@
       }
     },
     {
+      "id": "studio_look",
+      "type": "studio_look",
+      "start": 0,
+      "end": 6,
+      "parameters": {
+        "preset": "studio_cool"
+      },
+      "depends_on": [
+        "operation_002"
+      ]
+    },
+    {
       "id": "operation_004",
       "type": "text_overlay",
       "start": 2,

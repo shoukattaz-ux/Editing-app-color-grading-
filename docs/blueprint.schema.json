@@ -176,6 +176,7 @@
               "background_removal",
               "background_replacement",
               "color_grading",
+              "studio_look",
               "video_enhancement",
               "text_overlay",
               "audio_gain",
@@ -705,6 +706,125 @@
                       "minimum": 0.0,
                       "maximum": 1.0,
                       "default": 1.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "studio_look"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "description": "Starting look. Controls you set override it; 'none' starts from nothing.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "studio_warm",
+                        "studio_cool",
+                        "cinematic",
+                        "clean_bright"
+                      ],
+                      "default": "studio_warm"
+                    },
+                    "ambient_match": {
+                      "description": "[needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "light_wrap": {
+                      "description": "[needs background_replacement] Background light spilling over the subject's edges - removes the 'cut-out' look.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "wrap_width": {
+                      "description": "[needs background_replacement] How far the light wrap reaches into the subject.",
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 60.0
+                    },
+                    "depth": {
+                      "description": "[needs background_replacement] Extra background softness (depth of field) so the subject stands out.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "contrast": {
+                      "description": "S-curve strength.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "shadow_tint": {
+                      "description": "Colour pushed into the shadows (only its hue matters).",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$"
+                    },
+                    "highlight_tint": {
+                      "description": "Colour pushed into the highlights (only its hue matters).",
+                      "type": "string",
+                      "pattern": "^(#?[0-9a-fA-F]{6}|green|blue|black|white|red|gray|grey)$"
+                    },
+                    "tint_amount": {
+                      "description": "Strength of the split-tone.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "glow": {
+                      "description": "Soft bloom around bright areas (lamps, screens).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "glow_threshold": {
+                      "description": "Brightness above which the glow starts.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 0.95
+                    },
+                    "glow_radius": {
+                      "description": "Glow spread.",
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 60.0
+                    },
+                    "vignette": {
+                      "description": "Darken the frame edges.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "clarity": {
+                      "description": "Local contrast (mid-frequency sharpening).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "grain": {
+                      "description": "Fine film grain; also hides banding and the 'digital' look of a composite.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "saturation": {
+                      "description": "Overall saturation.",
+                      "type": "number",
+                      "minimum": 0.5,
+                      "maximum": 1.5
                     }
                   },
                   "additionalProperties": false

@@ -99,6 +99,31 @@ Timeline track: **effects**
 | `lut_asset_id` | asset |  |  | A .cube/.3dl LUT asset to apply. |
 | `lut_intensity` | number | `1.0` | 0.0 … 1.0 | Blend between graded-without-LUT and LUT. |
 
+## `studio_look` — Studio Look
+
+One-step 'real studio' finish. With a background_replacement it first integrates the subject into the new scene (the background's colour falls on the subject, its light wraps around the edges, slight depth of field), then grades the whole composite (S-curve, split-tone, highlight glow, vignette, local contrast, film grain). Without a replacement only the global grade runs. Pick a preset; any control you set overrides it.
+
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `preset` | enum | `studio_warm` | none, studio_warm, studio_cool, cinematic, clean_bright | Starting look. Controls you set override it; 'none' starts from nothing. |
+| `ambient_match` | number |  | 0.0 … 1.0 | [needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene. |
+| `light_wrap` | number |  | 0.0 … 1.0 | [needs background_replacement] Background light spilling over the subject's edges - removes the 'cut-out' look. |
+| `wrap_width` | number |  | 1.0 … 60.0 px at 1080p | [needs background_replacement] How far the light wrap reaches into the subject. |
+| `depth` | number |  | 0.0 … 1.0 | [needs background_replacement] Extra background softness (depth of field) so the subject stands out. |
+| `contrast` | number |  | 0.0 … 1.0 | S-curve strength. |
+| `shadow_tint` | color |  |  | Colour pushed into the shadows (only its hue matters). |
+| `highlight_tint` | color |  |  | Colour pushed into the highlights (only its hue matters). |
+| `tint_amount` | number |  | 0.0 … 1.0 | Strength of the split-tone. |
+| `glow` | number |  | 0.0 … 1.0 | Soft bloom around bright areas (lamps, screens). |
+| `glow_threshold` | number |  | 0.3 … 0.95 | Brightness above which the glow starts. |
+| `glow_radius` | number |  | 1.0 … 60.0 px at 1080p | Glow spread. |
+| `vignette` | number |  | 0.0 … 1.0 | Darken the frame edges. |
+| `clarity` | number |  | 0.0 … 1.0 | Local contrast (mid-frequency sharpening). |
+| `grain` | number |  | 0.0 … 1.0 | Fine film grain; also hides banding and the 'digital' look of a composite. |
+| `saturation` | number |  | 0.5 … 1.5 | Overall saturation. |
+
 ## `video_enhancement` — Video Enhancement
 
 Noise reduction, sharpening and basic stabilisation (classical algorithms; limited by source quality).
