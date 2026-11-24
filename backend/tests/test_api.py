@@ -304,3 +304,42 @@ def test_project_saving_never_fsyncs_a_read_only_handle(tmp_path, monkeypatch):
     p = Project.create(tmp_path, "Windows Rules")
     p.update(source=str(tmp_path / "x.mp4"))
     assert (p.root / "project.json").is_file()
+
+
+def test_model_download_leaks_no_file_descriptor_and_is_serialised(tmp_path, monkeypatch):
+    """Regression (Windows): tempfile.mkstemp's open descriptor was dropped, so renaming/deleting the temp file failed with
+    'WinError 32: used by another process' - the first AI preview always failed. Linux hides this, so count open descriptors instead."""
+    import hashlib, io, os, threading
+    from evp.ml import models
+    payload = b"fake-onnx-model" * 100
+    info = models.ModelInfo("fake", "fake.onnx", "https://example.invalid/fake.onnx", hashlib.sha256(payload).hexdigest(), len(payload), "x", "x")
+    monkeypatch.setitem(models.MODELS, "fake", info)
+    monkeypatch.setenv("EVP_MODELS_DIR", str(tmp_path / "models"))
+    calls = []
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(models.urllib.request, "urlopen", lambda *a, **k: (calls.append(1), Resp(payload))[1])
+    fds = lambda: len(os.listdir("/proc/self/fd"))
+    before = fds()
+    results = []
+    ts = [threading.Thread(target=lambda: results.append(models.ensure_model("fake"))) for _ in range(4)]    # four requests at once
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert len(results) == 4 and all(r.read_bytes() == payload for r in results)
+    assert len(calls) == 1, "concurrent requests must share ONE download"
+    assert fds() <= before, "a file descriptor was leaked"
+    assert not list((tmp_path / "models").glob("*.part")), "temp file left behind"
+
+
+def test_fsutil_replace_retries_when_the_file_is_briefly_locked(tmp_path, monkeypatch):
+    import os, sys
+    from evp import fsutil
+    a, b = tmp_path / "a", tmp_path / "b"; a.write_text("x")
+    real, n = os.replace, {"n": 0}
+    def flaky(s, d):
+        n["n"] += 1
+        if n["n"] < 3: raise PermissionError(32, "being used by another process")
+        return real(s, d)
+    monkeypatch.setattr(os, "replace", flaky); monkeypatch.setattr(sys, "platform", "win32")
+    fsutil.replace(a, b, delay=0.01)
+    assert b.read_text() == "x" and n["n"] == 3

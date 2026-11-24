@@ -5,6 +5,7 @@ geometry (fit + pad exactly like the base chain), optionally blend with a Lanczo
 high-quality intermediate that replaces the base frames inside the operation's range.
 """
 from __future__ import annotations
+from .. import fsutil
 from .. import proc as _proc
 import hashlib, json, os, threading
 from dataclasses import dataclass
@@ -258,12 +259,12 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
             raise RuntimeError("upscale encode failed: " + enc.stderr.read().decode(errors="replace")[-300:])
         if n - warm <= 0:
             raise RuntimeError("AI upscaling decoded no frames in this range")
-        os.replace(tmp, out)
+        fsutil.replace(tmp, out)
         return UpscaleRef(str(out), start_frame, n - warm, fell_back[0] if fell_back else None, proc.faces_seen)
     except BaseException:
         try: enc.kill()
         except Exception: pass
-        tmp.unlink(missing_ok=True)
+        fsutil.unlink(tmp)
         raise
 
 

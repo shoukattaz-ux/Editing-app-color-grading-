@@ -6,6 +6,7 @@ Optional denoise: Real-ESRGAN's "DNI" interpolation between the general and the 
 denoise) weights:  w = d * wdn + (1 - d) * general.
 """
 from __future__ import annotations
+from .. import fsutil
 import io, pickle, zipfile
 from collections import OrderedDict
 from pathlib import Path
@@ -78,7 +79,7 @@ def build_onnx(sd: dict[str, np.ndarray], out: str | Path, upscale: int = 4) -> 
     onnx.checker.check_model(m)
     tmp = Path(str(out) + ".part")
     onnx.save(m, str(tmp))
-    tmp.replace(out)
+    fsutil.replace(tmp, out)
 
 
 def dni(a: dict, b: dict, t: float) -> dict:

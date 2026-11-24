@@ -1,5 +1,6 @@
 """Non-destructive project storage. The original video is only ever referenced, never modified."""
 from __future__ import annotations
+from . import fsutil
 import json, os, re, shutil, time
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,7 @@ def _atomic_write(path: Path, data: dict) -> None:
     # flush to disk through the SAME writable handle: Windows refuses fsync on a read-only handle ("Bad file descriptor")
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(json.dumps(data, indent=2)); f.flush(); os.fsync(f.fileno())
-    os.replace(tmp, path)
+    fsutil.replace(tmp, path)
 
 
 def safe_name(n: str) -> str:

@@ -4,6 +4,7 @@ The matte is generated as a lossless greyscale video aligned frame-for-frame wit
 engine's base timeline (same fps + scale/pad), cached, and consumed by the FFmpeg graph.
 """
 from __future__ import annotations
+from .. import fsutil
 from .. import proc
 import hashlib, json, os, subprocess, threading
 from dataclasses import dataclass
@@ -153,16 +154,16 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
         written = n - (start_frame - first)
         if written <= 0:
             raise RuntimeError("AI matting produced no frames (could not decode the source in this range)")
-        if fenc: os.replace(ftmp, fgr_out)
+        if fenc: fsutil.replace(ftmp, fgr_out)
         scr = keyer.screen_name if keyer is not None else None
         if scr: side.write_text(json.dumps({"screen": scr}), encoding="utf-8")
-        os.replace(tmp, out)
+        fsutil.replace(tmp, out)
         return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr)
     except BaseException:
-        if ftmp: ftmp.unlink(missing_ok=True)
+        if ftmp: fsutil.unlink(ftmp)
         for pr in (enc, fenc):
             if pr is None: continue
             try: pr.kill()
             except Exception: pass
-        tmp.unlink(missing_ok=True)
+        fsutil.unlink(tmp)
         raise

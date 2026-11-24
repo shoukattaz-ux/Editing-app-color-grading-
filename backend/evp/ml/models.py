@@ -1,7 +1,9 @@
 """Model catalogue + verified, atomic download into the local model store."""
 from __future__ import annotations
-import hashlib, os, shutil, tempfile, urllib.request
+import hashlib, os, shutil, tempfile, threading, urllib.request
 from dataclasses import dataclass
+
+from .. import fsutil
 from pathlib import Path
 
 
@@ -89,20 +91,32 @@ def ensure_model(name: str, allow_download: bool = True) -> Path:
         return p
     if not allow_download:
         raise ModelError(f"Model '{name}' is not installed")
-    tmp = Path(tempfile.mkstemp(dir=models_dir(), suffix=".part")[1])
+    with _DOWNLOAD_LOCK:                                   # two requests (preview + proxy) must not download the same file twice
+        if p.is_file() and p.stat().st_size == info.size:
+            return p
+        return _download(name, info, p)
+
+
+_DOWNLOAD_LOCK = threading.Lock()
+
+
+def _download(name: str, info: "ModelInfo", p: Path) -> Path:
+    fd, tmp_name = tempfile.mkstemp(dir=models_dir(), suffix=".part")
+    os.close(fd)                                           # mkstemp hands back an OPEN descriptor: left open, Windows cannot rename or delete the file
+    tmp = Path(tmp_name)
     try:
         with urllib.request.urlopen(info.url, timeout=120) as r, open(tmp, "wb") as f:
             shutil.copyfileobj(r, f)
         if _sha256(tmp) != info.sha256:
             raise ModelError(f"Downloaded model '{name}' failed its SHA-256 check; not used")
-        os.replace(tmp, p)
+        fsutil.replace(tmp, p)
     except ModelError:
         raise
     except Exception as e:
         raise ModelError(f"Could not download model '{name}' from {info.url}: {e}. "
                          f"Download it manually into {models_dir()}") from e
     finally:
-        tmp.unlink(missing_ok=True)
+        fsutil.unlink(tmp)
     return p
 
 

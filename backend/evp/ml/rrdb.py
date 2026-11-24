@@ -6,6 +6,7 @@ Architecture (basicsr RRDBNet, num_feat=64, num_grow_ch=32, LeakyReLU 0.2):
   RDB:  x1..x4 densely connected convs, x5 * 0.2 + x;   RRDB: rdb3(rdb2(rdb1(x))) * 0.2 + x
 """
 from __future__ import annotations
+from .. import fsutil
 from pathlib import Path
 
 import numpy as np
@@ -88,5 +89,5 @@ def build_onnx(sd: dict[str, np.ndarray], out: str | Path) -> int:
     onnx.checker.check_model(m)
     tmp = Path(str(out) + ".part")
     onnx.save(m, str(tmp))
-    tmp.replace(out)
+    fsutil.replace(tmp, out)
     return scale

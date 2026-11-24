@@ -1,5 +1,6 @@
 """Shared frame decoding for analysis passes, aligned with the engine's base timeline."""
 from __future__ import annotations
+from .. import fsutil
 from .. import proc
 import subprocess
 from typing import Iterator
@@ -63,9 +64,9 @@ class Writer:
         if self.p.wait() != 0:
             raise RuntimeError("encode failed: " + self.p.stderr.read().decode(errors="replace")[-300:])
         import os
-        os.replace(self.tmp, self.final)
+        fsutil.replace(self.tmp, self.final)
 
     def abort(self):
         try: self.p.kill()
         except Exception: pass
-        self.tmp.unlink(missing_ok=True)
+        fsutil.unlink(self.tmp)

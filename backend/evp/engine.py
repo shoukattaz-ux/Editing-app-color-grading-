@@ -1,5 +1,6 @@
 """Blueprint Execution Engine: validate -> plan -> compile -> run (progress/pause/resume/cancel/retry)."""
 from __future__ import annotations
+from . import fsutil
 from . import proc
 import os, shutil, signal, subprocess, tempfile, threading, time, uuid
 from dataclasses import dataclass, field
@@ -306,7 +307,7 @@ class Job:
                 self.state = "cancelled"; self.current = "cancelled"
                 _rm(tmp_out)
             elif ok:
-                os.replace(tmp_out, self.out_path)
+                fsutil.replace(tmp_out, self.out_path)
                 self.progress, self.state, self.current, self.eta = 1.0, "done", "finished", 0
             else:
                 self.state = "failed"

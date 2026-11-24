@@ -8,6 +8,7 @@
   rate-limited and de-duplicated so a failing loop cannot flood the bucket.
 """
 from __future__ import annotations
+from . import fsutil
 from . import proc
 import datetime as _dt, hashlib, hmac, io, json, os, platform, re, threading, time, urllib.error, urllib.request, uuid, zipfile
 from pathlib import Path
@@ -121,7 +122,7 @@ class Reporter:
         tmp = self.cfg_path.with_suffix(".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f: json.dump(c, f)
-        os.replace(tmp, self.cfg_path)
+        fsutil.replace(tmp, self.cfg_path)
         try: os.chmod(self.cfg_path, 0o600)
         except OSError: pass
 
