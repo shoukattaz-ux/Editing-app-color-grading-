@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+permissions:
+  contents: write
 jobs:
   windows:
     runs-on: windows-latest
@@ -45,3 +47,13 @@ jobs:
           name: EVP-Editor-Windows
           path: |
             release/*.exe
+      - name: Publish a downloadable release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: installer-${{ github.run_number }}
+          name: EVP Editor installer (build ${{ github.run_number }})
+          prerelease: true
+          files: release/*.exe
+          body: |
+            Windows installer built from commit ${{ github.sha }}.
+            Download the file named "EVP Editor Setup ... .exe" and run it. Windows SmartScreen may warn because the app is not code-signed: choose More info > Run anyway.
