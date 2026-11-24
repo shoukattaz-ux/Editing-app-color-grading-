@@ -478,6 +478,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             f.append(f"eq=saturation={1 + 0.25 * d:.4f}:contrast={1 + 0.12 * d:.4f}")
         if p["texture"]:   # luma-only unsharp at a finer radius than studio_look's clarity (13); negative = mid-frequency smoothing
             f.append(f"unsharp=lx=7:ly=7:la={1.5 * p['texture']:.3f}:cx=7:cy=7:ca=0")
+        if p["clarity"]:   # luma-only wide-radius unsharp (same radius studio_look uses for its clarity)
+            f.append(f"unsharp=lx=13:ly=13:la={0.9 * p['clarity']:.3f}:cx=13:cy=13:ca=0")
         if p["lift"] or p["gamma_rgb"] or p["gain"]:
             f.append(lgg_filter(p["lift"] or [0, 0, 0], p["gamma_rgb"] or [0, 0, 0], p["gain"] or [0, 0, 0]))
         cv = [f"{n}='{curve_str(p[k])}'" for n, k in (("master", "curve_master"), ("red", "curve_red"),

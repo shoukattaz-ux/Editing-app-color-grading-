@@ -772,6 +772,13 @@
                       "maximum": 1.0,
                       "default": 0.0
                     },
+                    "clarity": {
+                      "description": "Broad local contrast on the brightness only (punch, depth): + adds it, - softens it to a dreamy look. Wider than texture; colour is untouched.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
                     "dehaze": {
                       "description": "+ removes a milky veil (deeper blacks, more contrast and colour in hazy areas), - adds haze. A global approximation: one curve for the whole frame, not a per-pixel haze map.",
                       "type": "number",

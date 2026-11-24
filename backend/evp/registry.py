@@ -104,6 +104,7 @@ _COLOR_PARAMS = {
     "vibrance": Param(N, 0.0, -2.0, 2.0),
     "gamma": Param(N, 1.0, 0.1, 5.0),
     "texture": Param(N, 0.0, -1.0, 1.0, desc="Fine/medium detail on the brightness only (skin pores, fabric, hair): + sharpens it, - smooths it. Colour is untouched. Between sharpen (finest) and clarity (broad)."),
+    "clarity": Param(N, 0.0, -1.0, 1.0, desc="Broad local contrast on the brightness only (punch, depth): + adds it, - softens it to a dreamy look. Wider than texture; colour is untouched."),
     "dehaze": Param(N, 0.0, -1.0, 1.0, desc="+ removes a milky veil (deeper blacks, more contrast and colour in hazy areas), - adds haze. A global approximation: one curve for the whole frame, not a per-pixel haze map."),
     "lift": Param(PT, None, desc="[r,g,b] each -1..1. Lift: out = in + lift*(1-in): moves the black point per channel, white stays. Equal values = brightness of the shadows; unequal = colour cast in the shadows (colour wheel)."),
     "gamma_rgb": Param(PT, None, desc="[r,g,b] each -1..1. Gamma: out = in ** 2**(-gamma): bends the midtones per channel, black and white stay (+ brightens). Colour wheel for the midtones."),
@@ -286,6 +287,7 @@ _REASONS: dict[tuple[str, str], str] = {
     ("video_enhancement", "denoise"): "the denoiser keeps temporal state and its strength cannot be changed per frame exactly",
     ("video_enhancement", "sharpen"): "the sharpen filter has no per-frame control",
     ("color_grading", "texture"): "the unsharp filter has no per-frame control",
+    ("color_grading", "clarity"): "the unsharp filter has no per-frame control",
     ("color_grading", "dehaze"): "it is built from curves and eq values that are fixed per render in this version",
     ("color_grading", "lut_intensity"): "per-frame LUT blending is not frame-exact in FFmpeg",
 }

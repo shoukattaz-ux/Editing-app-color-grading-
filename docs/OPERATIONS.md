@@ -104,6 +104,7 @@ Timeline track: **effects**
 | `vibrance` ◆ | number | `0.0` | -2.0 … 2.0 |  |
 | `gamma` ◆ | number | `1.0` | 0.1 … 5.0 |  |
 | `texture` | number | `0.0` | -1.0 … 1.0 | Fine/medium detail on the brightness only (skin pores, fabric, hair): + sharpens it, - smooths it. Colour is untouched. Between sharpen (finest) and clarity (broad). |
+| `clarity` | number | `0.0` | -1.0 … 1.0 | Broad local contrast on the brightness only (punch, depth): + adds it, - softens it to a dreamy look. Wider than texture; colour is untouched. |
 | `dehaze` | number | `0.0` | -1.0 … 1.0 | + removes a milky veil (deeper blacks, more contrast and colour in hazy areas), - adds haze. A global approximation: one curve for the whole frame, not a per-pixel haze map. |
 | `lift` | points |  |  | [r,g,b] each -1..1. Lift: out = in + lift*(1-in): moves the black point per channel, white stays. Equal values = brightness of the shadows; unequal = colour cast in the shadows (colour wheel). |
 | `gamma_rgb` | points |  |  | [r,g,b] each -1..1. Gamma: out = in ** 2**(-gamma): bends the midtones per channel, black and white stay (+ brightens). Colour wheel for the midtones. |

@@ -94,6 +94,14 @@ def test_texture_changes_detail_and_keeps_colour(prep, media):
     assert abs(up.mean(axis=(0, 1)) - base.mean(axis=(0, 1))).max() < 3                   # overall colour/brightness unchanged
 
 
+def test_clarity_changes_local_contrast_keeps_colour(prep, media):
+    import numpy as np
+    base, up, down = _ld(prep, media, None), _ld(prep, media, {"clarity": 1.0}), _ld(prep, media, {"clarity": -1.0})
+    lc = lambda a: np.abs(a - np.asarray(__import__("cv2").GaussianBlur(a, (0, 0), 6))).mean()   # deviation from the local average
+    assert lc(up) > lc(base) > lc(down)
+    assert abs(up.mean(axis=(0, 1)) - base.mean(axis=(0, 1))).max() < 3
+
+
 def test_dehaze_removes_veil_and_negative_adds_it(prep, media):
     import numpy as np
     hazy, clear, hazier = (_ld(prep, media, {"dehaze": v} if v else None, veil=True).mean(axis=2) for v in (0.0, 1.0, -1.0))
