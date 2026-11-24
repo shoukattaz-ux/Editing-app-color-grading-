@@ -39,6 +39,8 @@ class VideoInfo:
     height: int
     has_audio: bool = True
     codec: str = ""
+    color_space: str = ""      # ffprobe's tag (bt709, smpte170m, ...); empty = untagged
+    color_range: str = ""      # tv | pc | empty
 
 
 @dataclass

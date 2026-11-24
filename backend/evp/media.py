@@ -68,7 +68,9 @@ def probe(path: str | Path) -> VideoInfo:
         w, h = h, w
     return VideoInfo(duration=dur, fps=round(fps, 3), width=w, height=h,
                      has_audio=any(s.get("codec_type") == "audio" for s in info["streams"]),
-                     codec=v.get("codec_name", ""))
+                     codec=v.get("codec_name", ""),
+                     color_space=v.get("color_space", "") or "",
+                     color_range=("pc" if str(v.get("pix_fmt", "")).startswith("yuvj") else (v.get("color_range", "") or "")))
 
 
 @functools.lru_cache(maxsize=1)

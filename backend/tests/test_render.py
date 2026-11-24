@@ -296,3 +296,78 @@ def test_lift_only_moves_shadows_gain_never_moves_black_gamma_keeps_both_ends(pr
     assert abs(gain[0]) <= 2 and gain[100] > 15                                          # black stays, mids/highs scale
     gam = row({"gamma_rgb": [0.4, 0.4, 0.4]}) - base
     assert abs(gam[0]) <= 2 and abs(gam[255]) <= 2 and 20 < gam[128] < 27            # ends fixed, midtones lifted by 255*(0.5**(2**-0.4)-0.5) = 23.3
+
+
+# ---------------------------------------------------------------- colour fidelity (4:4:4 pipeline, explicit matrix)
+def _bars(path, tagged709):
+    """lossless 4:2:0 clip of hard colour bars on the chroma grid; optionally BT.709-coded and tagged"""
+    g = ("color=c=red:s=320x180:r=25:d=2[a];color=c=0x00c800:s=80x180:r=25:d=2[b];color=c=blue:s=80x180:r=25:d=2[c];color=c=magenta:s=80x180:r=25:d=2[d];"
+         "[a][b]overlay=x=80[x];[x][c]overlay=x=160[y];[y][d]overlay=x=240,format=rgb24")
+    g += ",scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p" if tagged709 else ",format=yuv420p"
+    tags = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"] if tagged709 else []
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-filter_complex", g, "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", *tags, str(path)], check=True)
+    return str(path)
+
+
+def _planes(path):
+    raw = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"], capture_output=True).stdout
+    w, h = 320, 180
+    a = np.frombuffer(raw, np.uint8).reshape(-1, w * h * 3 // 2).astype(int)
+    return a[:, :w * h].reshape(-1, h, w), a[:, w * h:w * h * 5 // 4].reshape(-1, h // 2, w // 2), a[:, w * h * 5 // 4:].reshape(-1, h // 2, w // 2)
+
+
+def _render_file(tmp_path, src, ops, name):
+    from evp.security import PathPolicy
+    from evp.engine import prepare
+    p = prepare(bp(ops=ops, output={"resolution": "source", "fps": "source", "crf": 0, "preset": "ultrafast"}), src, PathPolicy([tmp_path]), tmp_path)
+    assert p.plan, [e.message for e in p.report.errors]
+    out = tmp_path / f"{name}.mp4"
+    j = Job(p.plan, src, str(out), RenderOptions(crf=0, preset="ultrafast"), str(tmp_path)); j.run()
+    assert j.state == "done", j.error
+    return out
+
+
+def test_neutral_effect_leaves_frames_outside_its_range_bit_exact(tmp_path):
+    """Regression: an RGB-domain filter used to resample chroma on EVERY frame, even where the effect is off"""
+    src = _bars(tmp_path / "bars.mp4", False)
+    neutral = [{"id": "g", "type": "color_grading", "start": 1.0, "end": 2.0, "keyframes": {"exposure": [{"time": 0, "value": 0.0}, {"time": 1, "value": 0.0}]}}]
+    plain, with_fx = _planes(_render_file(tmp_path, src, [], "plain")), _planes(_render_file(tmp_path, src, neutral, "neutral"))
+    for a, b in zip(plain, with_fx):
+        assert np.array_equal(a[:25], b[:25]), "frames outside the effect's range changed"        # untouched
+        assert np.abs(a[26:49] - b[26:49]).max() <= 1, "a neutral effect must not change the picture inside its range either"
+
+
+def test_plain_pipeline_is_bit_exact(tmp_path):
+    src = _bars(tmp_path / "bars.mp4", True)
+    for a, b in zip(_planes(src), _planes(_render_file(tmp_path, src, [], "plain"))):
+        assert np.array_equal(a, b)
+
+
+@pytest.mark.parametrize("tagged709", [True, False])
+@pytest.mark.parametrize("name,params,fn", [
+    ("gain", {"gain": [-0.2, -0.2, -0.2]}, lambda r, g, b: (0.8 * r, 0.8 * g, 0.8 * b)),
+    ("lift", {"lift": [0, 0, 0.1]}, lambda r, g, b: (r, g, b + 0.1 * (1 - b))),
+])
+def test_rgb_effects_match_an_independent_float_calculation_on_hard_colour_edges(tmp_path, tagged709, name, params, fn):
+    """The picture after an RGB effect equals: full-resolution chroma -> RGB (correct matrix) -> effect -> YUV -> 2x2 chroma mean.
+    A 4:2:0->RGB->4:2:0 round trip, or the wrong matrix (601 for HD footage), misses this by 10-30 levels at the colour edges."""
+    src = _bars(tmp_path / "bars.mp4", tagged709)
+    kr, kb = (0.2126, 0.0722) if tagged709 else (0.299, 0.114)
+    out = _planes(_render_file(tmp_path, src, [{"id": "g", "type": "color_grading", "start": 0, "end": 2, "parameters": params}], "fx"))
+    Y, U, V = (p[10:40].astype(float) for p in _planes(src))
+    up = lambda c: np.repeat(np.repeat(c, 2, axis=-2), 2, axis=-1)
+    y, cb, cr = (Y - 16) / 219, (up(U) - 128) / 224, (up(V) - 128) / 224
+    r, b = y + 2 * (1 - kr) * cr, y + 2 * (1 - kb) * cb
+    g = (y - kr * r - kb * b) / (1 - kr - kb)
+    r, g, b = (np.clip(x, 0, 1) for x in fn(*(np.clip(x, 0, 1) for x in (r, g, b))))
+    y2 = kr * r + (1 - kr - kb) * g + kb * b
+    ref = (16 + 219 * y2, 128 + 224 * (b - y2) / (2 * (1 - kb)), 128 + 224 * (r - y2) / (2 * (1 - kr)))
+    ref = (ref[0], *(((c[..., 0::2, 0::2] + c[..., 0::2, 1::2] + c[..., 1::2, 0::2] + c[..., 1::2, 1::2]) / 4) for c in ref[1:]))
+    for plane, o, r_ in zip("YUV", out, ref):
+        assert np.abs(o[10:40] - np.floor(r_ + 0.5)).max() <= 2, f"{name} {plane}"
+
+
+def test_output_is_tagged_with_the_matrix_it_was_encoded_with(tmp_path):
+    out = _render_file(tmp_path, _bars(tmp_path / "bars.mp4", True), [{"id": "g", "type": "color_grading", "start": 0, "parameters": {"gain": [-0.1, 0, 0]}}], "tag")
+    v = json.loads(subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", str(out)], capture_output=True, text=True).stdout)["streams"][0]
+    assert (v["color_space"], v["color_range"], v["pix_fmt"]) == ("bt709", "tv", "yuv420p")

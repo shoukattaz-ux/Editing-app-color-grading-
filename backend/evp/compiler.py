@@ -62,6 +62,61 @@ def lgg_filter(lift, gamma, gain) -> str:
     return "lutrgb=r=" + ex[0] + ":g=" + ex[1] + ":b=" + ex[2]
 
 
+RGB_FILTERS = {"exposure", "curves", "colorchannelmixer", "vibrance", "lutrgb", "lut3d", "colorbalance"}
+
+
+def fname(f: str) -> str:
+    return f.split("=", 1)[0].split("@", 1)[0]
+
+
+class ColorSpec:
+    """The clip's YUV<->RGB matrix and range, made explicit.
+
+    FFmpeg's automatic conversions decode with the frame's tag but encode RGB with BT.601 whatever the tag says, so every
+    RGB-domain step on HD footage would shift colours. All conversions in the graph therefore name the matrix. The graph
+    is 4:4:4 between the (lossless) chroma upsample at the start and the single chroma downsample at the end.
+    """
+    def __init__(self, matrix: str, rng: str):
+        self.matrix, self.range = matrix, rng
+
+    @staticmethod
+    def of(vid) -> "ColorSpec":
+        tag = (getattr(vid, "color_space", "") or "").lower()
+        if tag == "bt709": m = "bt709"
+        elif tag in ("smpte170m", "bt470bg", "bt470m"): m = "bt601"
+        elif tag.startswith("bt2020"): m = "bt2020"
+        else: m = "bt709" if vid.height >= 720 else "bt601"       # untagged: players assume 709 for HD, 601 for SD
+        # the working range is always limited ("tv"): full-range sources (phones: yuvj420p) are squeezed once on entry, as always
+        return ColorSpec(m, "tv")
+
+    def tag_filter(self) -> str:
+        cs, pr = {"bt709": ("bt709", "bt709"), "bt601": ("smpte170m", "smpte170m"), "bt2020": ("bt2020nc", "bt2020")}[self.matrix]
+        return f"setparams=colorspace={cs}:color_primaries={pr}:range={self.range}"
+
+    def to_444(self) -> str:                       # 4:2:0 -> 4:4:4 by duplication: lossless, undone exactly by finish()
+        return "scale=flags=neighbor+accurate_rnd,format=yuv444p"
+
+    def yuv_to_rgb(self, fmt: str = "gbrp16le") -> str:
+        return f"scale=in_color_matrix={self.matrix}:in_range={self.range},format={fmt}"
+
+    def rgb_to_yuv(self, fmt: str = "yuv444p") -> str:
+        return f"scale=out_color_matrix={self.matrix}:out_range={self.range},format={fmt}"
+
+    def wrap_rgb(self, filters: list[str]) -> list[str]:
+        """put each run of RGB-domain filters between a YUV->RGB and an RGB->YUV conversion (16-bit RGB inside)"""
+        out: list[str] = []; run: list[str] = []
+        def flush():
+            if run: out.extend([self.yuv_to_rgb(), *run, self.rgb_to_yuv()]); run.clear()
+        for f in filters:
+            if fname(f) in RGB_FILTERS: run.append(f)
+            else: flush(); out.append(f)
+        flush()
+        return out
+
+    def finish(self, fmt: str) -> str:             # the one chroma downsample (box average) + tags for players and the encoder
+        return f"scale=flags=area+accurate_rnd+full_chroma_int,format={fmt},{self.tag_filter()}"
+
+
 def curve_str(pts) -> str:
     return " ".join(f"{x:g}/{y:g}" for x, y in pts)
 
@@ -100,6 +155,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         H = max(2, int(round(out.height * W / out.width)) // 2 * 2)
     half = 0.5 / fps
     g = _Graph()
+    cs = ColorSpec.of(vid)
     inputs: list[list[str]] = []
     work_files: list[str] = []
     asset_input: dict[str, int] = {}
@@ -153,21 +209,24 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if en is None: return build(cur)
         keep, work = g.split(cur)
         proc = build(work)
-        return g.add([keep, proc], f"overlay=enable='{en}':shortest=1,format=yuv420p")
+        return g.add([keep, proc], f"overlay=enable='{en}':shortest=1:format=yuv444,format=yuv444p")
 
     def apply_ranged(cur: str, filters: list[str], op: Operation, pre: list[str] | None = None) -> str:
         """pre = filters (sendcmd) that must run in the same chain, in front, without a time range of their own"""
         pre = pre or []
         if not filters: return cur
         en = enable(op)
-        if en is None: return g.add([cur], ",".join([*pre, *filters]))
-        if all(supports_timeline(f.split("=", 1)[0].split("@", 1)[0]) for f in filters):
+        chain = lambda: ",".join([*pre, *cs.wrap_rgb(filters)])
+        if en is None: return g.add([cur], chain())
+        # RGB-domain filters sit inside a conversion pair; `enable` can't skip that pair, so frames outside the
+        # range would still be round-tripped. A split + overlay copies them untouched instead.
+        if not any(fname(f) in RGB_FILTERS for f in filters) and all(supports_timeline(fname(f)) for f in filters):
             return g.add([cur], ",".join([*pre, *(f"{f}:enable='{en}'" for f in filters)]))
-        return ranged_block(cur, op, lambda s: g.add([s], ",".join([*pre, *filters])))
+        return ranged_block(cur, op, lambda s: g.add([s], chain()))
 
     # ---- base: source -> constant fps, output size
     fit = (f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
-           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv420p")
+           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,{cs.to_444()},{cs.tag_filter()}")
     if pieces is None:
         cur = g.add(["0:v"], f"fps={fps:g},setpts=N+{seek_f}," + fit, "v0")
     else:
@@ -207,7 +266,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 # take the model's foreground colour only in semi-transparent edges (weight = (1-alpha)*4), keep the
                 # (possibly already processed) frame elsewhere
                 w = g.add([m_edge], "lut=y='clip((255-val)*4\\,0\\,255)',format=gray")
-                a_rgb, b_rgb = g.add([src], "format=gbrp"), g.add([fg], "format=gbrp")
+                a_rgb, b_rgb = g.add([src], cs.yuv_to_rgb("gbrp")), g.add([fg], "format=gbrp")
                 colour = g.add([a_rgb, b_rgb, g.add([w], "format=gbrp")], "maskedmerge")
             return g.add([g.add([colour], "format=rgba"), m], "alphamerge,format=rgba")
         erode, feather = p.get("edge_erode", 0), p.get("edge_feather", 0.0)
@@ -222,7 +281,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         dom = _dominant(p["key_color"])
         if p["spill_suppression"] and dom:
             chain.append(an.add("despill", ("spill_strength",), lambda q: {"type": dom, "mix": f"{q['spill_strength']:.3f}", "expand": "0"}))
-        chain.append("format=rgba")
+        chain.append(cs.yuv_to_rgb("rgba"))
         keyed = g.add([src], ",".join([*an.sendcmd(), *chain]))
         if erode or feather > 0:
             a, b = g.split(keyed)
@@ -266,7 +325,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     def composite(cur: str, k: Operation, r: Operation | None) -> str:
         rng = r or k
         def build(src: str) -> str:
-            return g.add([bg_stream(r, k), make_keyed(src, k)], "overlay=shortest=1:format=auto,format=yuv420p")
+            return g.add([bg_stream(r, k), make_keyed(src, k)], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
         return ranged_block(cur, rng, build)
 
     pre_cmd: list[list[str]] = [[]]          # sendcmd filter(s) produced by the last grade_filters() call
@@ -330,7 +389,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 lut_path, k = esc_path(bp.assets[lut_id].resolved), p["lut_intensity"]
                 def build(src: str) -> str:
                     a, b = g.split(src)
-                    return g.add([g.add([b], f"lut3d=file='{lut_path}'"), a], f"blend=all_mode=normal:all_opacity={k:.3f}")  # first input is the "top" layer
+                    return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={k:.3f}")  # first input is the "top" layer
                 cur = ranged_block(cur, op, build)
         elif t in ("face_tone_correction", "face_relighting"):
             ref = plan.face_controls.get(op.id)
@@ -348,7 +407,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 mx = an.add("colorchannelmixer", ("warmth", "tint"), face_mixer, lambda q: bool(q["warmth"] or q["tint"]))
                 sat = an.add("eq", ("saturation",), lambda q: {"saturation": f"{q['saturation']:.4f}"}, lambda q: q["saturation"] != 1)
                 if mx: tone.append(mx)
-                if sat: tone.append(sat + ",format=gbrp")
+                if sat: tone.append(sat)
                 tone_pre = an.sendcmd()
             mr, mg, mb = g.label("m"), g.label("m"), g.label("m")
             if tone: g.parts.append(f"[{ctrl}]extractplanes=r+g+b[{mr}][{mg}][{mb}]")
@@ -356,30 +415,28 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             # Work in yuv444p so pixels with zero weight pass through bit-exactly (no RGB round trip);
             # only the corrected branch goes through RGB. Masks are replicated into Y, U and V.
             # nearest-neighbour 4:2:0 <-> 4:4:4 is an exact round trip (duplicate chroma, then pick it back)
-            cur = g.add([cur], "scale=iw:ih:flags=neighbor,format=yuv444p")
 
             def masked(cur: str, rgb_chain: str, mask: str) -> str:
                 a, b = g.split(cur)
-                fx = g.add([b], f"format=gbrp,{rgb_chain},format=yuv444p")
+                fx = g.add([b], f"{cs.yuv_to_rgb()},{rgb_chain},{cs.rgb_to_yuv()}")
                 m1, m2, m3 = g.label("q"), g.label("q"), g.label("q")
                 g.parts.append(f"[{mask}]split=3[{m1}][{m2}][{m3}]")
                 mk = g.add([m1, m2, m3], "mergeplanes=0x001020:yuv444p")
                 return g.add([a, fx, mk], "maskedmerge")
 
             if tone: cur = masked(cur, ",".join([*tone_pre, *tone]), mr)
-            gain = lambda k: "lutrgb=" + ":".join(f"{c}='clip(val*{k}\\,0\\,255)'" for c in "rgb")
+            gain = lambda k: "lutrgb=" + ":".join(f"{c}='clip(val*{k}\\,0\\,maxval)'" for c in "rgb")
             cur = masked(cur, gain(4), mg)      # = face.UP_GAIN
             cur = masked(cur, gain(0.25), mb)   # = face.DOWN_GAIN
-            cur = g.add([cur], "scale=iw:ih:flags=neighbor,format=yuv420p")
         elif t == "ai_upscale":
             ref = plan.upscales.get(op.id)
             if ref is None:
                 raise RuntimeError(f"AI upscale for '{op.id}' was not generated")
             inputs.append(["-i", ref.path])
             u = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:start_mode=add:stop_mode=add:color=black,"
-                      f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=lanczos,setsar=1,format=yuv420p")
+                      f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=lanczos:out_color_matrix={cs.matrix}:out_range={cs.range},setsar=1,format=yuv444p")
             en = enable(op)
-            cur = g.add([cur, u], (f"overlay=enable='{en}':shortest=1" if en else "overlay=shortest=1") + ",format=yuv420p")
+            cur = g.add([cur, u], (f"overlay=enable='{en}':shortest=1:format=yuv444" if en else "overlay=shortest=1:format=yuv444") + ",format=yuv444p")
         elif t == "video_enhancement":
             f = []
             if p["stabilize"]: f.append(f"deshake=rx={p['stabilize_strength']}:ry={p['stabilize_strength']}")
@@ -415,7 +472,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         else:
             raise RuntimeError(f"compiler has no handler for '{t}' (registry/compiler mismatch)")
 
-    g.add([cur], "format=yuv420p", "vout")
+    g.add([cur], cs.finish("yuv422p10le" if (out.codec == "prores" and not opts.scale_width) else "yuv420p"), "vout")
     if pieces is not None and vid.has_audio and opts.audio and not opts.frame_only:
         # audio follows the same cuts, sample-accurately; a 4 ms fade at every real joint avoids clicks
         FADE = 0.004
