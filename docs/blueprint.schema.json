@@ -538,6 +538,64 @@
                       "maximum": 3.0,
                       "default": 1.0,
                       "x-animatable": true
+                    },
+                    "subject_scale": {
+                      "description": "Resize the keyed subject (1 = as filmed). Above 1 is safe; below 1 reveals the footage's own frame edge where the person touches it (shoulders), see SUBJECT_EDGE_VISIBLE.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 2.5,
+                      "default": 1.0
+                    },
+                    "subject_x": {
+                      "description": "Move the subject sideways, fraction of frame width.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "subject_y": {
+                      "description": "Move the subject up (-) or down (+), fraction of frame height.",
+                      "type": "number",
+                      "minimum": -1.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "subject_anchor": {
+                      "description": "Point that stays put when the subject is resized. 'bottom' keeps the cut-off shoulders on the frame's bottom edge.",
+                      "type": "string",
+                      "enum": [
+                        "bottom",
+                        "center"
+                      ],
+                      "default": "bottom"
+                    },
+                    "shadow": {
+                      "description": "Opacity of a soft cast shadow of the subject on the background (0 = off).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "shadow_blur": {
+                      "description": "Softness of the shadow; bigger = a wall further behind the subject.",
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 100.0,
+                      "default": 28.0
+                    },
+                    "shadow_dx": {
+                      "description": "Shadow offset sideways, fraction of frame width (opposite the key light).",
+                      "type": "number",
+                      "minimum": -0.3,
+                      "maximum": 0.3,
+                      "default": 0.03
+                    },
+                    "shadow_dy": {
+                      "description": "Shadow offset downward, fraction of frame height.",
+                      "type": "number",
+                      "minimum": -0.3,
+                      "maximum": 0.3,
+                      "default": 0.02
                     }
                   },
                   "additionalProperties": false

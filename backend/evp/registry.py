@@ -152,7 +152,15 @@ _reg(OpSpec("background_replacement", "Background Replacement", "Compositing", S
              "offset_y": Param(N, 0.0, -1.0, 1.0, desc="Vertical shift as fraction of frame height."),
              "blur": Param(N, 0.0, 0.0, 50.0, unit="px", desc="Gaussian background blur (fake depth of field)."),
              "brightness": Param(N, 0.0, -1.0, 1.0, desc="Background brightness to match the subject."),
-             "saturation": Param(N, 1.0, 0.0, 3.0, desc="Background saturation to match the subject.")}))
+             "saturation": Param(N, 1.0, 0.0, 3.0, desc="Background saturation to match the subject."),
+             "subject_scale": Param(N, 1.0, 0.3, 2.5, desc="Resize the keyed subject (1 = as filmed). Above 1 is safe; below 1 reveals the footage's own frame edge where the person touches it (shoulders), see SUBJECT_EDGE_VISIBLE."),
+             "subject_x": Param(N, 0.0, -1.0, 1.0, desc="Move the subject sideways, fraction of frame width."),
+             "subject_y": Param(N, 0.0, -1.0, 1.0, desc="Move the subject up (-) or down (+), fraction of frame height."),
+             "subject_anchor": Param(E, "bottom", enum=("bottom", "center"), desc="Point that stays put when the subject is resized. 'bottom' keeps the cut-off shoulders on the frame's bottom edge."),
+             "shadow": Param(N, 0.0, 0.0, 1.0, desc="Opacity of a soft cast shadow of the subject on the background (0 = off)."),
+             "shadow_blur": Param(N, 28.0, 1.0, 100.0, unit="px at 1080p", desc="Softness of the shadow; bigger = a wall further behind the subject."),
+             "shadow_dx": Param(N, 0.03, -0.3, 0.3, desc="Shadow offset sideways, fraction of frame width (opposite the key light)."),
+             "shadow_dy": Param(N, 0.02, -0.3, 0.3, desc="Shadow offset downward, fraction of frame height.")}))
 _reg(OpSpec("color_grading", "Color Grading", "Color", STAGE_GRADE, "effects",
             "Exposure, contrast, tone, white balance, saturation, LGG, RGB curves, LUT, presets.", _COLOR_PARAMS))
 _reg(OpSpec("studio_look", "Studio Look", "Color", STAGE_LOOK, "effects",

@@ -448,3 +448,43 @@ def test_studio_look_reference_picture_pulls_the_render_toward_it(prep, media):
     ref = cv2.imread(str(media["dir"] / "bg.png"))[:, :, ::-1].reshape(-1, 3).mean(0)
     mean = lambda png: cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1].reshape(-1, 3).mean(0)
     assert np.abs(mean(on) - ref).sum() < np.abs(mean(off) - ref).sum()
+
+
+# ---------------------------------------------------------------- subject transform + cast shadow
+def _repl(**params):
+    return {**REPL, "parameters": {"asset_id": "bg", **params}}
+
+
+def test_subject_can_be_moved_and_resized(prep, media):
+    base = frame(prep, media, [KEY, _repl()], 1.0)
+    moved = frame(prep, media, [KEY, _repl(subject_x=0.25, subject_scale=1.3)], 1.0)
+    is_subject = lambda p: p[0] > 150 and p[1] > 100 and p[2] < 160 and p[0] > p[2]          # the disc is orange-ish
+    assert is_subject(pixel(base, 160, 90)) and not is_subject(pixel(base, 250, 90))
+    assert is_subject(pixel(moved, 250, 90))                                                    # now there
+    assert pixel(moved, 5, 5) == pixel(base, 5, 5) or max(abs(a - b) for a, b in zip(pixel(moved, 5, 5), pixel(base, 5, 5))) <= 2   # background untouched
+
+
+def test_default_subject_settings_change_nothing(prep, media):
+    a = pixel(frame(prep, media, [KEY, _repl()], 1.0), 160, 90)
+    b = pixel(frame(prep, media, [KEY, _repl(subject_scale=1.0, subject_x=0.0, shadow=0.0)], 1.0), 160, 90)
+    assert a == b
+
+
+def test_cast_shadow_only_darkens_the_background_beside_the_subject(prep, media):
+    off = frame(prep, media, [KEY, _repl()], 1.0)
+    on = frame(prep, media, [KEY, _repl(shadow=0.8, shadow_blur=6, shadow_dx=0.12, shadow_dy=0.0)], 1.0)
+    o = cv2.imdecode(np.frombuffer(off, np.uint8), 1).astype(int); n = cv2.imdecode(np.frombuffer(on, np.uint8), 1).astype(int)
+    diff = (n - o).sum(2)
+    assert diff.min() < -60, "no shadow appeared"
+    assert (diff > 12).sum() < 0.002 * diff.size, "a shadow must never brighten the picture"
+    assert max(abs(a - b) for a, b in zip(pixel(on, 160, 90), pixel(off, 160, 90))) <= 3       # the subject itself is not darkened
+    assert np.abs(diff[:4, :4]).max() <= 3                                                      # far corner untouched: no veil from the padding
+
+
+def test_subject_edge_visible_warning(prep):
+    def codes(**params):
+        return {w.code for w in prep(bp(ops=[KEY, _repl(**params)], assets=ASSETS)).report.warnings}
+    assert "SUBJECT_EDGE_VISIBLE" in codes(subject_scale=0.8)
+    assert "SUBJECT_EDGE_VISIBLE" in codes(subject_scale=1.05, subject_x=0.2)
+    assert "SUBJECT_EDGE_VISIBLE" not in codes(subject_scale=1.3, subject_x=0.1)
+    assert "SUBJECT_EDGE_VISIBLE" not in codes()

@@ -65,6 +65,14 @@ Timeline track: **background**
 | `blur` | number | `0.0` | 0.0 … 50.0 px | Gaussian background blur (fake depth of field). |
 | `brightness` ◆ | number | `0.0` | -1.0 … 1.0 | Background brightness to match the subject. |
 | `saturation` ◆ | number | `1.0` | 0.0 … 3.0 | Background saturation to match the subject. |
+| `subject_scale` | number | `1.0` | 0.3 … 2.5 | Resize the keyed subject (1 = as filmed). Above 1 is safe; below 1 reveals the footage's own frame edge where the person touches it (shoulders), see SUBJECT_EDGE_VISIBLE. |
+| `subject_x` | number | `0.0` | -1.0 … 1.0 | Move the subject sideways, fraction of frame width. |
+| `subject_y` | number | `0.0` | -1.0 … 1.0 | Move the subject up (-) or down (+), fraction of frame height. |
+| `subject_anchor` | enum | `bottom` | bottom, center | Point that stays put when the subject is resized. 'bottom' keeps the cut-off shoulders on the frame's bottom edge. |
+| `shadow` | number | `0.0` | 0.0 … 1.0 | Opacity of a soft cast shadow of the subject on the background (0 = off). |
+| `shadow_blur` | number | `28.0` | 1.0 … 100.0 px at 1080p | Softness of the shadow; bigger = a wall further behind the subject. |
+| `shadow_dx` | number | `0.03` | -0.3 … 0.3 | Shadow offset sideways, fraction of frame width (opposite the key light). |
+| `shadow_dy` | number | `0.02` | -0.3 … 0.3 | Shadow offset downward, fraction of frame height. |
 
 ## `color_grading` — Color Grading
 

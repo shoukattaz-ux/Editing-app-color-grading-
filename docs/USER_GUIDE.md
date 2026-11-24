@@ -24,6 +24,9 @@ The **Video** track shows your footage as clips. The original file is never chan
 * *Original* preview plays your cut timeline by jumping between clips (small hiccups at joins are normal there); *Edited* is the real result.
 * One video per project for now, and changing a cut recomputes AI effects (matting, face, upscaling) for that range, so make your cuts *before* running heavy AI.
 
+## Resize / move the subject and cast a shadow
+On `background_replacement`: `subject_scale`, `subject_x`, `subject_y` and `subject_anchor` (`bottom` keeps the cut-off shoulders on the frame's bottom edge) resize and reposition the keyed person; `shadow`, `shadow_blur`, `shadow_dx`, `shadow_dy` add a soft cast shadow on the background (offset away from the key light). Make the subject **larger** freely; making it **smaller** or moving it sideways shows the footage's own frame edge where the person touches it (shoulders) - the app warns with `SUBJECT_EDGE_VISIBLE`. The shadow is the subject's silhouette blurred and offset, i.e. a shadow on a wall behind the person; it does not model a floor or 3D light. These settings are not animatable.
+
 ## Studio Look: make a replaced background look real
 A cut-out subject on a new background looks pasted-on because the two were never lit together. Add one `studio_look` operation after the background replacement and the app does what a compositor does by hand:
 

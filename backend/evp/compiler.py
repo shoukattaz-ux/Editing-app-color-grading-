@@ -386,13 +386,41 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             tail.append(f"noise=alls={L['grain'] * 14:.2f}:allf=t+u")
         return g.add([rgb], ",".join(tail))
 
+    def place_subject(fg: str, p: dict) -> str:
+        """resize / move the keyed subject on a transparent canvas (so everything after it - integration, shadow - lines up with the result)"""
+        sw, sh_ = max(2, int(W * p["subject_scale"]) // 2 * 2), max(2, int(H * p["subject_scale"]) // 2 * 2)
+        x = round((W - sw) / 2 + p["subject_x"] * W)
+        y = round((H - sh_ if p["subject_anchor"] == "bottom" else (H - sh_) / 2) + p["subject_y"] * H)
+        big = g.add([fg], f"scale={sw}:{sh_}:flags=lanczos,format=rgba")
+        canvas = g.add([], f"color=c=black@0.0:s={W}x{H}:r={fps:g},format=rgba{shift}")
+        return g.add([canvas, big], f"overlay=x={x}:y={y}:shortest=1:format=auto,format=rgba")
+
+    def cast_shadow(fg: str, p: dict) -> str:
+        """the subject's silhouette, blurred, offset and darkened, as a transparent black layer to lay on the background"""
+        dx, dy = round(p["shadow_dx"] * W), round(p["shadow_dy"] * H)
+        m = max(abs(dx), abs(dy), 1)
+        # shift in RGBA with a transparent fill (a gray plane's "black" is 16, not 0, and would leave a veil at the vacated edges)
+        a = g.add([fg], f"pad={W + 2 * m}:{H + 2 * m}:{m + dx}:{m + dy}:black@0,crop={W}:{H}:{m}:{m},"
+                        f"alphaextract,gblur=sigma={max(0.5, p['shadow_blur'] * scale_px):.3f},lut=y='val*{p['shadow']:.4f}'")
+        black = g.add([], f"color=c=black:s={W}x{H}:r={fps:g},format=rgba{shift}")
+        return g.add([black, a], "alphamerge,format=rgba")
+
     def composite(cur: str, k: Operation, r: Operation | None) -> str:
         rng = r or k
         L = plan.look_for.get(r.id) if r else None
         look = resolve_look(L.params) if L else None
+        rp = r.params if r else {}
+        moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
+        shadow = bool(r) and rp["shadow"] > 0
         def build(src: str) -> str:
             bgs, fg = bg_stream(r, k), make_keyed(src, k)
+            if moved: fg = place_subject(fg, rp)
+            sh = None
+            if shadow:
+                fg, f_sh = splitn(fg, 2)
+                sh = cast_shadow(f_sh, rp)
             if look: bgs, fg = integrate(bgs, fg, look)
+            if sh: bgs = g.add([bgs, sh], "overlay=shortest=1:format=auto,format=rgba")
             return g.add([bgs, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
         return ranged_block(cur, rng, build)
 

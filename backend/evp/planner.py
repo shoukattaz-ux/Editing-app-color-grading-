@@ -127,6 +127,14 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
             if z < 1 + 2 * off - 1e-9:
                 rep.warn("BG_EDGE_VISIBLE", f"Background '{o.id}': with scale {z:g} and an offset up to {off:g} of the frame, the background image may not cover the frame "
                          f"and the background colour can show at the edges. Use scale >= {1 + 2 * off:g}" + (" (at every keyframe)" if o.keyframes else "") + ".", o.id)
+        if o.type == "background_replacement":
+            sc, sx, sy = o.params["subject_scale"], o.params["subject_x"], o.params["subject_y"]
+            side = sc < 1 or (sc - 1) / 2 < abs(sx) - 1e-9
+            bottom = (o.params["subject_anchor"] == "bottom" and (sc < 1 or sy < -(sc - 1) - 1e-9)) or \
+                     (o.params["subject_anchor"] == "center" and (sc < 1 or abs(sy) > (sc - 1) / 2 + 1e-9))
+            if side or bottom:
+                rep.warn("SUBJECT_EDGE_VISIBLE", f"Background '{o.id}': with subject_scale {sc:g}, subject_x {sx:g}, subject_y {sy:g} the footage's own frame edge becomes visible "
+                         f"({'left/right' if side else 'bottom'}) where the person touches it (shoulders, torso). Use subject_scale >= {1 + 2 * abs(sx):g} or reframe.", o.id)
         if o.type == "chroma_key" or o.type == "background_removal":
             kc = o.params["key_color"]
             if o.params.get("mode", "chroma") == "chroma" and o.params["spill_suppression"] and _dominant(kc) is None:
