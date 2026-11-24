@@ -1,12 +1,8 @@
 name: Desktop app
 on:
-  workflow_dispatch:
+  workflow_dispatch:                                # installer builds only when you start them (Actions tab > Desktop app > Run workflow)
   push:
-    branches: [ccr-1fd2c60d-4i1i2q, main]          # every code change on these branches builds and publishes an update
-    paths-ignore: ["docs/**", "**.md"]
-concurrency:
-  group: desktop-build
-  cancel-in-progress: true                          # a newer push replaces a build that is still running
+    tags: ["v*"]
 permissions:
   contents: write
 jobs:

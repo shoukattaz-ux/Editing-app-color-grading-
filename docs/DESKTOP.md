@@ -44,10 +44,11 @@ plus `latest.yml` and a block map (so updates download only the changed parts). 
 updated automatically. The updater only trusts files published to this repository's releases; Windows still shows the
 "unknown publisher" warning because builds are not code-signed (a signing certificate removes it).
 
-## How changes reach your installed app
-Every push to `ccr-1fd2c60d-4i1i2q` (or `main`) that changes code starts the **Desktop app** workflow by itself: it tests, builds,
-self-tests the packaged engine on Windows (create project, preview, export) and, only if all of that passes, publishes a new release.
-The installed app checks for updates shortly after it starts and every 4 hours (also: gear icon > About > Check for updates), asks
-before downloading, and asks again before restarting. So the routine is: code is pushed, wait about 6 minutes, open the app.
-A failing build publishes nothing, so a broken change never reaches the installed app. (An installed program cannot "pull" source
-code: Python and the interface are bundled inside it, which is why updates travel as a new release.)
+## Running the latest code from source (VS Code) - no installer needed
+Code changes are pushed to GitHub; you pull them and run the app from the source folder:
+```
+powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
+```
+It switches to the working branch, pulls, installs missing dependencies, rebuilds the interface and starts the desktop window.
+Needs Python 3.12, Node.js 20+ and FFmpeg on PATH. The installer (`scripts\build-windows.ps1` or the Desktop app workflow) is only
+for giving the app to a computer that has none of these; it is never needed for development.
