@@ -17,6 +17,8 @@ ASSET_EXT = {"image": {".png", ".jpg", ".jpeg", ".webp", ".bmp"},
              "video": {".mp4", ".mov", ".mkv", ".webm", ".avi"},
              "lut": {".cube", ".3dl"}}
 MAX_OPS = 2000
+MAX_CLIPS = 500
+MAX_REORDERED_PIECES = 48     # clips out of source order / overlapping each need their own decoder
 MAX_BYTES = 5_000_000
 
 
@@ -63,6 +65,16 @@ class Operation:
 
 
 @dataclass
+class Clip:
+    id: str
+    start: float              # source seconds, snapped to the output frame grid
+    end: float
+    start_frame: int          # half-open source frame range on the output-fps grid
+    end_frame: int
+    label: str = ""
+
+
+@dataclass
 class OutputSettings:
     width: int
     height: int
@@ -84,6 +96,8 @@ class Blueprint:
     output: OutputSettings
     assets: dict[str, Asset]
     operations: list[Operation]
+    clips: list[Clip] = field(default_factory=list)     # empty = the whole source, uncut
+    timeline_duration: float | None = None              # seconds; operations are timed against this
 
 
 @dataclass
@@ -214,7 +228,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
     ver = data.get("blueprint_version")
     if ver not in SUPPORTED_VERSIONS:
         rep.err("UNSUPPORTED_VERSION", f"blueprint_version {ver!r} not supported (supported: {', '.join(SUPPORTED_VERSIONS)})"); return rep
-    known = {"blueprint_version", "project", "output", "assets", "operations", "$schema", "video"}
+    known = {"blueprint_version", "project", "output", "assets", "operations", "clips", "$schema", "video"}
     for k in data:
         if k not in known: rep.warn("UNKNOWN_FIELD", f"Unknown top-level field '{k}' ignored", path=k)
 
@@ -304,6 +318,56 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                 rep.err("UNSAFE_PATH", f"Asset '{aid}': {e}", path=p)
         assets[aid] = asset
 
+    # ---- clips (edit decision list on the source video)
+    from . import edl as _edl
+    fps_grid = output.fps if output.fps else 30.0
+    clips: list[Clip] = []
+    raw_clips = data.get("clips")
+    if raw_clips is not None and not isinstance(raw_clips, list):
+        rep.err("INVALID_STRUCTURE", "'clips' must be an array", path="clips"); raw_clips = None
+    if raw_clips is not None and len(raw_clips) > MAX_CLIPS:
+        rep.err("TOO_MANY_CLIPS", f"At most {MAX_CLIPS} clips"); raw_clips = None
+    if raw_clips is not None and len(raw_clips) == 0:
+        rep.err("EMPTY_TIMELINE", "'clips' is empty: nothing would be left to render (omit 'clips' to use the whole video)", path="clips")
+    src_frames = round(vid.duration * fps_grid) if vid else None
+    clip_ids: set[str] = set()
+    for i, c in enumerate(raw_clips or []):
+        p = f"clips[{i}]"
+        if not isinstance(c, dict): rep.err("INVALID_STRUCTURE", f"{p} must be an object", path=p); continue
+        cid = c.get("id")
+        if not isinstance(cid, str) or not ID_RE.match(cid):
+            rep.err("INVALID_ID", f"{p}.id missing or invalid (use [A-Za-z0-9_.-], max 64)", path=p); continue
+        if cid in clip_ids: rep.err("DUPLICATE_ID", f"Duplicate clip id '{cid}'", cid, p); continue
+        clip_ids.add(cid)
+        for k in c:
+            if k not in {"id", "start", "end", "label"}:
+                rep.warn("UNKNOWN_FIELD", f"Unknown field '{k}' on clip '{cid}' ignored", cid, f"{p}.{k}")
+        try: cs = parse_time(c.get("start", 0))
+        except ValueError as e: rep.err("INVALID_TIMESTAMP", f"clip start: {e}", cid, f"{p}.start"); continue
+        if c.get("end") is None:
+            if vid is None: rep.err("INVALID_TIMESTAMP", "clip end omitted but video duration unknown", cid, f"{p}.end"); continue
+            ce = vid.duration
+        else:
+            try: ce = parse_time(c["end"])
+            except ValueError as e: rep.err("INVALID_TIMESTAMP", f"clip end: {e}", cid, f"{p}.end"); continue
+        if ce <= cs: rep.err("INVALID_TIMESTAMP", f"clip end ({ce:g}s) must be greater than start ({cs:g}s)", cid, p); continue
+        csf, cef = round(cs * fps_grid), round(ce * fps_grid)
+        if src_frames is not None:
+            if csf >= src_frames: rep.err("TIME_OUT_OF_RANGE", f"clip start {cs:g}s is at/after the end of the source video ({vid.duration:.3f}s)", cid, f"{p}.start"); continue
+            if cef > src_frames + 1: rep.err("TIME_OUT_OF_RANGE", f"clip end {ce:g}s exceeds the source video ({vid.duration:.3f}s)", cid, f"{p}.end"); continue
+            cef = min(cef, src_frames)
+        if cef <= csf: rep.err("INVALID_TIMESTAMP", "clip is shorter than one frame", cid, p); continue
+        clips.append(Clip(cid, csf / fps_grid, cef / fps_grid, csf, cef, str(c.get("label", ""))[:120]))
+    pieces = [(c.start_frame, c.end_frame) for c in clips]
+    if clips and not _edl.is_in_order(pieces) and len(clips) > MAX_REORDERED_PIECES:
+        rep.err("TOO_MANY_REORDERED_CLIPS", f"Clips that are reordered or overlap in the source need a separate decoder each; at most "
+                f"{MAX_REORDERED_PIECES} are supported in that case (you have {len(clips)}). Keep clips in source order or reduce them.", path="clips")
+    timeline_dur: float | None = None
+    if clips: timeline_dur = _edl.total_frames(pieces) / fps_grid
+    elif vid: timeline_dur = vid.duration
+    if clips and vid and _edl.is_identity(pieces, src_frames):
+        clips = []; timeline_dur = vid.duration              # a single clip covering everything is just the video
+
     # ---- operations
     raw_ops = data.get("operations")
     if not isinstance(raw_ops, list):
@@ -313,7 +377,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
     if not raw_ops: rep.warn("NO_OPERATIONS", "Blueprint contains no operations")
     ops: list[Operation] = []
     seen: set[str] = set()
-    fps_for_grid = output.fps if output.fps else 30.0
+    fps_for_grid = fps_grid
     for i, o in enumerate(raw_ops):
         p = f"operations[{i}]"
         if not isinstance(o, dict): rep.err("INVALID_STRUCTURE", f"{p} must be an object", path=p); continue
@@ -334,7 +398,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         # timestamps
         try: s = parse_time(o.get("start", 0))
         except ValueError as e: rep.err("INVALID_TIMESTAMP", f"start: {e}", oid, f"{p}.start"); continue
-        dur = vid.duration if vid else None
+        dur = timeline_dur
         if o.get("end") is None:
             if dur is None: rep.err("INVALID_TIMESTAMP", "end omitted but video duration unknown", oid, f"{p}.end"); continue
             e_ = dur
@@ -344,9 +408,9 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         if e_ <= s: rep.err("INVALID_TIMESTAMP", f"end ({e_:g}s) must be greater than start ({s:g}s)", oid, p); continue
         if dur is not None:
             tol = 0.5 / fps_for_grid
-            if s >= dur - tol: rep.err("TIME_OUT_OF_RANGE", f"start {s:g}s is at/after video end ({dur:.3f}s)", oid, f"{p}.start"); continue
+            if s >= dur - tol: rep.err("TIME_OUT_OF_RANGE", f"start {s:g}s is at/after the end of the timeline ({dur:.3f}s)", oid, f"{p}.start"); continue
             if e_ > dur + 1.0 / fps_for_grid:
-                rep.err("TIME_OUT_OF_RANGE", f"end {e_:g}s exceeds video duration {dur:.3f}s", oid, f"{p}.end"); continue
+                rep.err("TIME_OUT_OF_RANGE", f"end {e_:g}s exceeds the timeline duration {dur:.3f}s" + (" (operation times are on the cut timeline, not the source video)" if clips else ""), oid, f"{p}.end"); continue
             e_ = min(e_, dur)
         sf, ef = round(s * fps_for_grid), round(e_ * fps_for_grid)
         if ef <= sf: rep.err("INVALID_TIMESTAMP", "operation is shorter than one frame", oid, p); continue
@@ -417,7 +481,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         ops.append(Operation(oid, otype, sf / fps_for_grid, ef / fps_for_grid, sf, ef, params, list(deps), en,
                              str(o.get("label", ""))[:120]))
 
-    bp = Blueprint(ver, name, source_video, output, assets, ops)
+    bp = Blueprint(ver, name, source_video, output, assets, ops, clips, timeline_dur)
     _check_graph(bp, rep, set(seen))
     rep.blueprint = bp
     return rep

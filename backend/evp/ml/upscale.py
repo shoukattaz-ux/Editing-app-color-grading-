@@ -13,6 +13,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
+from .. import edl as _edl
 from .frames import decode
 from .models import ensure_model, models_dir, make_session
 from ..media import ffmpeg_bin
@@ -193,17 +194,17 @@ def fit_geometry(sw: int, sh: int, W: int, H: int) -> tuple[int, int, int, int]:
     return fw, fh, (W - fw) // 2, (H - fh) // 2
 
 
-def upscale_key(source: str, op, W, H, fps, start_frame, frames) -> str:
+def upscale_key(source: str, op, W, H, fps, start_frame, frames, edl=None) -> str:
     st = os.stat(source)
-    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v3"]
+    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v4", _edl.key(edl)]
     return hashlib.sha1(json.dumps(d, default=str).encode()).hexdigest()[:20]
 
 
 def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fps: float, start_frame: int, frames: int,
                      cache_dir: str, progress: Callable[[int, int], None] | None = None,
-                     cancel: threading.Event | None = None, warmup: int = 0) -> UpscaleRef:
+                     cancel: threading.Event | None = None, warmup: int = 0, edl: list | None = None) -> UpscaleRef:
     import subprocess
-    out = Path(cache_dir) / "upscale" / f"up_{upscale_key(source, op, W, H, fps, start_frame, frames)}.mkv"
+    out = Path(cache_dir) / "upscale" / f"up_{upscale_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     if out.is_file():
         return UpscaleRef(str(out), start_frame, frames)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -225,7 +226,7 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
     first = max(0, start_frame - warmup) if p["temporal_stability"] > 0 else start_frame
     warm = start_frame - first
     try:
-        for rgb in decode(source, src_w, src_h, fps, first, frames + warm):
+        for rgb in decode(source, src_w, src_h, fps, first, frames + warm, edl):
             if cancel is not None and cancel.is_set(): raise Cancelled()
             inp = rgb if pre == 1.0 else cv2.resize(rgb, (max(2, int(src_w * pre)), max(2, int(src_h * pre))), interpolation=cv2.INTER_AREA)
             try:

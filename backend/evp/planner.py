@@ -15,6 +15,7 @@ class Plan:
     alpha_source: dict[str, str] = field(default_factory=dict)    # replacement id -> keyer id
     consumed_keyers: set[str] = field(default_factory=set)
     total_frames: int = 0
+    edl: list | None = None                                       # [(src_a, src_b)] pieces on the output grid; None = uncut source
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
     face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
     upscales: dict = field(default_factory=dict)                  # op id -> ml.upscale.UpscaleRef (filled by the engine)
@@ -27,6 +28,10 @@ class Plan:
 
     def ai_keyers(self) -> list[Operation]:
         return [o for o in self.steps if o.type == "background_removal" and o.params.get("mode") == "ai"]
+
+    @property
+    def timeline_duration(self) -> float:
+        return self.total_frames / self.blueprint.output.fps
 
     def describe(self) -> list[dict]:
         return [{"order": i + 1, "id": o.id, "type": o.type, "start": o.start, "end": o.end,
@@ -41,6 +46,10 @@ def _overlap(a: Operation, b: Operation) -> bool:
 def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
     """Resolve dependencies and ordering. Appends to `rep`; returns None if errors prevent execution."""
     plan = Plan(bp, video, total_frames=round(video.duration * bp.output.fps))
+    if bp.clips:
+        from . import edl
+        plan.edl = [(c.start_frame, c.end_frame) for c in bp.clips]
+        plan.total_frames = edl.total_frames(plan.edl)
     ops = [o for o in bp.operations if o.enabled]
     byid = {o.id: o for o in ops}
     index = {o.id: i for i, o in enumerate(bp.operations)}

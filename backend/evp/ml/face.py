@@ -15,6 +15,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
+from .. import edl as _edl
 from .frames import decode, Writer
 from .models import ensure_model
 
@@ -115,10 +116,10 @@ def skin_weight(ycc: np.ndarray, t: Track, ell: np.ndarray, sigma: float = 11.0)
     return sk * ell
 
 
-def control_key(kind: str, source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int) -> str:
+def control_key(kind: str, source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, edl: list | None = None) -> str:
     st = os.stat(source)
     d = [kind, os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames,
-         sorted(op.params.items()), "v1"]
+         sorted(op.params.items()), "v2", _edl.key(edl)]
     return hashlib.sha1(json.dumps(d, default=str).encode()).hexdigest()[:20]
 
 
@@ -178,10 +179,10 @@ KINDS = {"face_tone_correction": _weights_tone, "face_relighting": _weights_reli
 
 def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
                      progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
-                     warmup: int = 0) -> ControlRef:
+                     warmup: int = 0, edl: list | None = None) -> ControlRef:
     s = min(1.0, ANALYSIS_LONG_SIDE / max(W, H))
     aw, ah = max(2, int(W * s) // 2 * 2), max(2, int(H * s) // 2 * 2)
-    out = Path(cache_dir) / "face" / f"ctrl_{control_key(op.type, source, op, W, H, fps, start_frame, frames)}.mkv"
+    out = Path(cache_dir) / "face" / f"ctrl_{control_key(op.type, source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     meta = out.with_suffix(".json")
     if out.is_file() and meta.is_file():
         return ControlRef(str(out), start_frame, frames, json.loads(meta.read_text())["faces_found"])
@@ -193,7 +194,7 @@ def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: i
     wr = Writer(out, aw, ah, fps, "rgb24", "gbrp")
     found = written = 0
     try:
-        for i, rgb in enumerate(decode(source, aw, ah, fps, first, total)):
+        for i, rgb in enumerate(decode(source, aw, ah, fps, first, total, edl)):
             if cancel is not None and cancel.is_set(): raise Cancelled()
             faces = tracker.update(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
             R, G, B = fn(rgb, faces, op.params, None)

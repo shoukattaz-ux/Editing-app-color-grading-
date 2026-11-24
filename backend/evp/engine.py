@@ -22,6 +22,17 @@ class Prepared:
         d = self.report.to_json()
         d["plan"] = self.plan.describe() if self.plan else []
         d["video"] = self.video.__dict__ if self.video else None
+        bp = self.report.blueprint
+        d["timeline"] = None
+        if bp is not None:
+            off, clips = 0, []
+            fps = bp.output.fps
+            for c in bp.clips:
+                n = c.end_frame - c.start_frame
+                clips.append({"id": c.id, "label": c.label, "source_start": c.start, "source_end": c.end,
+                              "timeline_start": off / fps, "timeline_end": (off + n) / fps})
+                off += n
+            d["timeline"] = {"duration": bp.timeline_duration, "cut": bool(bp.clips), "clips": clips}
         d["ok"] = bool(self.report.ok and self.plan)
         return d
 
@@ -57,13 +68,13 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
         v = plan.video
         for u in ups:
             n = u.end_frame - u.start_frame
-            cached = (Path(cache_dir) / "upscale" / f"up_{upscale_key(source, u, W, H, fps, u.start_frame, n)}.mkv").is_file()
+            cached = (Path(cache_dir) / "upscale" / f"up_{upscale_key(source, u, W, H, fps, u.start_frame, n, plan.edl)}.mkv").is_file()
             if frame is None or cached:
                 cb = (lambda i, _n, d=done, op=u: progress(d + i, total, op.id, "AI upscaling")) if progress else None
-                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, u.start_frame, n, cache_dir, cb, cancel)
+                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, u.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
             else:
                 fr = min(max(frame, u.start_frame), u.end_frame - 1)
-                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, fr, 1, cache_dir, warmup=2)
+                plan.upscales[u.id] = generate_upscale(source, u, v.width, v.height, W, H, fps, fr, 1, cache_dir, warmup=2, edl=plan.edl)
             done += n
     if not keyers and not faces: return
     if faces:
@@ -71,25 +82,25 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
         for f in faces:
             n = f.end_frame - f.start_frame
             from .ml.face import ANALYSIS_LONG_SIDE  # noqa
-            cached = (Path(cache_dir) / "face" / f"ctrl_{control_key(f.type, source, f, W, H, fps, f.start_frame, n)}.json").is_file()
+            cached = (Path(cache_dir) / "face" / f"ctrl_{control_key(f.type, source, f, W, H, fps, f.start_frame, n, plan.edl)}.json").is_file()
             if frame is None or cached:
                 cb = (lambda i, _n, d=done, op=f: progress(d + i, total, op.id, "Face analysis")) if progress else None
-                plan.face_controls[f.id] = generate_control(source, f, W, H, fps, f.start_frame, n, cache_dir, cb, cancel)
+                plan.face_controls[f.id] = generate_control(source, f, W, H, fps, f.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
             else:
                 fr = min(max(frame, f.start_frame), f.end_frame - 1)
-                plan.face_controls[f.id] = generate_control(source, f, W, H, fps, fr, 1, cache_dir, warmup=8)
+                plan.face_controls[f.id] = generate_control(source, f, W, H, fps, fr, 1, cache_dir, warmup=8, edl=plan.edl)
             done += n
     if not keyers: return
     from .ml.matting import generate_matte, matte_key
     for k in keyers:
         n = k.end_frame - k.start_frame
-        full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n)}.mkv"
+        full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n, plan.edl)}.mkv"
         if frame is None or full.is_file():
             cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id, "AI matting")) if progress else None
-            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel)
+            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
         else:
             f = min(max(frame, k.start_frame), k.end_frame - 1)
-            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, f, 1, cache_dir, warmup=6)
+            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, f, 1, cache_dir, warmup=6, edl=plan.edl)
         done += n
 
 
@@ -100,7 +111,7 @@ def free_space_ok(path: Path, needed: int) -> bool:
 def estimate_bytes(plan: Plan) -> int:
     o = plan.blueprint.output
     br = 20e6 if o.width * o.height > 2_000_000 else 8e6
-    return int(plan.video.duration * br / 8 * 1.5) + 50_000_000
+    return int(plan.timeline_duration * br / 8 * 1.5) + 50_000_000
 
 
 class Job:
@@ -161,6 +172,13 @@ class Job:
         self.started = time.time()
         self.state = "running"
         try:
+            try:
+                same = Path(self.out_path).resolve() == Path(self.source).resolve() or (
+                    Path(self.out_path).exists() and Path(self.source).exists() and os.path.samefile(self.out_path, self.source))
+            except OSError:
+                same = False
+            if same:
+                raise RuntimeError("Refusing to overwrite the original video: the output path is the source file.")
             Path(self.out_path).parent.mkdir(parents=True, exist_ok=True)
             if not free_space_ok(Path(self.out_path).parent, estimate_bytes(self.plan)):
                 raise RuntimeError("Insufficient disk space for the export (need roughly "
@@ -249,7 +267,7 @@ def _rm(p: str):
 
 def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 960, work_dir: str | None = None) -> bytes:
     """Single processed frame as PNG (same pipeline as export, so preview == render)."""
-    t = min(max(0.0, t), max(0.0, plan.video.duration - 1.0 / plan.blueprint.output.fps))
+    t = min(max(0.0, t), max(0.0, plan.timeline_duration - 1.0 / plan.blueprint.output.fps))
     wd = work_dir or tempfile.mkdtemp(prefix="evp_f_")
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)

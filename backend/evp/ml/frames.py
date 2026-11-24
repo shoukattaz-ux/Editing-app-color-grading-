@@ -11,17 +11,15 @@ from ..media import ffmpeg_bin
 SWS = "bicubic+accurate_rnd+full_chroma_int+full_chroma_inp"
 
 
-def decode(source: str, W: int, H: int, fps: float, first: int, total: int) -> Iterator[np.ndarray]:
-    """Yield `total` RGB frames (H,W,3 uint8) starting at output-grid frame `first`.
-    Frame numbering matches the render (same fps + scale/pad). Short previews seek directly
-    (fast, may be off by one frame); longer ranges decode from 0 so numbering is exact."""
-    seek_args, trim_from = (["-ss", f"{first / fps:.6f}"], 0) if total <= 16 and first > 0 else ([], first)
-    p = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek_args, "-i", source, "-sws_flags", SWS, "-vf",
-                          f"fps={fps:g},scale={W}:{H}:force_original_aspect_ratio=decrease:flags=bilinear,"
+def _decode_pieces(source: str, W: int, H: int, fps: float, a: int, n: int, flags: str) -> Iterator[np.ndarray]:
+    """n RGB frames of the *source* grid starting at grid frame a (exact: seeks half a frame early, like the render does)."""
+    seek = ["-ss", f"{max(0.0, (a - 0.5) / fps):.6f}"] if a > 0 else []
+    p = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek, "-i", source, "-sws_flags", SWS, "-vf",
+                          f"fps={fps:g},scale={W}:{H}:force_original_aspect_ratio=decrease:flags={flags},"
                           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,"
-                          f"trim=start_frame={trim_from}:end_frame={trim_from + total},setpts=PTS-STARTPTS,"
+                          f"trim=end_frame={n},setpts=PTS-STARTPTS,"
                           f"scale=flags={SWS},format=rgb24",   # explicit, accurate YUV->RGB (the implicit one ignores -sws_flags)
-                          "-fps_mode", "passthrough", "-frames:v", str(total), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                          "-fps_mode", "passthrough", "-frames:v", str(n), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     size = W * H * 3
     try:
@@ -33,6 +31,16 @@ def decode(source: str, W: int, H: int, fps: float, first: int, total: int) -> I
         try: p.kill()
         except Exception: pass
         p.wait()
+
+
+def decode(source: str, W: int, H: int, fps: float, first: int, total: int, edl: list | None = None,
+           flags: str = "bilinear") -> Iterator[np.ndarray]:
+    """Yield up to `total` RGB frames (H,W,3 uint8) starting at *timeline* frame `first`.
+    Frame numbering matches the render (same fps + scale/pad and the same cuts: `edl` = [(src_a, src_b)] pieces,
+    None = uncut). Each piece is decoded with its own exact seek, so late ranges and cut timelines are cheap."""
+    from ..edl import pieces_for_range
+    for a, b in ([(first, first + total)] if edl is None else pieces_for_range(edl, first, total)):
+        yield from _decode_pieces(source, W, H, fps, a, b - a, flags)
 
 
 class Writer:

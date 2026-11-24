@@ -93,6 +93,19 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     wd = work_dir or tempfile.mkdtemp(prefix="evp_")
     seek = opts.t_start or 0.0
     seek_f = round(seek * fps)          # all streams use frame-index timestamps (time base 1/fps) so they align exactly
+    # ---- cuts: the pieces of the source needed for the requested timeline range (None = uncut source)
+    pieces = None
+    if plan.edl:
+        from . import edl as _edl
+        count = 1 if opts.frame_only else (None if opts.t_end is None else max(1, round(opts.t_end * fps) - seek_f))
+        pieces = _edl.pieces_for_range(plan.edl, seek_f, count)
+        if not pieces:
+            raise RuntimeError(f"timeline range starting at frame {seek_f} is empty")
+        multi = not _edl.is_in_order(pieces)          # reordered / duplicated / overlapping pieces: one decoder each
+        for a, _b in (pieces[1:] if multi else []):
+            inputs.append((["-ss", f"{(a - 0.5) / fps:.6f}"] if a > 0 else []) + ["-i", source])
+    else:
+        multi = False
 
     def pad_after(ref) -> int:
         """frames needed after an analysis file ends so the stream covers the whole timeline (+2 spare)"""
@@ -131,9 +144,27 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         return ranged_block(cur, op, lambda s: g.add([s], ",".join(filters)))
 
     # ---- base: source -> constant fps, output size
-    cur = g.add(["0:v"], f"fps={fps:g},setpts=N+{seek_f},"
-                f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv420p", "v0")
+    fit = (f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
+           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv420p")
+    if pieces is None:
+        cur = g.add(["0:v"], f"fps={fps:g},setpts=N+{seek_f}," + fit, "v0")
+    else:
+        s0 = pieces[0][0]
+        if not multi:                                  # one decoder, split + trim per piece (no buffering when in order)
+            src = g.add(["0:v"], f"fps={fps:g},setpts=N")
+            if len(pieces) > 1:
+                outs = [g.label("p") for _ in pieces]
+                g.parts.append(f"[{src}]split={len(pieces)}" + "".join(f"[{o}]" for o in outs))
+            else:
+                outs = [src]
+            segs = [g.add([o], f"trim=start_frame={a - s0}:end_frame={b - s0},setpts=N") for o, (a, b) in zip(outs, pieces)]
+        else:                                          # one input per piece
+            segs = [g.add([f"{k}:v"], f"fps={fps:g},setpts=N,trim=end_frame={b - a},setpts=N") for k, (a, b) in enumerate(pieces)]
+        joined = segs[0] if len(segs) == 1 else g.add(segs, f"concat=n={len(segs)}:v=1:a=0")
+        # concat changes the time base, so express timestamps in seconds (independent of TB): frame N -> (N+seek)/fps
+        # ... then fps= puts the stream back on the exact 1/fps time base every other stream uses (a mismatched time base made
+        # overlays drop their last frame at EOF)
+        cur = g.add([joined], f"setpts=(N+{seek_f})/({fps:g}*TB),fps={fps:g}," + fit, "v0")
 
     def make_keyed(src: str, k: Operation) -> str:
         p = k.params
@@ -334,14 +365,38 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             raise RuntimeError(f"compiler has no handler for '{t}' (registry/compiler mismatch)")
 
     g.add([cur], "format=yuv420p", "vout")
+    if pieces is not None and vid.has_audio and opts.audio and not opts.frame_only:
+        # audio follows the same cuts, sample-accurately; a 4 ms fade at every real joint avoids clicks
+        FADE = 0.004
+        s0 = pieces[0][0]
+        segs = []
+        if not multi and len(pieces) > 1:
+            ins = [g.label("q") for _ in pieces]
+            g.parts.append(f"[0:a]asplit={len(pieces)}" + "".join(f"[{o}]" for o in ins)); ins_iter = iter(ins)
+        for k, (a, b) in enumerate(pieces):
+            if multi:
+                src_label, off = f"{k}:a", (0.5 / fps if a > 0 else 0.0)
+                st = off
+            else:
+                src_label = next(ins_iter) if len(pieces) > 1 else "0:a"
+                off = 0.5 / fps if s0 > 0 else 0.0
+                st = (a - s0) / fps + off
+            ln = (b - a) / fps
+            chain = [f"atrim=start={st:.6f}:end={st + ln:.6f}", "asetpts=PTS-STARTPTS"]
+            if k > 0 and pieces[k - 1][1] != a: chain.append(f"afade=t=in:st=0:d={FADE}")
+            if k < len(pieces) - 1 and pieces[k + 1][0] != b: chain.append(f"afade=t=out:st={ln - FADE:.6f}:d={FADE}")
+            segs.append(g.add([src_label], ",".join(chain)))
+        joined = segs[0] if len(segs) == 1 else g.add(segs, f"concat=n={len(segs)}:v=0:a=1")
+        g.add([joined], ",".join(audio_filters) if audio_filters and not seek_f else "anull", "aout")
     # graph-wide scaler flags: unbiased colour conversions (AI intermediates re-enter the graph as RGB)
     graph = "sws_flags=bicubic+accurate_rnd+full_chroma_int+full_chroma_inp;" + g.text()
     args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
     if not opts.frame_only: args += ["-progress", "pipe:1", "-nostats"]
-    if opts.t_start:
-        # seek half a frame before frame `seek_f` so decoding starts exactly on it (seeking to the raw time could land
-        # on the next frame, misaligning AI layers by one frame in previews)
-        args += ["-ss", f"{max(0.0, (seek_f - 0.5) / fps):.6f}"]
+    # seek half a frame before the first needed frame so decoding starts exactly on it (seeking to the raw time could
+    # land on the next frame, misaligning AI layers by one frame in previews)
+    first_src = pieces[0][0] if pieces else seek_f
+    if first_src > 0 and (pieces or opts.t_start):
+        args += ["-ss", f"{max(0.0, (first_src - 0.5) / fps):.6f}"]
     args += ["-i", source]
     for grp in inputs: args += grp
     args += ["-filter_complex", graph, "-map", "[vout]"]
@@ -349,13 +404,17 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         args += ["-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "pipe:1"]
         return Compiled(args, graph, work_files, 0.0)
 
-    out_dur = vid.duration
+    tl_dur = plan.total_frames / fps
+    out_dur = tl_dur
     if opts.t_start is not None or opts.t_end is not None:
-        out_dur = max(0.0, min(opts.t_end if opts.t_end is not None else vid.duration, vid.duration) - (opts.t_start or 0.0))
+        out_dur = max(0.0, min(opts.t_end if opts.t_end is not None else tl_dur, tl_dur) - (opts.t_start or 0.0))
     prores = out.codec == "prores" and not opts.scale_width          # proxies stay H.264 for fast preview playback
     if vid.has_audio and opts.audio:
-        args += ["-map", "0:a:0"]
-        if audio_filters and not opts.t_start: args += ["-af", ",".join(audio_filters)]
+        if pieces is None:
+            args += ["-map", "0:a:0"]
+            if audio_filters and not opts.t_start: args += ["-af", ",".join(audio_filters)]
+        else:
+            args += ["-map", "[aout]"]
         args += ["-c:a", "pcm_s16le"] if prores else ["-c:a", "aac", "-b:a", out.audio_bitrate]
     else:
         args += ["-an"]

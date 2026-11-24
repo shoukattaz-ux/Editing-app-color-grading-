@@ -11,6 +11,8 @@ from typing import Callable
 
 import numpy as np
 
+from .. import edl as _edl
+from .frames import decode
 from .models import ensure_model
 from ..media import ffmpeg_bin
 
@@ -86,19 +88,19 @@ def clean_matte(a: np.ndarray, threshold: float, despeckle: bool, min_area_frac:
     return a.astype(np.float32)
 
 
-def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int) -> str:
+def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, edl: list | None = None) -> str:
     st = os.stat(source)
     p = op.params
     d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames,
-         p["model"], p["detail"], p["matte_threshold"], p["despeckle"], p["edge_color_fix"], "v2"]
+         p["model"], p["detail"], p["matte_threshold"], p["despeckle"], p["edge_color_fix"], "v3", _edl.key(edl)]
     return hashlib.sha1(json.dumps(d).encode()).hexdigest()[:20]
 
 
 def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
                    progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
-                   warmup: int = 0) -> MatteRef:
+                   warmup: int = 0, edl: list | None = None) -> MatteRef:
     """Run RVM over [start_frame, start_frame+frames) of the normalised timeline. Cached on disk."""
-    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames)}.mkv"
+    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     fgr_out = out.with_name(out.stem + "_fgr.mkv") if op.params["edge_color_fix"] else None
     if out.is_file() and (fgr_out is None or fgr_out.is_file()):
         return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames)
@@ -107,15 +109,6 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
     ds = min(1.0, DETAIL_TARGET[p["detail"]] / max(W, H))
     first = max(0, start_frame - warmup)           # warm-up frames prime the recurrent state (better single-frame previews)
     total = start_frame + frames - first
-    # decode exactly like the engine's base chain so frame N here == frame N in the render
-    # previews (few frames) seek straight to the frame; full-range mattes decode from 0 so frame numbering is exact
-    seek_args, trim_from = (["-ss", f"{first / fps:.6f}"], 0) if total <= 16 and first > 0 else ([], first)
-    from .frames import SWS
-    dec = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek_args, "-i", source, "-sws_flags", SWS, "-vf",
-                            f"fps={fps:g},scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,trim=start_frame={trim_from}:end_frame={trim_from + total},setpts=PTS-STARTPTS,"
-                            f"scale=flags={SWS},format=rgb24",   # explicit, accurate YUV->RGB
-                            "-fps_mode", "passthrough", "-frames:v", str(total), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     tmp = out.with_suffix(".part.mkv")
     enc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{W}x{H}",
                             "-r", f"{fps:g}", "-i", "-", "-c:v", "ffv1", "-pix_fmt", "gray", str(tmp)],
@@ -126,15 +119,10 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
                             stdin=subprocess.PIPE, stderr=subprocess.PIPE) if fgr_out else None
     model = _model()
     n = 0
-    fsize = W * H * 3
     try:
-        while True:
+        for rgb in decode(source, W, H, fps, first, total, edl, flags="lanczos"):
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
-            buf = dec.stdout.read(fsize)
-            if len(buf) < fsize:
-                break
-            rgb = np.frombuffer(buf, np.uint8).reshape(H, W, 3)
             a, fg = model(rgb, ds)
             n += 1
             if first + n - 1 < start_frame:
@@ -149,7 +137,6 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
             e.stdin.close()
             if e.wait() != 0:
                 raise RuntimeError("matte encode failed: " + e.stderr.read().decode(errors="replace")[-300:])
-        dec.wait()
         written = n - (start_frame - first)
         if written <= 0:
             raise RuntimeError("AI matting produced no frames (could not decode the source in this range)")
@@ -158,7 +145,7 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
         return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written)
     except BaseException:
         if ftmp: ftmp.unlink(missing_ok=True)
-        for pr in (dec, enc, fenc):
+        for pr in (enc, fenc):
             if pr is None: continue
             try: pr.kill()
             except Exception: pass
