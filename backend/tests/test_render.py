@@ -245,3 +245,54 @@ def test_single_frame_preview_shows_the_exact_frame(prep, tmp_path, rate):
         im = cv2.imdecode(np.frombuffer(render_frame(plan, str(v), t, None, str(tmp_path)), np.uint8), 0).astype(float)
         shown = int(np.argmin(np.abs(truth - im.mean())))
         assert shown == round(t * fps), (t, shown)
+
+
+# ---------------------------------------------------------------- lift / gamma / gain (colour wheels)
+def _lgg_ref(x, lift, gamma, gain):
+    """the documented formula, per channel; x in 0..1"""
+    y = max(0.0, (1 + gain) * (x + lift * (1 - x)))
+    return min(1.0, max(0.0, y ** (2 ** -gamma)))
+
+
+def _ramp_video(tmp_path):
+    import subprocess
+    from evp.media import ffmpeg_bin
+    p = tmp_path / "ramp256.mp4"
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-f", "lavfi", "-i", "nullsrc=s=256x16:r=25:d=1,format=gbrp,geq=r='X':g='X':b='X'",
+                    "-c:v", "libx264rgb", "-crf", "0", str(p)], check=True)
+    return str(p)
+
+
+@pytest.mark.parametrize("params", [{"lift": [0.1, 0.0, -0.05]}, {"gain": [0.3, -0.2, 0.0]}, {"gamma_rgb": [0.3, 0.0, -0.4]},
+                                    {"lift": [0.05, 0.05, 0.1], "gamma_rgb": [-0.2, 0.1, 0.0], "gain": [0.1, 0.1, -0.1]}])
+def test_lift_gamma_gain_follow_the_documented_formula(prep, tmp_path, params):
+    from evp.security import PathPolicy
+    from evp.engine import prepare
+    v = _ramp_video(tmp_path)
+    p = prepare(bp(ops=[{"id": "g", "type": "color_grading", "start": 0, "parameters": params}]), v, PathPolicy([tmp_path]), tmp_path)
+    assert p.plan, [e.message for e in p.report.errors]
+    im = cv2.imdecode(np.frombuffer(render_frame(p.plan, v, 0.2, None, str(tmp_path)), np.uint8), cv2.IMREAD_COLOR).astype(int)[:, :, ::-1]   # RGB
+    lift, gamma, gain = (params.get(k, [0, 0, 0]) for k in ("lift", "gamma_rgb", "gain"))
+    worst = 0
+    for c in range(3):
+        row = im[8, :, c]
+        for x in range(0, 256, 5):
+            exp = 255 * _lgg_ref(x / 255, lift[c], gamma[c], gain[c])
+            worst = max(worst, abs(row[x] - exp))
+    assert worst <= 3, f"worst deviation from the formula: {worst} levels"       # +-3: 8-bit YUV round trip
+
+
+def test_lift_only_moves_shadows_gain_never_moves_black_gamma_keeps_both_ends(prep, tmp_path):
+    from evp.security import PathPolicy
+    from evp.engine import prepare
+    v = _ramp_video(tmp_path)
+    def row(params):
+        p = prepare(bp(ops=[{"id": "g", "type": "color_grading", "start": 0, "parameters": params}]), v, PathPolicy([tmp_path]), tmp_path)
+        return cv2.imdecode(np.frombuffer(render_frame(p.plan, v, 0.2, None, str(tmp_path)), np.uint8), 1).astype(int)[8, :, 1]
+    base = row({})
+    lift = row({"lift": [0.2, 0.2, 0.2]}) - base
+    assert lift[10] > 30 and abs(lift[250]) <= 3 and lift[128] < lift[10] * 0.6        # lift tapers linearly: 0.2*(1-x) -> strongest in the shadows, ~0 at white
+    gain = row({"gain": [0.3, 0.3, 0.3]}) - base
+    assert abs(gain[0]) <= 2 and gain[100] > 15                                          # black stays, mids/highs scale
+    gam = row({"gamma_rgb": [0.4, 0.4, 0.4]}) - base
+    assert abs(gam[0]) <= 2 and abs(gam[255]) <= 2 and 20 < gam[128] < 27            # ends fixed, midtones lifted by 255*(0.5**(2**-0.4)-0.5) = 23.3

@@ -3,14 +3,15 @@ import type { Api, Issue, ProjectState, Validation, VideoInfo } from "./api";
 import type { Blueprint, Schema } from "./model";
 import * as m from "./model";
 import { Btn, Empty, Icon } from "./ui";
+import { ScopesPanel } from "./Scopes";
 
-export type Tab = "media" | "projects" | "blueprint" | "effects" | "backgrounds" | "color" | "assets";
+export type Tab = "media" | "projects" | "blueprint" | "effects" | "backgrounds" | "color" | "scopes" | "assets";
 export const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "media", label: "Media", icon: "film" }, { id: "projects", label: "Projects", icon: "folder" }, { id: "blueprint", label: "Blueprint", icon: "bolt" },
-  { id: "effects", label: "Effects", icon: "wand" }, { id: "backgrounds", label: "Backgrounds", icon: "image" }, { id: "color", label: "Color", icon: "color" }, { id: "assets", label: "Assets", icon: "layers" },
+  { id: "effects", label: "Effects", icon: "wand" }, { id: "backgrounds", label: "Backgrounds", icon: "image" }, { id: "color", label: "Color", icon: "color" }, { id: "scopes", label: "Scopes", icon: "scope" }, { id: "assets", label: "Assets", icon: "layers" },
 ];
 export interface Ctx {
-  api: Api; project: ProjectState; bp: Blueprint; schema: Schema; video: VideoInfo | null; duration: number; t: number; edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void;
+  api: Api; project: ProjectState; bp: Blueprint; schema: Schema; video: VideoInfo | null; duration: number; t: number; mode: string; playing: boolean; videoRef: React.RefObject<HTMLVideoElement>; edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void;
   setSel: (id: string | null) => void; askPath: (title: string, kind: "video" | "image" | "lut" | "any") => Promise<string | null>; toast: (msg: string, kind?: "ok" | "err") => void;
   reload: (p: ProjectState) => void; issues: Issue[]; report: Validation | null; executeBlueprint: (bp: Blueprint) => Promise<void>; setReport: (v: Validation | null) => void;
 }
@@ -18,7 +19,7 @@ export interface Ctx {
 export function Sidebar({ tab, ctx }: { tab: Tab; ctx: Ctx }) {
   return <div className="side-content">{{
     media: <MediaTab ctx={ctx} />, projects: <ProjectsTab ctx={ctx} />, blueprint: <BlueprintTab ctx={ctx} />, effects: <EffectsTab ctx={ctx} />,
-    backgrounds: <BackgroundsTab ctx={ctx} />, color: <ColorTab ctx={ctx} />, assets: <AssetsTab ctx={ctx} />,
+    backgrounds: <BackgroundsTab ctx={ctx} />, color: <ColorTab ctx={ctx} />, scopes: <ScopesPanel ctx={ctx} />, assets: <AssetsTab ctx={ctx} />,
   }[tab]}</div>;
 }
 

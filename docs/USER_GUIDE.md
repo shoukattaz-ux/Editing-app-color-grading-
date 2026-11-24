@@ -24,6 +24,19 @@ The **Video** track shows your footage as clips. The original file is never chan
 * *Original* preview plays your cut timeline by jumping between clips (small hiccups at joins are normal there); *Edited* is the real result.
 * One video per project for now, and changing a cut recomputes AI effects (matting, face, upscaling) for that range, so make your cuts *before* running heavy AI.
 
+## Colour wheels
+Select a **Color Grading** effect: the **Colour wheels** section has **Lift** (shadows), **Gamma** (midtones) and **Gain** (highlights). Drag the puck toward a colour to push that tone range toward it (the further from the centre, the stronger); the **Master** slider brightens or darkens the range without changing its colour. **Shift-drag** = fine adjustment, **double-click** (or Delete, or *Reset*) = back to neutral, arrow keys move the puck (Shift = bigger steps). The three R/G/B boxes show and accept exact values, so a setting loaded from a blueprint appears at the right place on the wheel.
+What they do (classic lift/gamma/gain, per channel): **Lift** `out = in + lift·(1−in)` moves the black point and tapers off toward white; **Gain** `out = in·(1+gain)` scales and keeps black; **Gamma** `out = in^(2^−gamma)` bends the midtones and keeps black and white. Wheels are static (they cannot be keyframed). Watch the effect on the **Scopes**.
+
+## Scopes
+The **Scopes** tab (left rail) measures the frame at the playhead — the **graded** result by default, or the **original** — using the BT.709 standard. While the video plays it follows the playing video.
+* **Waveform** — brightness (up) for every picture column. Whites near the top, blacks near the bottom, no flat line pressed against 0 or 100.
+* **RGB Parade** — red, green, blue waveforms side by side. In a neutral (grey/white) area the three should line up: a quick white-balance check.
+* **Vectorscope** — hue is the angle, saturation the distance from the centre. Neutrals sit in the middle; yellow boxes are the 75 % colour-bar targets (R, Mg, B, Cy, G, Yl); the dashed **skin line** is the reference for faces — real skin gathers in a band of roughly ±20° around it, a little further round for warmer/tanned skin. Pull a face toward the line with the Gain/Gamma wheels or *Face & Skin Tone*.
+* **Histogram** — pixel counts per level; spikes at either end mean clipping.
+* Readouts: **clipped highlights**, **crushed blacks** and **average luma**. *Intensity* brightens a sparse scope; *Graticule* toggles the scale.
+Scopes are measured from the real pixel values of an 8-bit frame (360 px wide), not from what your display makes of them.
+
 ## Keyframes: animating effects
 Select an effect; every parameter that can be animated has four small buttons: **◀ ◆ ▶ ⏱**.
 1. Move the playhead where the animation should start and press the **stopwatch (⏱)**. The parameter now animates and shows a **curve graph**; the first keyframe holds the current value.

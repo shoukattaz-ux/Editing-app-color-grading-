@@ -45,6 +45,7 @@ function Editor({ api }: { api: Api }) {
   const [saved, setSaved] = useState<Blueprint | null>(null);
   const [layout, setLayout] = useState({ left: 320, right: 330, bottom: 260 });
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
   const toastId = useRef(0);
 
   useEffect(() => { api.schema().then(setSchema).catch(e => setFatal(e.message)); }, [api]);
@@ -141,7 +142,7 @@ function Editor({ api }: { api: Api }) {
   const video = project.video;
   const stale = !proxy || proxy.bp !== bp;
   const issues = [...(report?.errors ?? []), ...(report?.warnings ?? [])];
-  const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport };
+  const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, mode, playing, videoRef, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport };
   const drag = (key: "left" | "right" | "bottom", sign: 1 | -1) => (e: React.PointerEvent) => {
     const start = key === "bottom" ? e.clientY : e.clientX, v0 = layout[key]; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const mv = (ev: PointerEvent) => setLayout(l => ({ ...l, [key]: Math.max(key === "bottom" ? 140 : 220, Math.min(key === "bottom" ? 520 : 560, v0 + sign * ((key === "bottom" ? ev.clientY : ev.clientX) - start))) }));
@@ -176,7 +177,7 @@ function Editor({ api }: { api: Api }) {
           <div className="recovery"><Icon n="warn" /> Unsaved edits from an earlier session were recovered.
             <Btn label="Restore them" kind="primary" onClick={async () => { try { load(await api.recover()); toast("Recovered"); } catch (e: any) { toast(e.message, "err"); } }} />
             <Btn label="Discard" onClick={async () => { await api.discardAutosave(); setProject(p => p && { ...p, recovery_available: false }); }} /></div>)}
-        <Preview api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
+        <Preview playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
           stale={stale} onUpdateProxy={() => updateProxy()} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />

@@ -9,7 +9,7 @@ const P: Record<string, string> = {
   reset: "M4 12a8 8 0 108-8M4 4v6h6", image: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4", color: "M12 3a9 9 0 100 18c1.5 0 2-1 1.5-2s0-2 1.5-2h2a3 3 0 003-3A9 9 0 0012 3z",
   check: "M5 13l4 4L19 7", x: "M6 6l12 12M18 6L6 18", plus: "M12 5v14M5 12h14", wand: "M4 20L16 8M14 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1zM19 11l.7 1.3L21 13l-1.3.7L19 15l-.7-1.3L17 13l1.3-.7z",
   layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5", text: "M5 6V4h14v2M12 4v16M9 20h6", audio: "M4 10v4h4l5 4V6L8 10zM16 9a4 4 0 010 6", warn: "M12 3l10 18H2zM12 10v5M12 18v.5",
-  compare: "M4 4h16v16H4zM12 4v16", diamond: "M12 3l7 9-7 9-7-9z", clock: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2", chevL: "M15 6l-6 6 6 6", chevR: "M9 6l6 6-6 6", scissors: "M6 6a2 2 0 100 .01M6 18a2 2 0 100 .01M8 7l12 10M8 17L20 7", skipOff: "M4 4l16 16M12 3a9 9 0 019 9",
+  compare: "M4 4h16v16H4zM12 4v16", scope: "M3 12h3l3-7 4 14 3-7h5", diamond: "M12 3l7 9-7 9-7-9z", clock: "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2", chevL: "M15 6l-6 6 6 6", chevR: "M9 6l6 6-6 6", scissors: "M6 6a2 2 0 100 .01M6 18a2 2 0 100 .01M8 7l12 10M8 17L20 7", skipOff: "M4 4l16 16M12 3a9 9 0 019 9",
 };
 export const Icon = ({ n, size = 16 }: { n: string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

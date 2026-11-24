@@ -89,9 +89,9 @@ Timeline track: **effects**
 | `saturation` ◆ | number | `1.0` | 0.0 … 3.0 | 1.0 = unchanged. |
 | `vibrance` ◆ | number | `0.0` | -2.0 … 2.0 |  |
 | `gamma` ◆ | number | `1.0` | 0.1 … 5.0 |  |
-| `lift` | points |  |  | [r,g,b] shadow colour offset, each -1..1 (Lift/Gamma/Gain). |
-| `gamma_rgb` | points |  |  | [r,g,b] midtone colour offset, each -1..1. |
-| `gain` | points |  |  | [r,g,b] highlight colour offset, each -1..1. |
+| `lift` | points |  |  | [r,g,b] each -1..1. Lift: out = in + lift*(1-in): moves the black point per channel, white stays. Equal values = brightness of the shadows; unequal = colour cast in the shadows (colour wheel). |
+| `gamma_rgb` | points |  |  | [r,g,b] each -1..1. Gamma: out = in ** 2**(-gamma): bends the midtones per channel, black and white stay (+ brightens). Colour wheel for the midtones. |
+| `gain` | points |  |  | [r,g,b] each -1..1. Gain: out = in * (1+gain): scales per channel, black stays. Colour wheel for the highlights. |
 | `curve_master` | points |  |  | Master curve control points [[x,y],...] in 0..1. |
 | `curve_red` | points |  |  | Red curve control points [[x,y],...] in 0..1. |
 | `curve_green` | points |  |  | Green curve control points [[x,y],...] in 0..1. |

@@ -13,10 +13,11 @@ An external AI (Claude, ChatGPT…) analyses your video and writes a **JSON edit
 * FFmpeg pipeline: chroma key + despill + edge erode/feather, background replacement (image/video/colour, fit/zoom/offset/blur), full colour grading incl. curves/LGG/LUT, denoise/sharpen/deshake, text, audio gain → [docs/OPERATIONS.md](docs/OPERATIONS.md)
 * Jobs with progress, ETA, pause/resume/cancel/retry, GPU→CPU fallback, atomic output, original never touched
 * Projects: folders, autosave + crash recovery, versions, relink, recent
+* **Colour wheels** (true lift/gamma/gain) and **scopes** (waveform, RGB parade, vectorscope with skin line, histogram) — scope maths verified against independent NumPy/FFmpeg implementations; previews show the real pixel values
 * **Keyframe animation** of effect parameters (graph editor, easings, Ken-Burns zoom/pan, fade titles, gain automation…) — every animated frame verified pixel-identical to a static render at the interpolated value
 * **Cutting & trimming the footage** (cut, ripple-delete, trim by dragging, reorder, duplicate) with frame-exact video and audio; effects ripple with the edits
 * React UI: asset/blueprint panels, multi-track timeline (drag/resize/split/duplicate/disable/delete), generated properties panel, before/after, undo/redo, export dialog
-* **212 backend tests** (pixel-level render assertions, security, recovery, API) + **49 frontend logic tests**
+* **232 backend tests** (pixel-level render assertions, security, recovery, API) + **70 frontend logic tests** + an end-to-end browser check (`npm run e2e`)
 
 ## Install
 ```bash

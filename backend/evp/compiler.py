@@ -51,6 +51,17 @@ def find_font() -> str | None:
     return next((c for c in cands if os.path.isfile(c)), None)
 
 
+def lgg_filter(lift, gamma, gain) -> str:
+    """Classic per-channel lift / gamma / gain (what colour wheels mean), as one exact 1-D LUT per channel:
+         x = in;  y = (1 + gain) * (x + lift * (1 - x));  out = max(y, 0) ** 2**(-gamma)
+       lift moves the black point (white fixed), gain scales (black fixed), gamma bends the midtones (black and white fixed)."""
+    ex = []
+    for c in range(3):
+        l, g, m = float(lift[c]), float(gamma[c]), float(gain[c])
+        ex.append(f"'clip(pow(max(0,{1 + m:.6f}*(val/maxval+({l:.6f})*(1-val/maxval))),{2 ** -g:.6f})*maxval,0,maxval)'")
+    return "lutrgb=r=" + ex[0] + ":g=" + ex[1] + ":b=" + ex[2]
+
+
 def curve_str(pts) -> str:
     return " ".join(f"{x:g}/{y:g}" for x, y in pts)
 
@@ -294,9 +305,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             an.add("vibrance", ("vibrance",), lambda q: {"intensity": f"{q['vibrance']:.4f}"}, lambda q: q["vibrance"] != 0)) if x]
         pre_cmd[0] = an.sendcmd()
         if p["lift"] or p["gamma_rgb"] or p["gain"]:
-            vals = [*(p["lift"] or [0, 0, 0]), *(p["gamma_rgb"] or [0, 0, 0]), *(p["gain"] or [0, 0, 0])]
-            f.append("colorbalance=" + ":".join(f"{k}={v:.4f}" for k, v in
-                     zip(("rs", "gs", "bs", "rm", "gm", "bm", "rh", "gh", "bh"), vals)))
+            f.append(lgg_filter(p["lift"] or [0, 0, 0], p["gamma_rgb"] or [0, 0, 0], p["gain"] or [0, 0, 0]))
         cv = [f"{n}='{curve_str(p[k])}'" for n, k in (("master", "curve_master"), ("red", "curve_red"),
               ("green", "curve_green"), ("blue", "curve_blue")) if p[k]]
         if cv: f.append("curves=" + ":".join(cv))

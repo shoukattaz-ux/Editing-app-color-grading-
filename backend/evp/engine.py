@@ -277,7 +277,8 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
         for f in c.work_files: _rm(f)
     if r.returncode != 0 or not r.stdout:
         raise RuntimeError("frame render failed: " + r.stderr.decode(errors="replace")[-500:])
-    return r.stdout
+    from .pngtools import strip_colour_tags
+    return strip_colour_tags(r.stdout)
 
 
 class JobManager:

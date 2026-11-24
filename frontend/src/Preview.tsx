@@ -29,12 +29,12 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   return { url, err, busy };
 }
 
-export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef }: {
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying }: {
+  playing: boolean; setPlaying: (v: boolean | ((p: boolean) => boolean)) => void;
   api: Api; bp: Blueprint; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; mode: Mode; setMode: (m: Mode) => void;
   proxyUrl: string | null; stale: boolean; onUpdateProxy: () => void; proxyBusy: boolean; videoRef: React.RefObject<HTMLVideoElement>;
 }) {
   const fps = layout.fps, dur = layout.duration;
-  const [playing, setPlaying] = useState(false);
   const clipIdx = useRef(0);                       // clip being played in Original mode (the cut timeline is played by jumping between clips)
   const [wipe, setWipe] = useState(50);
   const [loupe, setLoupe] = useState<number>(0);          // 0 = off, else zoom factor (1 = 100% / 1:1 pixels)
@@ -86,7 +86,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   return (
     <div className="preview">
       <div className="stage" ref={wrap}>
-        {playable && src && <video ref={videoRef} key={src} src={src} className="media" playsInline preload="auto" onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = mediaTime(t); }} />}
+        {playable && src && <video ref={videoRef} key={src} src={src} className="media" playsInline preload="auto" crossOrigin="anonymous" onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = mediaTime(t); }} />}
         {mode === "edited" && !playable && (edited.url ? <img className="media" src={edited.url} alt="Edited frame" /> : <div className="media ph">{edited.err ? <span className="err-text">{edited.err}</span> : "Rendering frame…"}</div>)}
         {mode === "compare" && loupe > 0 && <Loupe before={orig.url} after={edited.url} zoom={loupe} />}
         {mode === "compare" && loupe === 0 && (

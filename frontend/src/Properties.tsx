@@ -4,6 +4,7 @@ import * as m from "./model";
 import type { Issue, VideoInfo } from "./api";
 import { Btn, Empty, Icon, resolutionOptions } from "./ui";
 import { KeyframeGraph } from "./Keyframes";
+import { ColorWheels } from "./ColorWheels";
 
 type Edit = (fn: (b: Blueprint) => Blueprint, key?: string) => void;
 
@@ -150,9 +151,10 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
           <label className="field"><span className="fl">end <em>s</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+end.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, op.start, Math.max(s, op.start + 1 / fps)), "time:" + op.id); }} /></label>
         </div>
       </section>
+      {op.type === "color_grading" && <section><h4>Colour wheels</h4><ColorWheels op={op} edit={edit} /></section>}
       <section>
         <h4>Parameters</h4>
-        {spec ? Object.entries(spec.parameters).map(([k, ps]) => (
+        {spec ? Object.entries(spec.parameters).filter(([k]) => !(op.type === "color_grading" && (k === "lift" || k === "gamma_rgb" || k === "gain"))).map(([k, ps]) => (
           <ParamField key={k} name={k} spec={ps} op={op} bp={bp} t={t} fps={fps} opLen={Math.max(1 / fps, end - op.start)} edit={edit} setT={setT} />))
           : <p className="muted">Unknown operation type — see Blueprint errors.</p>}
       </section>
