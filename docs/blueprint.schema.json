@@ -419,6 +419,13 @@
                       "maximum": 0.5,
                       "default": 0.03
                     },
+                    "solidity": {
+                      "description": "[ai, screen] Make partly see-through areas inside the person solid: motion-blurred hands, fine fabric. 0 = natural (default); 0.4-0.7 fixes see-through fingers; higher makes hair edges harder.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
                     "despeckle": {
                       "description": "[ai, screen] Remove background blobs that are not connected to the person.",
                       "type": "boolean",

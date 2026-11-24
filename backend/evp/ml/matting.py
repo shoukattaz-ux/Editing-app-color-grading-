@@ -97,11 +97,22 @@ def clean_matte(a: np.ndarray, threshold: float, despeckle: bool, min_area_frac:
     return a.astype(np.float32)
 
 
+def solidify(a: np.ndarray, s: float) -> np.ndarray:
+    """Make partly-transparent areas solid: values above `lo` rise to 1, values below `lo` fall to 0 (smooth S-curve).
+    s = 0 leaves the matte untouched; 1 is nearly a hard cut. Fixes motion-blurred hands and fine fabric that the network
+    marks as, say, 60% opaque (the background then shows through them)."""
+    if s <= 0: return a
+    lo, hi = 0.05 + 0.25 * s, 1.0 - 0.45 * s
+    t = np.clip((a - lo) / max(1e-3, hi - lo), 0.0, 1.0)
+    return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
+
+
 def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, edl: list | None = None) -> str:
     st = os.stat(source)
     p = op.params
     d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames,
          p["model"], p["detail"], p["matte_threshold"], p["despeckle"], p["edge_color_fix"], "v3", _edl.key(edl)]
+    if p.get("solidity", 0.0): d += ["solid", p["solidity"]]
     if p.get("mode") == "screen":
         d += ["screen4", p["auto_screen"], p["key_color"] if not p["auto_screen"] else "", p["similarity"], p["blend"], p["fill_holes"], p["edge_shrink"],
               p["edge_soften"], p["temporal_smooth"], p["spill_suppression"], p["spill_strength"]]
@@ -148,6 +159,7 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
             if first + n - 1 < start_frame:
                 continue                       # warm-up frame, not written
             if keyer is None: a = clean_matte(a, p["matte_threshold"], p["despeckle"])
+            a = solidify(a, float(p.get("solidity", 0.0)))
             enc.stdin.write((np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
             if fenc and fg is not None:
                 fenc.stdin.write((np.clip(fg, 0, 1) * 255.0 + 0.5).astype(np.uint8).tobytes())

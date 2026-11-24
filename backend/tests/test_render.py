@@ -649,3 +649,14 @@ def test_preview_after_auto_measuring_uses_the_matte_of_its_own_frame(tmp_path):
     again = dec(render_frame(p.plan, str(tmp_path / "in.mp4"), 0.12, None, str(tmp_path)))
     assert np.abs(first - again).mean() < 1.0, np.abs(first - again).mean()
     assert 40 < first.mean() < 200
+
+
+def test_solidity_makes_semi_transparent_areas_solid_but_keeps_clear_areas_clear():
+    from evp.ml.matting import solidify
+    a = np.array([[0.0, 0.1, 0.3, 0.6, 0.8, 1.0]], np.float32)
+    assert np.array_equal(solidify(a, 0.0), a)                                              # off = untouched
+    s = solidify(a, 0.6)[0]
+    assert s[0] == 0 and s[-1] == 1 and s[1] == 0                                           # clear stays clear, solid stays solid
+    assert s[3] > 0.8 and s[4] >= 0.99                                                       # a 60% finger becomes (nearly) solid
+    assert all(s[i] <= s[i + 1] for i in range(len(s) - 1))                                 # monotonic: never inverts
+    assert solidify(a, 1.0)[0][3] >= s[3]                                                   # stronger setting = more solid

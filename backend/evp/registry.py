@@ -140,6 +140,7 @@ _reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "ef
              "model": Param(E, "rvm", enum=("rvm",), desc="[ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable."),
              "detail": Param(E, "fast", enum=("fast", "balanced", "high"), desc="[ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture."),
              "matte_threshold": Param(N, 0.03, 0.0, 0.5, desc="[ai, screen] Alpha below this becomes fully transparent (removes faint background haze)."),
+             "solidity": Param(N, 0.0, 0.0, 1.0, desc="[ai, screen] Make partly see-through areas inside the person solid: motion-blurred hands, fine fabric. 0 = natural (default); 0.4-0.7 fixes see-through fingers; higher makes hair edges harder."),
              "despeckle": Param(B, True, desc="[ai, screen] Remove background blobs that are not connected to the person."),
              "edge_color_fix": Param(B, True, desc="[ai, screen] Replace old-background colour in soft hair edges with the estimated foreground colour (removes halos)."),
              "quality": Param(E, "high", enum=("draft", "standard", "high"), desc="[chroma] Higher = more edge processing."),
