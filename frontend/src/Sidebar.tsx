@@ -3,7 +3,7 @@ import type { Api, Issue, ProjectState, Validation, VideoInfo } from "./api";
 import type { Blueprint, Schema } from "./model";
 import * as m from "./model";
 import { Btn, Empty, Icon } from "./ui";
-import { ScopesPanel } from "./Scopes";
+import { ScopesPanel } from "./ScopesPanel";
 
 export type Tab = "media" | "projects" | "blueprint" | "effects" | "backgrounds" | "color" | "scopes" | "assets";
 export const TABS: { id: Tab; label: string; icon: string }[] = [

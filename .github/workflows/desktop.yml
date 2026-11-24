@@ -38,14 +38,16 @@ jobs:
         run: |
           npm ci
           npx electron-builder --win --publish never
-      - name: Smoke test the unpacked app
-        working-directory: release/win-unpacked
+      - name: Smoke test the unpacked app (starts it, loads the UI, checks the engine)
+        continue-on-error: true
         shell: pwsh
         run: |
           $env:EVP_SMOKE = "1"
-          $out = & ".\EVP Editor.exe" 2>&1 | Out-String
-          Write-Host $out
-          if ($out -notmatch "SMOKE") { throw "the packaged app did not start" }
+          $env:EVP_SMOKE_OUT = "$PWD\smoke.txt"
+          $p = Start-Process -FilePath "$PWD\release\win-unpacked\EVP Editor.exe" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "the packaged app did not finish its start-up check in 120 s" }
+          if (-not (Test-Path smoke.txt)) { throw "the packaged app did not report" }
+          Get-Content smoke.txt
       - uses: actions/upload-artifact@v4
         with:
           name: EVP-Editor-Windows

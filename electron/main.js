@@ -160,7 +160,9 @@ app.whenReady().then(async () => {
       const title = await win.webContents.executeJavaScript("document.title");
       if (process.env.EVP_SMOKE_SHOT) fs.writeFileSync(process.env.EVP_SMOKE_SHOT, (await win.webContents.capturePage()).toPNG());
       const health = await (await fetch(`http://127.0.0.1:${info.port}/api/health`)).json();
-      process.stdout.write("SMOKE " + JSON.stringify({ title, body, health, packaged: app.isPackaged, port: info.port }) + "\n");
+      const result = "SMOKE " + JSON.stringify({ title, body, health, packaged: app.isPackaged, port: info.port }) + "\n";
+      process.stdout.write(result);
+      if (process.env.EVP_SMOKE_OUT) fs.writeFileSync(process.env.EVP_SMOKE_OUT, result);       // GUI apps on Windows have no console: report through a file
       quitting = true; app.quit();
     }
   } catch (e) {
