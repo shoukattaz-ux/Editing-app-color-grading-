@@ -105,7 +105,15 @@ def hardware_report() -> dict:
     return {"cpu_count": os.cpu_count(), "ffmpeg": proc.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.splitlines()[0],
             "encoders_available": sorted(e for e in encoders() if e in ("libx264", "libx265")),
             "hardware_encoders_working": hw,
-            "ai_devices": _ai_devices()}
+            "ai_devices": _ai_devices(), "ai": _ai_describe()}
+
+
+def _ai_describe() -> dict:
+    try:
+        from .ml.device import describe
+        return describe()
+    except Exception:
+        return {}
 
 
 def _ai_devices() -> list[str]:

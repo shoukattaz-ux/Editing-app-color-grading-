@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importAssetFile, importBackground, importVideoFile } from "./imports";
-import { Api, ApiError, JobState, ProjectState, ReportConfig, Validation, connection } from "./api";
+import { Api, ApiError, JobState, ProjectState, ReportConfig, Validation, AiDevice, connection } from "./api";
 import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
@@ -279,6 +279,24 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
     </div>);
 }
 
+function AiDeviceBox({ api }: { api: Api }) {
+  const [d, setD] = useState<AiDevice | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  useEffect(() => { api.aiDevice().then(setD).catch(() => {}); }, [api]);
+  const choose = async (v: string) => { setBusy(true); setErr(""); try { setD(await api.setAiDevice(v)); } catch (e: any) { setErr(String(e.message ?? e)); } setBusy(false); };
+  if (!d) return null;
+  const gpu = d.provider !== "CPU";
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <h3>AI device</h3>
+      <p className="muted">Runs the AI cut-out, upscaling and face tools. Currently: <b>{gpu ? d.running_on : "the processor (no graphics card in use)"}</b>.
+        {!gpu && " On Windows the graphics card is used through DirectML; if you have one and this still says processor, update the app from GitHub and reinstall its requirements."}</p>
+      <select value={d.choice} disabled={busy} onChange={e => choose(e.target.value)} aria-label="AI device" style={{ width: "100%" }}>
+        {d.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      {err && <div className="issue error">{err}</div>}
+    </div>);
+}
+
 function AboutBox() {
   const [info, setInfo] = useState<{ version: string; packaged: boolean; logDir: string } | null>(null);
   useEffect(() => { window.evp?.app?.info().then(setInfo).catch(() => {}); }, []);
@@ -321,6 +339,7 @@ function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Settings">
+        <AiDeviceBox api={api} />
         {window.evp?.app && <AboutBox />}
         <h3>Problem reports</h3>
         <p className="muted">When a render fails, the app can upload a small diagnostic file (error, log tail, versions, your blueprint with file names only) to <b>your own</b> Cloudflare R2 bucket. It never contains video, audio or frames, and home-folder names are masked. Your keys are stored only on this computer (owner-only file) and are never sent anywhere except to your R2 endpoint.</p>

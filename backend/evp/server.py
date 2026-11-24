@@ -27,6 +27,8 @@ class State:
         self.video: VideoInfo | None = None
         self.jobs = JobManager()
         self.recent = RecentProjects(data_dir / "recent.json")
+        from .ml import device as _device
+        _device.configure(data_dir)
         self.reporter = Reporter(data_dir, __version__, allow_local=bool(os.environ.get("EVP_REPORT_ALLOW_LOCAL")))
 
     @property
@@ -321,6 +323,22 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             except ValueError as e: raise HTTPException(409, str(e))
         else: raise HTTPException(404, "unknown action")
         return j.to_json()
+
+    # ---------------- AI device (which graphics card / processor runs the AI models)
+    class AiDevice(BaseModel):
+        device: str
+
+    @app.get("/api/ai-device", dependencies=[api()])
+    def ai_device():
+        from .ml.device import describe
+        return describe()
+
+    @app.put("/api/ai-device", dependencies=[api()])
+    def ai_device_put(b: AiDevice):
+        from .ml import device
+        try: device.set_choice(b.device)
+        except ValueError as e: raise HTTPException(422, str(e))
+        return device.describe()
 
     # ---------------- problem reports (Cloudflare R2)
     class ReportCfg(BaseModel):

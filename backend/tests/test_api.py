@@ -343,3 +343,56 @@ def test_fsutil_replace_retries_when_the_file_is_briefly_locked(tmp_path, monkey
     monkeypatch.setattr(os, "replace", flaky); monkeypatch.setattr(sys, "platform", "win32")
     fsutil.replace(a, b, delay=0.01)
     assert b.read_text() == "x" and n["n"] == 3
+
+
+# ---------------------------------------------------------------- AI device (DirectML / CUDA / CPU)
+def _pc(monkeypatch, providers, adapters):
+    from evp.ml import device
+    monkeypatch.setattr(device, "_available", lambda: providers)
+    monkeypatch.setattr(device, "adapters", lambda: adapters)
+    monkeypatch.delenv("EVP_AI_DEVICE", raising=False)
+    monkeypatch.setitem(device._CFG, "device", "auto")
+    return device
+
+
+USER_PC = [{"index": 0, "name": "Intel(R) UHD Graphics 630", "vram_mb": 128, "vendor": 0x8086, "software": False},
+           {"index": 1, "name": "Radeon RX 580 Series", "vram_mb": 8192, "vendor": 0x1002, "software": False},
+           {"index": 2, "name": "Microsoft Basic Render Driver", "vram_mb": 0, "vendor": 0x1414, "software": True}]
+
+
+def test_ai_device_picks_the_strong_graphics_card_not_the_integrated_one(monkeypatch):
+    """The reporter's PC: Intel UHD 630 is adapter 0, the Radeon RX 580 adapter 1. DirectML's default (0) would use the weak one."""
+    d = _pc(monkeypatch, ["DmlExecutionProvider", "CPUExecutionProvider"], USER_PC)
+    assert d.provider_chain() == [("DmlExecutionProvider", {"device_id": 1}), "CPUExecutionProvider"]
+    assert d.describe()["running_on"] == "Radeon RX 580 Series" and d.describe()["provider"] == "Dml"
+    d._CFG["device"] = "0"
+    assert d.provider_chain()[0] == ("DmlExecutionProvider", {"device_id": 0})                  # the user can override
+    d._CFG["device"] = "cpu"
+    assert d.provider_chain() == ["CPUExecutionProvider"] and d.describe()["provider"] == "CPU"
+
+
+def test_ai_device_never_prefers_the_software_adapter_and_falls_back_to_cpu(monkeypatch):
+    only_soft = [USER_PC[2]]
+    d = _pc(monkeypatch, ["DmlExecutionProvider", "CPUExecutionProvider"], only_soft)
+    assert d.best_adapter(only_soft) is None and d.provider_chain()[0] == ("DmlExecutionProvider", {"device_id": 0})
+    d = _pc(monkeypatch, ["CPUExecutionProvider"], [])                                         # CPU-only runtime
+    assert d.provider_chain() == ["CPUExecutionProvider"]
+    d = _pc(monkeypatch, ["CUDAExecutionProvider", "CPUExecutionProvider"], [])
+    assert d.provider_chain() == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+
+def test_ai_device_setting_is_validated_persisted_and_served(tmp_path, monkeypatch):
+    from evp.ml import device
+    monkeypatch.setitem(device._CFG, "device", "auto"); monkeypatch.delenv("EVP_AI_DEVICE", raising=False)
+    c = TestClient(create_app("tok", str(tmp_path / "data")))
+    assert c.get("/api/ai-device", headers=H).json()["choice"] == "auto"
+    assert c.put("/api/ai-device", headers=H, json={"device": "cpu"}).json()["choice"] == "cpu"
+    assert json.loads((tmp_path / "data" / "ai_device.json").read_text())["device"] == "cpu"
+    assert c.put("/api/ai-device", headers=H, json={"device": "rm -rf"}).status_code == 422
+    assert "ai" in c.get("/api/system", headers=H).json()
+    device._CFG["device"] = "auto"
+
+
+def test_windows_requirements_use_directml():
+    reqs = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "requirements.txt")).read()
+    assert 'onnxruntime-directml>=1.17; sys_platform == "win32"' in reqs and 'onnxruntime>=1.17; sys_platform != "win32"' in reqs

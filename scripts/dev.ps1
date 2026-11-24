@@ -11,6 +11,8 @@ if (-not $NoPull) {
   git checkout $Branch
   git pull origin $Branch
 }
+# Windows: the DirectML build of onnxruntime (runs the AI on your graphics card) replaces the CPU-only one; they cannot coexist
+if (python -m pip show onnxruntime 2>$null) { python -m pip uninstall -y onnxruntime onnxruntime-directml }
 python -m pip install -q -r backend/requirements.txt
 Push-Location frontend; if (-not (Test-Path node_modules)) { npm ci }; npm run build; Pop-Location
 Push-Location electron; if (-not (Test-Path node_modules)) { npm ci }; npm start; Pop-Location

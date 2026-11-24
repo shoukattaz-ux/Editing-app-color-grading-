@@ -1,0 +1,16 @@
+name: Windows AI check
+on:
+  workflow_dispatch:
+jobs:
+  directml:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install requirements (Windows picks the DirectML runtime)
+        run: pip install -r backend/requirements.txt
+      - name: Show what Windows offers
+        run: python -c "import onnxruntime as o; print(o.__version__, o.get_available_providers())"
+      - name: Run the AI on DirectML and on the CPU and compare
+        run: python scripts/gpu_check.py

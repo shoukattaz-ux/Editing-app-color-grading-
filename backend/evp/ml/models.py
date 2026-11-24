@@ -121,24 +121,19 @@ def _download(name: str, info: "ModelInfo", p: Path) -> Path:
 
 
 def providers() -> list[str]:
-    """ONNX Runtime execution providers in preference order (GPU first when the installed build supports it)."""
-    try:
-        import onnxruntime as ort
-    except Exception:
-        return []
-    avail = ort.get_available_providers()
-    return [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider") if p in avail] + ["CPUExecutionProvider"]
+    """ONNX Runtime execution providers in preference order (the strongest device first), by name."""
+    from . import device
+    return device.provider_names()
 
 
 def make_session(model_path: str, threads: int | None = None):
-    """ONNX session on the best available device; falls back to CPU if the GPU provider fails to initialise."""
+    """ONNX session on the chosen device; falls back to the CPU if the GPU provider fails to initialise."""
     import onnxruntime as ort
-    so = ort.SessionOptions()
-    so.intra_op_num_threads = threads or os.cpu_count() or 4
+    from . import device
     try:
-        return ort.InferenceSession(str(model_path), so, providers=providers())
+        return ort.InferenceSession(str(model_path), device.session_options(threads), providers=device.provider_chain())
     except Exception:
-        return ort.InferenceSession(str(model_path), so, providers=["CPUExecutionProvider"])
+        return make_session_cpu(model_path, threads)
 
 
 def make_session_cpu(model_path: str, threads: int | None = None):

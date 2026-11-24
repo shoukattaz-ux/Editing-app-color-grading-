@@ -38,6 +38,12 @@ _MODEL: "RVM | None" = None
 _MODEL_LOCK = threading.Lock()
 
 
+def drop_model() -> None:
+    """forget the loaded session (the AI device setting changed)"""
+    global _MODEL
+    with _MODEL_LOCK: _MODEL = None
+
+
 def _model() -> "RVM":
     """One ONNX session per process (loading costs ~1 s); state is reset per clip."""
     global _MODEL
@@ -50,14 +56,13 @@ def _model() -> "RVM":
 class RVM:
     def __init__(self, threads: int | None = None):
         import onnxruntime as ort
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = threads or os.cpu_count() or 4
-        avail = ort.get_available_providers()
-        prefer = [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider") if p in avail]
+        from . import device
+        path = str(ensure_model("rvm"))
         try:
-            self.sess = ort.InferenceSession(str(ensure_model("rvm")), so, providers=prefer + ["CPUExecutionProvider"])
+            self.sess = ort.InferenceSession(path, device.session_options(threads), providers=device.provider_chain())
         except Exception:
-            self.sess = ort.InferenceSession(str(ensure_model("rvm")), so, providers=["CPUExecutionProvider"])
+            so = ort.SessionOptions(); so.intra_op_num_threads = threads or os.cpu_count() or 4
+            self.sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
         self.provider = self.sess.get_providers()[0]
         self.reset()
 

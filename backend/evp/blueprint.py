@@ -537,7 +537,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                 est = estimate_seconds_per_frame(vid.width, vid.height, params["quality"], need, gpu, params["model"]) * (ef - sf)
                 if est > 60:
                     rep.warn("AI_SLOW", f"AI upscaling of {ef - sf} frames is estimated at ~{est / 60:.0f} min on "
-                             f"{'GPU' if gpu else 'CPU (no GPU runtime found)'}; the result is cached for later previews/exports.", oid)
+                             f"{'GPU' if gpu else 'CPU (no GPU in use: on Windows it needs the DirectML runtime; see Settings > AI device)'}; the result is cached for later previews/exports.", oid)
         if spec.needs_audio and vid and not vid.has_audio:
             rep.warn("NO_AUDIO", "Source has no audio track; this operation has no effect", oid, p)
         deps = o.get("depends_on", [])
