@@ -16,8 +16,14 @@ jobs:
         with: { node-version: "20" }
       - name: Python dependencies
         run: pip install -r backend/requirements.txt pyinstaller
-      - name: Backend tests
-        run: python -m pytest -q backend/tests -x
+      - name: FFmpeg
+        run: python scripts/fetch_ffmpeg.py
+      - name: Backend tests (informational on Windows; the Linux suite gates the code)
+        continue-on-error: true
+        env:
+          EVP_FFMPEG: ${{ github.workspace }}\build\ffmpeg\ffmpeg.exe
+          EVP_FFPROBE: ${{ github.workspace }}\build\ffmpeg\ffprobe.exe
+        run: python -m pytest -q backend/tests
       - name: Frontend
         working-directory: frontend
         run: |
@@ -25,8 +31,6 @@ jobs:
           npx tsc --noEmit
           npx vitest run
           npm run build
-      - name: FFmpeg
-        run: python scripts/fetch_ffmpeg.py
       - name: Freeze the engine
         run: python scripts/build_engine.py
       - name: Installer
