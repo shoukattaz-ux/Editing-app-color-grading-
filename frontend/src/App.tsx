@@ -180,7 +180,7 @@ function Editor({ api }: { api: Api }) {
           stale={stale} onUpdateProxy={() => updateProxy()} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />
-      <aside className="side right"><Properties bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
+      <aside className="side right"><Properties bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
           onCut={cutHere} onDeleteClip={() => removeClip()} onReapply={() => updateProxy()} /></aside>
 
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />

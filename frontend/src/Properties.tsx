@@ -3,10 +3,11 @@ import type { Blueprint, Op, OpSpec, ParamSpec, Schema } from "./model";
 import * as m from "./model";
 import type { Issue, VideoInfo } from "./api";
 import { Btn, Empty, Icon, resolutionOptions } from "./ui";
+import { KeyframeGraph } from "./Keyframes";
 
 type Edit = (fn: (b: Blueprint) => Blueprint, key?: string) => void;
 
-function ParamField({ name, spec, value, onChange, bp }: { name: string; spec: ParamSpec; value: any; onChange: (v: any) => void; bp: Blueprint }) {
+function ParamControl({ name, spec, value, onChange, bp, extra }: { name: string; spec: ParamSpec; value: any; onChange: (v: any) => void; bp: Blueprint; extra?: React.ReactNode }) {
   const label = name.replace(/_/g, " ");
   const v = value ?? spec.default;
   const [txt, setTxt] = useState<string | null>(null);
@@ -16,7 +17,7 @@ function ParamField({ name, spec, value, onChange, bp }: { name: string; spec: P
     const min = spec.minimum ?? 0, max = spec.maximum ?? 1, step = spec.type === "integer" ? 1 : (max - min) / 200;
     input = (<div className="slider-row">
       <input type="range" min={min} max={max} step={step} value={Number(v ?? 0)} onChange={e => onChange(spec.type === "integer" ? parseInt(e.target.value) : parseFloat(e.target.value))} aria-label={label} />
-      <input type="number" min={min} max={max} step={step} value={Number(v ?? 0)} onChange={e => { const n = parseFloat(e.target.value); if (!isNaN(n)) onChange(spec.type === "integer" ? Math.round(n) : n); }} />
+      <input type="number" min={min} max={max} step={step} value={+Number(v ?? 0).toFixed(spec.type === "integer" ? 0 : 3)} onChange={e => { const n = parseFloat(e.target.value); if (!isNaN(n)) onChange(spec.type === "integer" ? Math.round(n) : n); }} />
     </div>);
   } else if (spec.type === "boolean") input = <input type="checkbox" checked={!!v} onChange={e => onChange(e.target.checked)} aria-label={label} />;
   else if (spec.type === "enum") input = <select value={v} onChange={e => onChange(e.target.value)}>{spec.enum!.map(o => <option key={o}>{o}</option>)}</select>;
@@ -32,10 +33,49 @@ function ParamField({ name, spec, value, onChange, bp }: { name: string; spec: P
       onChange={e => { setTxt(e.target.value); if (e.target.value.trim() === "") { setBad(false); onChange(undefined); return; } try { onChange(JSON.parse(e.target.value)); setBad(false); } catch { setBad(true); } }}
       onBlur={() => { if (!bad) setTxt(null); }} />;
   } else input = <input type="text" value={v ?? ""} onChange={e => onChange(e.target.value)} />;
-  return (<label className="field" title={spec.description}>
-    <span className="fl">{label}{spec.unit ? <em> {spec.unit}</em> : null}{value !== undefined && spec.default !== undefined && value !== spec.default ? <i className="dot" title="changed from default" /> : null}</span>
+  return (<div className="pc" title={spec.description}>
+    <div className="pc-head"><label className="fl">{label}{spec.unit ? <em> {spec.unit}</em> : null}{value !== undefined && spec.default !== undefined && value !== spec.default ? <i className="dot" title="changed from default" /> : null}</label>{extra}</div>
     {input}
-  </label>);
+  </div>);
+}
+
+/** One parameter row: the value control (shows the interpolated value at the playhead when animated) plus stopwatch / keyframe controls. */
+function ParamField({ name, spec, op, bp, t, fps, opLen, edit, setT }: {
+  name: string; spec: ParamSpec; op: Op; bp: Blueprint; t: number; fps: number; opLen: number; edit: Edit; setT: (t: number) => void;
+}) {
+  const kfs = op.keyframes?.[name];
+  const animated = !!kfs?.length;
+  const canAnimate = !!spec.animatable;
+  const tRel = Math.min(Math.max(t - op.start, 0), opLen);
+  const shown = animated ? m.valueAt(kfs!, t - op.start) : op.parameters?.[name];
+  const [selKf, setSelKf] = useState(0);
+  const isInt = spec.type === "integer";
+  const put = (v: number) => edit(b => m.setKeyframe(b, op.id, name, tRel, isInt ? Math.round(v) : v, fps, spec.minimum, spec.maximum), `kf:${op.id}:${name}`);
+  const onKey = animated && kfs!.some(k => Math.abs(k.time - (t - op.start)) < 0.5 / fps);
+  const prev = animated ? [...kfs!].reverse().find(k => k.time < t - op.start - 0.5 / fps) : undefined;
+  const next = animated ? kfs!.find(k => k.time > t - op.start + 0.5 / fps) : undefined;
+  const toggleAnim = () => animated
+    ? edit(b => m.disableAnimation(b, op.id, name, shown))
+    : edit(b => m.enableAnimation(b, op.id, name, tRel, op.parameters?.[name] ?? spec.default ?? 0, fps, spec.minimum, spec.maximum));
+  const toggleKey = () => { if (!animated) return toggleAnim(); const i = kfs!.findIndex(k => Math.abs(k.time - (t - op.start)) < 0.5 / fps); i >= 0 ? edit(b => m.removeKeyframe(b, op.id, name, i)) : put(shown); };
+  return (
+    <div className={`field pf ${animated ? "animated" : ""}`}>
+      <ParamControl name={name} spec={spec} value={shown} bp={bp} onChange={v => (animated ? put(v) : edit(b => m.setParam(b, op.id, name, v), `p:${op.id}:${name}`))}
+        extra={canAnimate ? (
+          <span className="kf-ctl" role="group" aria-label={`Keyframes for ${name}`}>
+            <button className="kfb" disabled={!prev} title="Previous keyframe" aria-label="Previous keyframe" onClick={() => prev && setT(op.start + prev.time)}><Icon n="chevL" size={12} /></button>
+            <button className={`kfb dia ${onKey ? "on" : ""}`} title={!animated ? "Add a keyframe (starts animating)" : onKey ? "Remove the keyframe at the playhead" : "Add a keyframe at the playhead"} aria-label="Toggle keyframe at playhead" aria-pressed={onKey} onClick={toggleKey}><Icon n="diamond" size={12} /></button>
+            <button className="kfb" disabled={!next} title="Next keyframe" aria-label="Next keyframe" onClick={() => next && setT(op.start + next.time)}><Icon n="chevR" size={12} /></button>
+            <button className={`kfb clock ${animated ? "on" : ""}`} title={animated ? "Stop animating (keeps the value at the playhead)" : "Animate over time"} aria-label="Animate parameter" aria-pressed={animated} onClick={toggleAnim}><Icon n="clock" size={12} /></button>
+          </span>) : null} />
+      {animated && (
+        <KeyframeGraph kfs={kfs!} length={opLen} min={spec.minimum} max={spec.maximum} integer={isInt} unit={spec.unit} tRel={t - op.start} fps={fps}
+          selected={Math.min(selKf, kfs!.length - 1)} onSelect={setSelKf}
+          onMove={(i, tt, v) => edit(b => m.moveKeyframe(b, op.id, name, i, tt, v, fps, spec.minimum, spec.maximum), `kfdrag:${op.id}:${name}:${i}`)}
+          onAdd={(tt, v) => { edit(b => m.setKeyframe(b, op.id, name, tt, v, fps, spec.minimum, spec.maximum)); setSelKf(kfs!.filter(k => k.time < tt).length); }}
+          onRemove={i => { edit(b => m.removeKeyframe(b, op.id, name, i)); setSelKf(Math.max(0, i - 1)); }}
+          onEasing={(i, e) => edit(b => m.setKeyframeEasing(b, op.id, name, i, e))} />)}
+    </div>);
 }
 
 function ClipPanel({ bp, video, layout, id, edit, t, onCut, onDeleteClip, onSelectClip }: {
@@ -76,8 +116,8 @@ function ClipPanel({ bp, video, layout, id, edit, t, onCut, onDeleteClip, onSele
     </div>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip }: {
-  bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; issues: Issue[];
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip }: {
+  bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
   onReapply: () => void; onSelect: (id: string | null) => void; onSelectClip: (id: string | null) => void; onCut: () => void; onDeleteClip: () => void;
 }) {
   const op: Op | undefined = bp.operations.find(o => o.id === sel);
@@ -94,6 +134,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, i
         <label className="switch" title="Enable / disable this operation"><input type="checkbox" checked={op.enabled !== false} onChange={() => edit(b => m.toggleOp(b, op.id))} /><span>{op.enabled === false ? "Disabled" : "Enabled"}</span></label>
       </header>
       <p className="muted">{spec?.description}</p>
+      {op.keyframes && Object.keys(op.keyframes).length > 0 && <p className="muted kfsummary"><Icon n="diamond" size={11} /> Animated: {Object.entries(op.keyframes).map(([n, k]) => `${n.replace(/_/g, " ")} (${k.length})`).join(", ")}</p>}
       {mine.map((i, k) => <div key={k} className={`issue ${i.level}`}><Icon n="warn" size={14} /> {i.message}</div>)}
       <div className="btn-row">
         <Btn icon="copy" label="Duplicate" onClick={() => edit(b => m.duplicateOp(b, op.id).bp)} />
@@ -112,7 +153,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, i
       <section>
         <h4>Parameters</h4>
         {spec ? Object.entries(spec.parameters).map(([k, ps]) => (
-          <ParamField key={k} name={k} spec={ps} bp={bp} value={op.parameters?.[k]} onChange={v => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`)} />))
+          <ParamField key={k} name={k} spec={ps} op={op} bp={bp} t={t} fps={fps} opLen={Math.max(1 / fps, end - op.start)} edit={edit} setT={setT} />))
           : <p className="muted">Unknown operation type — see Blueprint errors.</p>}
       </section>
       <section>

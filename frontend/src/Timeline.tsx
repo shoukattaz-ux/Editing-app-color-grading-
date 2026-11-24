@@ -10,6 +10,9 @@ const TRACKS: { id: string; label: string; icon: string }[] = [
 ];
 const CAT_COLOR: Record<string, string> = { Keying: "#2fb57a", Compositing: "#7a6cf0", Color: "#e3913a", Enhance: "#3aa6e3", Graphics: "#e35a8a", Audio: "#a0a63a" };
 
+/** distinct keyframe times (relative to the effect's start) across all its animated parameters */
+const kfTimes = (op: Op): number[] => [...new Set(Object.values(op.keyframes ?? {}).flatMap(k => k.map(x => +x.time.toFixed(4))))].sort((a, b) => a - b);
+
 export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selClip, setSelClip, edit, issues, zoom, setZoom, sourceName, onCut, onDeleteClip }: {
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; sel: string | null; setSel: (id: string | null) => void;
   selClip: string | null; setSelClip: (id: string | null) => void;
@@ -118,6 +121,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
                         title={`${spec?.title ?? op.type} · ${op.start.toFixed(2)}–${end.toFixed(2)}s`}
                         onPointerDown={e => down(e, op)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; }}>
                         <i className="handle l" /><span>{op.label || spec?.title || op.type}</span><i className="handle r" />
+                        {kfTimes(op).filter(k => k >= 0 && k <= end - op.start).map(k => <i key={k} className="kfd" style={{ left: k * zoom - 4 }} title={`keyframe at ${(op.start + k).toFixed(2)}s`} />)}
                       </div>);
                   })}
                 </div>

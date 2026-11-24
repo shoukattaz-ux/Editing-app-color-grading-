@@ -43,6 +43,18 @@ Pipeline stages (execution order, subject to `depends_on`): restore (10) → key
 ### Cuts (edit decision list)
 `evp/edl.py` holds the single mapping between timeline frames and source frames. The compiler turns the clips into `fps → split → trim → concat` on one decoder when they are in source order (no buffering: `trim` drops other branches' frames), or one `-ss` input per piece when reordered/duplicated. After `concat` the stream is re-timed onto the exact 1/fps grid (concat changes the time base; a mismatch made overlays drop their last frame). AI passes decode piece by piece with exact seeks, so frame N means the same source frame in the render, the single-frame preview and every analysis pass.
 
+### Keyframes: how animation reaches FFmpeg (chosen by measurement)
+FFmpeg offers several ways to change a filter over time; each was tested against a static render of every frame:
+| Mechanism | Exact? | Used for |
+|---|---|---|
+| `sendcmd` runtime commands, one file per linear chain, only options that change | **bit-exact** when the target is in the same single-input chain, downstream of the sendcmd (`eq`, `exposure`, `vibrance`, `colorchannelmixer`, `colorbalance`, `curves`, `chromakey`, `despill`, `drawtext` x/y/size/alpha) | grading, keying, text, background colour, face colour |
+| per-frame expressions of `t` (`scale`/`overlay` with `eval=frame`, `volume`) | **bit-exact** for video; ~20 ms steps for audio | background zoom/pan, audio gain |
+| analysis-pass per-frame parameters (Python) | exact (same `value_at`) | face tone/relight, upscale strength/grain |
+| `sendcmd` into `overlay`/`blend` | ❌ one frame early (multi-input filters look ahead) | not used |
+| `gblur` sigma / `hqdn3d` / `blend` opacity at runtime | ❌ inexact | **excluded** — those parameters are not animatable |
+| anything placed after a per-frame size change | ❌ FFmpeg re-normalises the size | zoom is therefore the last step before the overlay |
+One definition of the maths (`keyframes.value_at`) feeds the command files; `to_expr` generates the equivalent FFmpeg expression and is checked against `value_at` by running FFmpeg's own evaluator; the TypeScript editor mirrors it and is tested on the same shared vectors (`shared/keyframe_vectors.json`). **Known limitation (pre-existing, found while testing):** any RGB-domain effect — static or animated — resamples chroma slightly, including on frames outside its time range (mean ~1 level, up to ~20-45 on one-pixel coloured edges); fixing it means re-wrapping all colour effects in a 4:4:4 path.
+
 ## 5. Execution pipeline
 1. **Parse** JSON (size-limited) → 2. **Validate** structure, version, ids, timestamps (seconds, `mm:ss.ms`, `hh:mm:ss.ms`; snapped to the output frame grid, warned when snapped), parameters (type/range/enum), asset existence/type/path safety, unsupported ops → errors, never silent skips.
 3. **Plan**: bind each `background_replacement` to a covering alpha source (explicit `depends_on` or auto), detect overlap conflicts (two replacements overlapping = error; stacked grades/keys = warning), topologically order by `(stage, start, blueprint order)` honouring dependencies, drop disabled ops, reject missing alpha sources.
@@ -59,7 +71,7 @@ Pipeline stages (execution order, subject to `depends_on`): restore (10) → key
 | Depth-aware compositing, perspective matching | ❌ not implemented |
 | Colour grading: exposure, contrast, brightness, highlights/shadows/whites/blacks, temperature/tint, saturation, vibrance, gamma, lift/gamma/gain, RGB curves, `.cube`/`.3dl` LUT (with intensity), 6 presets | ✅ |
 | Colour wheels UI | ❌ (the underlying LGG values are editable as numbers; no wheel widget) |
-| Keyframed parameters | ❌ parameters are constant per operation; use split/duplicate to change values over time |
+| Keyframes (animation of numeric parameters; 5 easings; graph editor, stopwatch, prev/next, drag; timeline diamonds; split/trim/ripple-aware) | ✅ for the parameters listed in [BLUEPRINT.md](BLUEPRINT.md#keyframes-animation) (grade, chroma key, background zoom/pan/colour, text position/size/opacity, audio gain, face and upscale strengths). **Not animatable by design:** blur, denoise, sharpen, LUT intensity, colours/enums/arrays — each was measured not to be frame-exact. Verified by an oracle: an animated frame is pixel-identical to a static render at the interpolated value |
 | Face & skin-tone correction: auto face exposure toward a target (temporally smoothed), manual face EV, skin-only warmth/tint/saturation measured from the person's own cheek colour (any skin tone) | ✅ No smoothing/reshaping, so identity is untouched. Checked on two real clips: no added flicker (jitter 1.55 → 1.10). Limits: profile/heavily turned or very small faces may not be detected (detection_confidence); neck/hands are not corrected. |
 | Face relighting: key light side/height/intensity, fill (lifts darker areas), shadow depth | ✅ **2D image-space approximation** (directional gain over the face ellipse), no 3D geometry: good for gentle corrections, cannot cast new shadows or create a rim light. Background-light matching not implemented. |
 | Denoise (hqdn3d), sharpen (unsharp), basic stabilisation (`deshake`, single pass) | ✅ (classical; limited by source) |

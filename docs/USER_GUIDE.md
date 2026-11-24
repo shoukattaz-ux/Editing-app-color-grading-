@@ -24,6 +24,16 @@ The **Video** track shows your footage as clips. The original file is never chan
 * *Original* preview plays your cut timeline by jumping between clips (small hiccups at joins are normal there); *Edited* is the real result.
 * One video per project for now, and changing a cut recomputes AI effects (matting, face, upscaling) for that range, so make your cuts *before* running heavy AI.
 
+## Keyframes: animating effects
+Select an effect; every parameter that can be animated has four small buttons: **◀ ◆ ▶ ⏱**.
+1. Move the playhead where the animation should start and press the **stopwatch (⏱)**. The parameter now animates and shows a **curve graph**; the first keyframe holds the current value.
+2. Move the playhead and change the value (slider or number): that **creates a keyframe** there. Between keyframes the box shows the interpolated value. **◆** adds/removes a keyframe at the playhead; **◀ ▶** jump to the previous/next keyframe. Pressing ⏱ again stops animating and keeps the value at the playhead.
+3. In the graph: **drag** a point to change its time and value, **click** empty space to add a keyframe, **double-click** a point (or press Del) to remove it, and pick the **easing** of the selected keyframe (linear, hold, ease in, ease out, ease in-out). The red line is the playhead; dimmed margins are outside the effect but still shape the curve.
+4. Keyframe diamonds also show on the effect's bar in the timeline.
+* Examples: a slow **zoom/pan on the background** (animate `scale`, `offset_x`), **fade-in titles** (text `opacity`), a moving **lower third** (`x`, `y`), a grade that warms up (`temperature`), **audio ducking** (`gain_db`), a **moving key light** (relight `key_angle`).
+* Moving an effect moves its keyframes; dragging only its **left** edge keeps keyframes where they are on the timeline; **Split at playhead** gives both halves the exact original curve; cutting footage out removes the keyframes inside the cut and moves later ones earlier (the value glides across the gap).
+* Not everything can be animated — blur, denoise, sharpen, LUT intensity, colours and choices cannot (the validator says why). Previews show the animation exactly as the export will.
+
 ## AI background removal (no green screen)
 *Backgrounds ▸ AI remove background* adds `background_removal` with `mode: "ai"` over the whole clip; then pick a background (image, video or colour). The first use downloads the 15 MB model to `~/.evp/models`. The matte is computed once per clip/settings (progress shows "AI matting … frame n/N"; about 10 frames/s on a 4-core CPU at 720p) and then reused, so later previews and exports are fast.
 * `detail`: **fast** (default) is the most robust on busy or patterned walls; **balanced/high** give finer hair on plain backgrounds but are slower and may pick up wall texture.

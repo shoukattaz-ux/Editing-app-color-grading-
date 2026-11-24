@@ -100,6 +100,12 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
                 if _overlap(a, b):
                     rep.warn("OVERLAP_STACKED", f"{t} operations '{a.id}' and '{b.id}' overlap; their effects are cumulative", a.id)
     for o in ops:
+        if o.type == "background_replacement" and o.params.get("asset_id") and o.params["fit"] == "cover":
+            ext = lambda n: [k.value for k in o.keyframes[n]] if n in o.keyframes else [o.params[n]]
+            z = min(ext("scale")); off = max(abs(v) for n in ("offset_x", "offset_y") for v in ext(n))
+            if z < 1 + 2 * off - 1e-9:
+                rep.warn("BG_EDGE_VISIBLE", f"Background '{o.id}': with scale {z:g} and an offset up to {off:g} of the frame, the background image may not cover the frame "
+                         f"and the background colour can show at the edges. Use scale >= {1 + 2 * off:g}" + (" (at every keyframe)" if o.keyframes else "") + ".", o.id)
         if o.type == "chroma_key" or o.type == "background_removal":
             kc = o.params["key_color"]
             if o.params.get("mode", "chroma") == "chroma" and o.params["spill_suppression"] and _dominant(kc) is None:

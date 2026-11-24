@@ -201,3 +201,120 @@ describe("timecodes in AI-written blueprints", () => {
     expect(bp!.clips![0]).toMatchObject({ start: 1, end: 3.5 }); expect(bp!.operations[0]).toMatchObject({ start: 2, end: 3 });
   });
 });
+
+// ---------------------------------------------------------------- keyframes
+import vectors from "../../shared/keyframe_vectors.json";
+
+const kfop = (kf: Record<string, m.Keyframe[]>, start = 1, end = 5, extra: Partial<m.Op> = {}): m.Op => ({ id: "g", type: "color_grading", start, end, keyframes: kf, ...extra });
+const kfbp = (o: m.Op[]): m.Blueprint => ({ blueprint_version: "1.0", assets: [], operations: o });
+const KF = (...a: [number, number, m.Easing?][]) => a.map(([time, value, easing]) => ({ time, value, ...(easing ? { easing } : {}) }));
+
+describe("keyframe maths", () => {
+  it("matches the Python implementation on every shared vector", () => {
+    expect(vectors.cases.length).toBeGreaterThan(8);
+    for (const c of vectors.cases) for (const s of c.samples)
+      expect(m.valueAt(c.keyframes as m.Keyframe[], s.t), `${c.name} @ ${s.t}`).toBeCloseTo(s.v, 9);
+  });
+  it("holds outside the keyframes and honours easing/hold", () => {
+    const k = KF([1, 2, "linear"], [3, 6]);
+    expect([m.valueAt(k, 0), m.valueAt(k, 2), m.valueAt(k, 9)]).toEqual([2, 4, 6]);
+    expect(m.valueAt(KF([0, 1, "hold"], [2, 5]), 1.99)).toBe(1);
+    expect(m.ease("ease_in", 0.5)).toBeLessThan(0.5); expect(m.ease("ease_out", 0.5)).toBeGreaterThan(0.5); expect(m.ease("ease_in_out", 0.5)).toBeCloseTo(0.5);
+  });
+  it("paramAt: keyframed, static or default; time is timeline time", () => {
+    const o = kfop({ exposure: KF([0, 0], [2, 1]) }, 10, 14, { parameters: { contrast: 1.4 } });
+    expect(m.paramAt(o, "exposure", 11, 0)).toBeCloseTo(0.5); expect(m.paramAt(o, "contrast", 11, 1)).toBe(1.4); expect(m.paramAt(o, "gamma", 11, 1)).toBe(1);
+  });
+});
+
+describe("keyframe editing", () => {
+  const F = 20;
+  it("setKeyframe creates, updates, sorts, clamps and limits", () => {
+    let b = kfbp([{ id: "g", type: "color_grading", start: 1, end: 5, parameters: { exposure: 0.2 } }]);
+    b = m.setKeyframe(b, "g", "exposure", 2, 0.5, F, -3, 3);
+    b = m.setKeyframe(b, "g", "exposure", 0.5, -9, F, -3, 3);                       // clamped to the minimum
+    expect(b.operations[0].keyframes!.exposure.map(k => [k.time, k.value])).toEqual([[0.5, -3], [2, 0.5]]);
+    b = m.setKeyframe(b, "g", "exposure", 2.01, 1, F, -3, 3);                       // within half a frame: updates, does not add
+    expect(b.operations[0].keyframes!.exposure).toHaveLength(2); expect(b.operations[0].keyframes!.exposure[1].value).toBe(1);
+    let many = b; for (let i = 0; i < 80; i++) many = m.setKeyframe(many, "g", "exposure", 3 + i * 0.05, 0.1, F);
+    expect(many.operations[0].keyframes!.exposure.length).toBe(m.MAX_KEYFRAMES);
+  });
+  it("removing the last keyframe makes the parameter static at that value", () => {
+    let b = m.setKeyframe(kfbp([{ id: "g", type: "x", start: 0, end: 4 }]), "g", "exposure", 1, 0.7, F);
+    b = m.removeKeyframe(b, "g", "exposure", 0);
+    expect(b.operations[0].keyframes).toBeUndefined(); expect(b.operations[0].parameters!.exposure).toBe(0.7);
+  });
+  it("stopwatch on/off", () => {
+    let b = m.enableAnimation(kfbp([{ id: "g", type: "x", start: 0, end: 4, parameters: { exposure: 0.3 } }]), "g", "exposure", 1, 0.3, F);
+    expect(m.isAnimated(b.operations[0], "exposure")).toBe(true);
+    b = m.disableAnimation(b, "g", "exposure", 0.9);
+    expect(m.isAnimated(b.operations[0], "exposure")).toBe(false); expect(b.operations[0].parameters!.exposure).toBe(0.9);
+  });
+  it("moveKeyframe cannot cross neighbours and snaps to frames", () => {
+    const b = kfbp([kfop({ e: KF([0, 0], [1, 1], [2, 2]) })]);
+    const r = m.moveKeyframe(b, "g", "e", 1, 5, 9, F).operations[0].keyframes!.e;
+    expect(r[1].time).toBeCloseTo(2 - 1 / F); expect(r[1].value).toBe(9);
+    expect(m.moveKeyframe(b, "g", "e", 1, -5, 1, F).operations[0].keyframes!.e[1].time).toBeCloseTo(1 / F);
+  });
+  it("setKeyframeEasing and resetParams (clears animation)", () => {
+    let b = kfbp([kfop({ e: KF([0, 0], [1, 1]) })]);
+    expect(m.setKeyframeEasing(b, "g", "e", 0, "ease_out").operations[0].keyframes!.e[0].easing).toBe("ease_out");
+    expect(m.resetParams(b, "g").operations[0].keyframes).toBeUndefined();
+  });
+});
+
+describe("keyframes when effects are retimed, split, duplicated or rippled", () => {
+  const F = 20;
+  const base = () => kfbp([kfop({ e: KF([0, 0], [2, 1, "ease_out"], [4, 3]) }, 10, 14)]);   // op 10..14, keyframes at abs 10, 12, 14
+  it("moving an effect carries its animation (relative times unchanged)", () => {
+    const r = m.setOpTime(base(), "g", 20, 24).operations[0];
+    expect(r.keyframes!.e.map(k => k.time)).toEqual([0, 2, 4]);
+  });
+  it("trimming only the START edge keeps keyframes where they are on the timeline", () => {
+    const r = m.setOpTime(base(), "g", 11, 14).operations[0];
+    expect(r.keyframes!.e.map(k => k.time)).toEqual([-1, 1, 3]);                         // abs 10, 12, 14 unchanged; the first now lies before the start
+    expect(m.valueAt(r.keyframes!.e, 12 - 11)).toBeCloseTo(1);
+  });
+  it("trimming the END edge changes nothing in the keyframes", () => {
+    expect(m.setOpTime(base(), "g", 10, 12).operations[0].keyframes!.e.map(k => k.time)).toEqual([0, 2, 4]);
+  });
+  it("splitting keeps the original curve exactly on both halves", () => {
+    const b0 = base(), r = m.splitOp(b0, "g", 11.3, F);
+    expect(r.ids).toBeTruthy();
+    const [L, R] = [r.bp.operations[0], r.bp.operations[1]], s = R.start;
+    for (let t = 10; t <= 14; t += 0.05) {
+      const expect_ = m.valueAt(b0.operations[0].keyframes!.e, t - 10);
+      const got = t < s ? m.valueAt(L.keyframes!.e, t - L.start) : m.valueAt(R.keyframes!.e, t - R.start);
+      expect(got).toBeCloseTo(expect_, 9);
+    }
+    L.keyframes!.e[0].value = 99;                                                          // halves are independent copies
+    expect(R.keyframes!.e.every(k => k.value !== 99)).toBe(true);
+  });
+  it("duplicating an effect copies the animation independently", () => {
+    const r = m.duplicateOp(base(), "g");
+    r.bp.operations[1].keyframes!.e[0].value = 7;
+    expect(r.bp.operations[0].keyframes!.e[0].value).toBe(0);
+  });
+  it("cutting a range out of the footage drops keyframes inside it and moves later ones earlier", () => {
+    // timeline 10..14 effect, keyframes at abs 10, 12, 14 ; remove [11,13): kf@12 vanishes, kf@14 -> 12
+    const r = m.rippleRemove(base().operations, 11, 2, F).ops[0];
+    expect(r.start).toBe(10); expect(r.end).toBe(12);
+    expect(r.keyframes!.e.map(k => [k.time, k.value])).toEqual([[0, 0], [2, 3]]);
+    expect(m.valueAt(r.keyframes!.e, 1)).toBeCloseTo(1.5);                                // smooth across the gap, no jump
+  });
+  it("an effect that starts inside the removed range keeps its later keyframes attached to the footage", () => {
+    const o = kfop({ e: KF([0, 0], [2, 1], [4, 3]) }, 11.5, 14);                           // keyframes at abs 11.5, 13.5, 15.5
+    const r = m.rippleRemove([o], 11, 2, F).ops[0];                                        // remove [11,13): effect now starts at 11
+    expect(r.start).toBe(11);
+    expect(r.keyframes!.e.map(k => [k.time, k.value])).toEqual([[0.5, 1], [2.5, 3]]);     // abs 13.5->11.5, 15.5->13.5 (kf@11.5 was in the cut)
+  });
+  it("if every keyframe falls in the cut, the animation is kept as a hold rather than lost", () => {
+    const o = kfop({ e: KF([0.5, 2], [1, 4]) }, 10, 14);
+    const r = m.rippleRemove([o], 10.2, 1.5, F).ops[0];
+    expect(r.keyframes!.e).toHaveLength(1);
+  });
+  it("making room moves keyframes after the insertion point", () => {
+    const r = m.rippleInsert(base().operations, 11, 2, F, false)[0];
+    expect(r.end).toBe(16); expect(r.keyframes!.e.map(k => k.time)).toEqual([0, 4, 6]);
+  });
+});

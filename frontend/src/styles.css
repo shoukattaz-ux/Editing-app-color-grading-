@@ -73,3 +73,16 @@ input[type=range]{accent-color:var(--acc)}.grid2{display:grid;grid-template-colu
 .loupe-wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mute)}.loupe-sel{background:var(--bg4);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
 .clip.source.footage{cursor:grab;background:#2a3a58;box-shadow:inset 0 0 0 1px #4a6aa0}.clip.source.footage.sel{outline:2px solid #fff;z-index:2}.clip.source.footage span{overflow:hidden;text-overflow:ellipsis}
 .cutmark{position:absolute;top:0;bottom:0;width:2px;background:#ff4d6d;opacity:.8;z-index:1;pointer-events:none}
+
+.pc{margin-bottom:2px}.pc-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}.field.pf{margin-bottom:12px}
+.field.pf.animated{border-left:2px solid var(--acc);padding-left:8px;margin-left:-10px}
+.kf-ctl{display:inline-flex;gap:2px;align-items:center}.kfb{background:var(--bg4);border:1px solid var(--line);border-radius:5px;color:var(--mute);width:22px;height:20px;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.kfb:hover:not(:disabled){color:var(--text);border-color:#4a5368}.kfb:disabled{opacity:.3;cursor:default}.kfb.on{color:#fff;background:var(--acc2);border-color:var(--acc)}.kfb.dia.on svg{fill:currentColor}
+.kfsummary{display:flex;gap:6px;align-items:center;color:var(--acc)}
+.kfgraph{margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px}
+.kfgraph svg{width:100%;height:auto;display:block;touch-action:none;outline:none}.kfgraph svg:focus-visible{outline:2px solid var(--acc)}
+.kfgraph .bg{fill:var(--bg3);cursor:crosshair}.kfgraph .outside{fill:#000;opacity:.35;pointer-events:none}.kfgraph .grid{stroke:var(--line);stroke-width:.6}
+.kfgraph .tick{fill:var(--mute);font-size:7.5px}.kfgraph .curve{fill:none;stroke:var(--acc);stroke-width:1.6;pointer-events:none}.kfgraph .ph{stroke:#ff4d6d;stroke-width:1;pointer-events:none}
+.kfgraph .kfpt{cursor:grab}.kfgraph .kfpt rect{fill:var(--bg);stroke:var(--acc);stroke-width:1.5}.kfgraph .kfpt.sel rect{fill:var(--acc);stroke:#fff}.kfgraph .kfpt:hover rect{stroke:#fff}
+.kfbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px;min-height:28px}.kfbar select{background:var(--bg4);border:1px solid var(--line);border-radius:5px;padding:2px 4px;max-width:110px}
+.kfd{position:absolute;bottom:1px;width:8px;height:8px;background:#fff;transform:rotate(45deg);border:1px solid #0008;pointer-events:none;z-index:1}

@@ -351,3 +351,17 @@ def test_upscale_strength_and_grain_animate_per_frame(prep, media, tmp_path):
                                               "grain": [{"time": 0, "value": 0.0}, {"time": 3, "value": 1.0}]}}], output=out)).plan
     assert np.abs(at(both, 0.0) - at(full, 0.0)).max() == 0                    # at t=0 the keyframed values equal the static ones -> identical render
     assert np.abs(at(both, 2.9) - at(full, 2.9)).max() > 0                     # by the end grain/temporal differ from the static render
+
+
+def test_pan_that_can_reveal_the_canvas_is_warned_about(prep):
+    def warns(ken):
+        p = prep(bp(ops=[KEY, ken], assets=ASSETS))
+        return [w.code for w in p.report.warnings]
+    ok = {"id": "r", "type": "background_replacement", "start": 0, "end": 2, "parameters": {"asset_id": "bg", "scale": 1.3, "offset_x": 0.1}}
+    assert "BG_EDGE_VISIBLE" not in warns(ok)
+    assert "BG_EDGE_VISIBLE" in warns(ok | {"parameters": {"asset_id": "bg", "scale": 1.0, "offset_x": 0.1}})
+    anim = {"id": "r", "type": "background_replacement", "start": 0, "end": 2, "parameters": {"asset_id": "bg"},
+            "keyframes": {"scale": [{"time": 0, "value": 1.0}, {"time": 2, "value": 1.6}], "offset_x": [{"time": 0, "value": -0.12}, {"time": 2, "value": 0.12}]}}
+    assert "BG_EDGE_VISIBLE" in warns(anim)                       # the zoom starts at 1.0 while the pan starts 0.12 off-centre
+    fixed = anim | {"keyframes": {"scale": [{"time": 0, "value": 1.3}, {"time": 2, "value": 1.6}], "offset_x": anim["keyframes"]["offset_x"]}}
+    assert "BG_EDGE_VISIBLE" not in warns(fixed)

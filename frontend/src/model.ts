@@ -1,8 +1,13 @@
 // Pure document model: blueprint editing operations, undo/redo history, timeline math.
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
+export type Easing = "linear" | "hold" | "ease_in" | "ease_out" | "ease_in_out";
+export const EASINGS: Easing[] = ["linear", "hold", "ease_in", "ease_out", "ease_in_out"];
+/** time = seconds RELATIVE TO THE OPERATION'S START; easing shapes the segment that starts at this keyframe */
+export interface Keyframe { time: number; value: number; easing?: Easing }
 export interface Op {
   id: string; type: string; start: number; end?: number;
   parameters?: Record<string, any>; depends_on?: string[]; enabled?: boolean; label?: string;
+  keyframes?: Record<string, Keyframe[]>;
 }
 export interface Asset { id: string; type: string; path: string }
 export interface Clip { id: string; start: number; end: number; label?: string }
@@ -10,7 +15,7 @@ export interface Blueprint {
   blueprint_version: string; project?: { name?: string; source_video?: string };
   output?: Record<string, any>; assets: Asset[]; operations: Op[]; clips?: Clip[]; [k: string]: any;
 }
-export interface ParamSpec { type: string; default?: any; minimum?: number; maximum?: number; enum?: string[]; description?: string; unit?: string; asset_types?: string[]; required?: boolean }
+export interface ParamSpec { animatable?: boolean; type: string; default?: any; minimum?: number; maximum?: number; enum?: string[]; description?: string; unit?: string; asset_types?: string[]; required?: boolean }
 export interface OpSpec { type: string; title: string; category: string; track: string; description: string; supported: boolean; unsupported_reason: string; provides_alpha: boolean; parameters: Record<string, ParamSpec> }
 export type Schema = { operations: Record<string, OpSpec> };
 
@@ -74,10 +79,19 @@ export function duplicateOp(bp: Blueprint, id: string): { bp: Blueprint; id?: st
   return { bp: withOps(bp, ops), id: nid };
 }
 export const toggleOp = (bp: Blueprint, id: string) => mapOp(bp, id, o => ({ ...o, enabled: o.enabled === false }));
-export const setOpTime = (bp: Blueprint, id: string, start: number, end: number) => mapOp(bp, id, o => ({ ...o, start, end }));
+export const setOpTime = (bp: Blueprint, id: string, start: number, end: number) => mapOp(bp, id, o => {
+  const next: Op = { ...o, start, end };
+  const dStart = start - o.start, dEnd = o.end === undefined ? NaN : end - o.end;
+  // a MOVE (both edges shift together) carries the animation along; moving only the START edge keeps keyframes where they are on the timeline
+  if (o.keyframes && Math.abs(dStart) > 1e-9 && !(Math.abs(dEnd - dStart) < 1e-6)) next.keyframes = remapKeyframes(o, a => a, start);
+  return next;
+});
 export const setParam = (bp: Blueprint, id: string, key: string, value: any) =>
   mapOp(bp, id, o => { const p = { ...(o.parameters ?? {}) }; if (value === undefined) delete p[key]; else p[key] = value; return { ...o, parameters: p }; });
-export const resetParams = (bp: Blueprint, id: string) => mapOp(bp, id, o => ({ ...o, parameters: o.type === "text_overlay" ? { text: o.parameters?.text ?? "Text" } : {} }));
+export const resetParams = (bp: Blueprint, id: string) => mapOp(bp, id, o => {
+  const { keyframes: _k, ...rest } = o;
+  return { ...rest, parameters: o.type === "text_overlay" ? { text: o.parameters?.text ?? "Text" } : {} };
+});
 export function splitOp(bp: Blueprint, id: string, t: number, fps: number): { bp: Blueprint; ids?: [string, string] } {
   const o = bp.operations.find(x => x.id === id);
   const end = o?.end;
@@ -86,7 +100,12 @@ export function splitOp(bp: Blueprint, id: string, t: number, fps: number): { bp
   if (s <= snap(o.start, fps) || s >= snap(end, fps)) return { bp };         // must fall strictly inside
   const nid = uniqueId(bp, o.type);
   const second: Op = { ...JSON.parse(JSON.stringify(o)), id: nid, start: s, depends_on: [...(o.depends_on ?? [])] };
-  const ops = bp.operations.map(x => (x.id === id ? { ...x, end: s } : x));
+  let left: Record<string, Keyframe[]> | undefined;
+  if (o.keyframes) {                                                          // both halves keep the original curve (exact, no hitch)
+    left = {}; second.keyframes = {};
+    for (const [n, k] of Object.entries(o.keyframes)) { const [l, r] = splitKeyframes(k, s - o.start, end - o.start); left[n] = l; second.keyframes[n] = r; }
+  }
+  const ops = bp.operations.map(x => (x.id === id ? { ...x, end: s, ...(left ? { keyframes: left } : {}) } : x));
   ops.splice(ops.findIndex(x => x.id === id) + 1, 0, second);
   return { bp: withOps(bp, ops), ids: [id, nid] };
 }
@@ -182,7 +201,8 @@ export function rippleRemove(ops: Op[], a: number, len: number, fps: number): { 
     const ns = o.start < a ? o.start : a;
     const ne = end === undefined ? undefined : end > b ? end - len : a;
     if (ne !== undefined && ne - ns < 1 / fps - 1e-9) { removed.push(o.id); continue; }
-    out.push({ ...o, start: r6(ns), ...(ne !== undefined ? { end: r6(ne) } : {}) });
+    const kf = remapKeyframes(o, x => (x < a ? x : x >= b ? x - len : null), ns);       // keyframes in the cut-out range vanish; later ones follow the footage
+    out.push({ ...o, start: r6(ns), ...(ne !== undefined ? { end: r6(ne) } : {}), ...(kf ? { keyframes: kf } : {}) });
   }
   return { ops: out, removed };
 }
@@ -192,7 +212,10 @@ export function rippleInsert(ops: Op[], t: number, len: number, fps: number, att
   return ops.map(o => {
     const end = o.end;
     if (o.start >= t - eps) return { ...o, start: r6(o.start + len), ...(end !== undefined ? { end: r6(end + len) } : {}) };
-    if (end !== undefined && (end > t + eps || (attach && end >= t - eps))) return { ...o, end: r6(end + len) };
+    if (end !== undefined && (end > t + eps || (attach && end >= t - eps))) {
+      const kf = remapKeyframes(o, x => (x >= t ? x + len : x), o.start);            // keyframes after the insertion point move with the footage
+      return { ...o, end: r6(end + len), ...(kf ? { keyframes: kf } : {}) };
+    }
     return o;
   });
 }
@@ -263,4 +286,102 @@ export function labelClip(bp: Blueprint, id: string, label: string, srcDuration:
   const l = layoutClips(bp, srcDuration, fps);
   if (!l.clips.some(c => c.id === id)) return bp;
   return withClips(bp, toClips(l).map(c => c.id === id ? (label ? { ...c, label } : { id: c.id, start: c.start, end: c.end }) : c));
+}
+
+// ======================================================================= keyframes (mirror of backend/evp/keyframes.py)
+export const MAX_KEYFRAMES = 64;
+export function ease(name: Easing | undefined, u: number): number {
+  switch (name ?? "linear") {
+    case "hold": return 0;
+    case "ease_in": return u * u;
+    case "ease_out": return u * (2 - u);
+    case "ease_in_out": return u * u * (3 - 2 * u);
+    default: return u;
+  }
+}
+/** value at time t (relative to the operation's start). kfs sorted by time, non-empty. Held before the first / after the last. */
+export function valueAt(kfs: Keyframe[], t: number): number {
+  if (t <= kfs[0].time) return kfs[0].value;
+  const last = kfs[kfs.length - 1];
+  if (t >= last.time) return last.value;
+  let lo = 0, hi = kfs.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (kfs[mid].time <= t) lo = mid; else hi = mid; }
+  const a = kfs[lo], b = kfs[lo + 1];
+  return a.value + (b.value - a.value) * ease(a.easing, (t - a.time) / (b.time - a.time));
+}
+export const isAnimated = (o: Op, name: string) => !!o.keyframes?.[name]?.length;
+/** a parameter's value at TIMELINE time t: interpolated if keyframed, else the static value, else the default */
+export function paramAt(o: Op, name: string, t: number, fallback: any): any {
+  const k = o.keyframes?.[name];
+  if (k?.length) return valueAt(k, t - o.start);
+  return o.parameters?.[name] ?? fallback;
+}
+const sortKf = (k: Keyframe[]) => [...k].sort((a, b) => a.time - b.time);
+const clampV = (v: number, min?: number, max?: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
+const withKf = (bp: Blueprint, id: string, name: string, k: Keyframe[] | null): Blueprint => mapOp(bp, id, o => {
+  const kf = { ...(o.keyframes ?? {}) };
+  if (k && k.length) kf[name] = k; else delete kf[name];
+  const { keyframes: _drop, ...rest } = o;
+  return Object.keys(kf).length ? { ...rest, keyframes: kf } : rest;
+});
+
+/** add or update the keyframe at (relative) time tRel; creating the animation if the parameter was static */
+export function setKeyframe(bp: Blueprint, id: string, name: string, tRel: number, value: number, fps: number, min?: number, max?: number, easing?: Easing): Blueprint {
+  const o = bp.operations.find(x => x.id === id); if (!o) return bp;
+  const cur = sortKf(o.keyframes?.[name] ?? []);
+  const v = clampV(value, min, max), i = cur.findIndex(k => Math.abs(k.time - tRel) < 0.5 / fps);
+  if (i >= 0) { if (cur[i].value === v && (easing === undefined || cur[i].easing === easing)) return bp; cur[i] = { ...cur[i], value: v, ...(easing ? { easing } : {}) }; }
+  else { if (cur.length >= MAX_KEYFRAMES) return bp; cur.push({ time: snap(tRel, fps), value: v, easing: easing ?? "linear" }); }
+  return withKf(bp, id, name, sortKf(cur));
+}
+/** remove a keyframe; removing the last one turns the parameter static at that value (no visual jump) */
+export function removeKeyframe(bp: Blueprint, id: string, name: string, index: number): Blueprint {
+  const o = bp.operations.find(x => x.id === id), cur = o?.keyframes?.[name];
+  if (!o || !cur || index < 0 || index >= cur.length) return bp;
+  if (cur.length === 1) return setParam(withKf(bp, id, name, null), id, name, cur[0].value);
+  return withKf(bp, id, name, cur.filter((_, i) => i !== index));
+}
+/** move a keyframe in time and/or value; it cannot cross its neighbours (one frame of clearance) */
+export function moveKeyframe(bp: Blueprint, id: string, name: string, index: number, tRel: number, value: number, fps: number, min?: number, max?: number): Blueprint {
+  const cur = bp.operations.find(x => x.id === id)?.keyframes?.[name];
+  if (!cur || index < 0 || index >= cur.length) return bp;
+  const lo = index > 0 ? cur[index - 1].time + 1 / fps : -Infinity, hi = index < cur.length - 1 ? cur[index + 1].time - 1 / fps : Infinity;
+  const k = cur.map((x, i) => i === index ? { ...x, time: Math.min(hi, Math.max(lo, snap(tRel, fps))), value: clampV(value, min, max) } : x);
+  return withKf(bp, id, name, k);
+}
+export function setKeyframeEasing(bp: Blueprint, id: string, name: string, index: number, easing: Easing): Blueprint {
+  const cur = bp.operations.find(x => x.id === id)?.keyframes?.[name];
+  if (!cur || !cur[index]) return bp;
+  return withKf(bp, id, name, cur.map((k, i) => i === index ? { ...k, easing } : k));
+}
+/** stopwatch on: the first keyframe holds the current value */
+export const enableAnimation = (bp: Blueprint, id: string, name: string, tRel: number, value: number, fps: number, min?: number, max?: number) =>
+  setKeyframe(bp, id, name, tRel, value, fps, min, max);
+/** stopwatch off: back to a static value (the one at the playhead, so nothing jumps) */
+export const disableAnimation = (bp: Blueprint, id: string, name: string, value: number) => setParam(withKf(bp, id, name, null), id, name, value);
+
+/** Keyframes of an operation that is cut in two at relative time t (length = its length): both halves keep the ORIGINAL curve.
+ *  Only keyframes that can influence a half are kept (inside it plus one bracketing keyframe each side); the right half is shifted by -t. */
+export function splitKeyframes(kfs: Keyframe[], t: number, length: number): [Keyframe[], Keyframe[]] {
+  const prune = (k: Keyframe[], lo: number, hi: number) => {
+    let first = 0, last = k.length - 1;
+    for (let i = 0; i < k.length; i++) if (k[i].time <= lo) first = i;
+    for (let i = k.length - 1; i >= 0; i--) if (k[i].time >= hi) last = i;
+    return k.slice(first, last + 1);
+  };
+  return [prune(kfs, 0, t), prune(kfs.map(k => ({ ...k, time: k.time - t })), 0, length - t)];
+}
+/** re-time an operation's keyframes through an absolute-time mapping (null = that moment no longer exists). If nothing survives,
+ *  the nearest keyframe is kept at the start so the animation is not silently lost. */
+function remapKeyframes(o: Op, map: (abs: number) => number | null, newStart: number): Record<string, Keyframe[]> | undefined {
+  if (!o.keyframes) return undefined;
+  const out: Record<string, Keyframe[]> = {};
+  for (const [name, kfs] of Object.entries(o.keyframes)) {
+    let kept = kfs.map(k => ({ ...k, abs: map(o.start + k.time) })).filter(k => k.abs !== null)
+      .map(k => ({ time: r6((k.abs as number) - newStart), value: k.value, ...(k.easing ? { easing: k.easing } : {}) }));
+    if (!kept.length) { const k = kfs[kfs.length - 1]; kept = [{ time: 0, value: k.value, ...(k.easing ? { easing: k.easing } : {}) }]; }
+    kept = sortKf(kept).filter((k, i, a) => i === a.length - 1 || a[i + 1].time - k.time > 1e-6);
+    out[name] = kept;
+  }
+  return out;
 }
