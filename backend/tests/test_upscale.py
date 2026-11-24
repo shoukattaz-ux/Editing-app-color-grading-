@@ -45,7 +45,7 @@ def test_onnx_conversion_matches_numpy_reference():
     sd = load_state_dict(models.ensure_model("esrgan_general"))
     x = np.random.default_rng(0).random((3, 6, 7), np.float32)
     ref = _np_forward(sd, x)
-    out = session(0.0).run(None, {"input": x[None]})[0][0]
+    out = session("general", 0.0).run(None, {"input": x[None]})[0][0]
     assert out.shape == (3, 24, 28) and np.abs(out - ref).max() < 1e-3
 
 
@@ -71,7 +71,7 @@ def test_denoise_interpolates_weights():
 
 def test_tiling_matches_whole_frame():
     from evp.ml import upscale as up
-    sess = up.session(0.5)
+    sess = up.session("general", 0.5)
     img = cv2.resize(cv2.imread(cv2.samples.findFile("lena.jpg")) if False else np.random.default_rng(1).integers(0, 255, (48, 64, 3), np.uint8), (100, 90))
     whole = up.run_x4(sess, img)
     old = up.TILE; up.TILE = 32
@@ -114,7 +114,7 @@ def test_gpu_failure_falls_back_to_cpu(prep, media, tmp_path, monkeypatch):
     class FlakyGPU:
         def get_providers(self): return ["CUDAExecutionProvider", "CPUExecutionProvider"]
         def run(self, *a, **k): raise RuntimeError("CUDA out of memory (simulated)")
-    monkeypatch.setattr(up, "session", lambda d: FlakyGPU())
+    monkeypatch.setattr(up, "session", lambda *a: FlakyGPU())
     p = prep(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 0.2}], output={"resolution": "640x360", "fps": 30}))
     ref = up.generate_upscale(media["video"], p.plan.steps[0], 320, 180, 640, 360, 30.0, 0, 3, str(tmp_path))
     assert ref.frames == 3 and "simulated" in ref.gpu_fallback
@@ -123,7 +123,7 @@ def test_gpu_failure_falls_back_to_cpu(prep, media, tmp_path, monkeypatch):
 # ---------- professional post-processing (no network needed: synthetic inputs with known answers)
 def _proc(**kw):
     from evp.ml.upscale import DetailProcessor
-    p = {"strength": 1.0, "temporal_stability": 0.0, "color_fidelity": True, "face_detail": 1.0, **kw}
+    p = {"strength": 1.0, "temporal_stability": 0.0, "color_fidelity": True, "face_detail": 1.0, "grain": 0.0, **kw}
     return DetailProcessor(p, 256, 192, 64, 48)
 
 
@@ -187,3 +187,73 @@ def test_face_detail_attenuated_only_inside_face():
     d = np.abs(pr(src, sr, lz) - lz).mean(-1)
     face_c, outside = d[85:105, 90:110].mean(), d[5:30, 5:30].mean()
     assert face_c < 0.25 * outside and pr.faces_seen == 1
+
+
+
+# ---------- extra models
+def _np_rrdb(sd, x):
+    """Independent NumPy RRDBNet (reference for the ONNX conversion, incl. the x2 pixel_unshuffle)."""
+    def conv(x, w, b):
+        c, h, wd = x.shape; p = np.pad(x, ((0, 0), (1, 1), (1, 1)))
+        cols = np.stack([p[:, i:i + h, j:j + wd] for i in range(3) for j in range(3)], 1).reshape(c, 3, 3, h, wd)
+        return np.einsum("ockl,cklhw->ohw", w, cols) + b[:, None, None]
+    lr = lambda a: np.where(a >= 0, a, 0.2 * a)
+    if sd["conv_first.weight"].shape[1] == 12:
+        c, h, w = x.shape; x = x.reshape(c, h // 2, 2, w // 2, 2).transpose(0, 2, 4, 1, 3).reshape(c * 4, h // 2, w // 2)
+    C = lambda a, k: conv(a, sd[k + ".weight"], sd[k + ".bias"])
+    feat = C(x, "conv_first"); h = feat
+    for b in range(len({k.split(".")[1] for k in sd if k.startswith("body.")})):
+        r_in = h
+        for r in (1, 2, 3):
+            p = f"body.{b}.rdb{r}"; xs = [h]
+            for c in range(1, 5): xs.append(lr(C(np.concatenate(xs), f"{p}.conv{c}")))
+            h = C(np.concatenate(xs), f"{p}.conv5") * 0.2 + h
+        h = h * 0.2 + r_in
+    feat = feat + C(h, "conv_body")
+    up = lambda a: a.repeat(2, 1).repeat(2, 2)
+    feat = lr(C(up(feat), "conv_up1")); feat = lr(C(up(feat), "conv_up2"))
+    return C(lr(C(feat, "conv_hr")), "conv_last")
+
+
+@pytest.mark.parametrize("model,weights,shape", [("quality", "esrgan_x4plus", (3, 6, 8)), ("quality_x2", "esrgan_x2plus", (3, 8, 10))])
+def test_rrdb_conversion_matches_numpy_reference(model, weights, shape):
+    from evp.ml.srvgg import load_state_dict
+    from evp.ml.upscale import session, UPSCALE_MODELS
+    try: models.ensure_model(weights)
+    except models.ModelError as e: pytest.skip(str(e))
+    sd = load_state_dict(models.ensure_model(weights))
+    x = np.random.default_rng(0).random(shape, np.float32)
+    out = session(model).run(None, {"input": x[None]})[0][0]
+    s = UPSCALE_MODELS[model][2]
+    assert out.shape == (3, shape[1] * s, shape[2] * s) and np.abs(out - _np_rrdb(sd, x)).max() < 1e-3
+
+
+def test_anime_model_runs_and_x2_handles_odd_sizes_and_tiles():
+    from evp.ml import upscale as up
+    try: models.ensure_model("esrgan_anime"); models.ensure_model("esrgan_x2plus")
+    except models.ModelError as e: pytest.skip(str(e))
+    img = np.random.default_rng(2).integers(0, 255, (21, 33, 3), np.uint8)
+    assert up.run_net(up.session("anime"), img, 4).shape == (84, 132, 3)
+    s2 = up.session("quality_x2")
+    whole = up.run_net(s2, img, 2)
+    assert whole.shape == (42, 66, 3)
+    old = up.TILE; up.TILE = 10
+    try: tiled = up.run_net(s2, np.random.default_rng(3).integers(0, 255, (45, 61, 3), np.uint8), 2)
+    finally: up.TILE = old
+    assert tiled.shape == (90, 122, 3) and np.isfinite(tiled).all()
+
+
+def test_grain_adds_source_texture_back():
+    src = (np.random.default_rng(6).normal(128, 12, (48, 64, 3))).clip(0, 255).astype(np.uint8)   # noisy flat patch
+    lz = cv2.resize(src, (256, 192), interpolation=cv2.INTER_LANCZOS4).astype(np.float32) / 255
+    sr = cv2.GaussianBlur(lz, (0, 0), 3)                                                          # 'AI' smoothed it away
+    hp = lambda a: np.abs(a - cv2.GaussianBlur(a, (0, 0), 1.5)).mean()
+    no, yes = _proc(grain=0.0)(src, sr, lz), _proc(grain=1.0)(src, sr, lz)
+    assert hp(yes) > 2 * hp(no)
+    assert abs(yes.mean() - no.mean()) < 0.01            # grain adds texture, not brightness
+
+
+def test_model_choice_validation(prep):
+    p = prep(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 1, "parameters": {"model": "quality", "denoise": 0.9}}]))
+    assert p.report.ok and "PARAM_IGNORED" in [w.code for w in p.report.warnings]
+    assert not prep(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 1, "parameters": {"model": "magic"}}])).report.ok

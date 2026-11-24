@@ -203,8 +203,12 @@ _reg(OpSpec("ai_upscale", "AI Resolution Enhancement", "Enhance", STAGE_UPSCALE,
             "Real-ESRGAN super-resolution (x4 network, BSD-3) used instead of the normal scaler when the output is larger than "
             "the source. Runs on CPU or GPU (ONNX Runtime). It reconstructs plausible detail; it cannot recover detail that "
             "was never recorded, and on CPU it is slow (~0.5-3 s per frame).",
-            {"quality": Param(E, "fast", enum=("fast", "best"), desc="fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size."),
-             "denoise": Param(N, 0.5, 0.0, 1.0, desc="0 keeps all texture (and noise); 1 removes noise strongly (smoother)."),
+            {"model": Param(E, "general", enum=("general", "quality", "quality_x2", "anime"),
+                            desc="general: fast real-world model (CPU friendly). quality: Real-ESRGAN x4plus, finest detail, ~12x slower (GPU recommended). "
+                                 "quality_x2: native 2x x2plus model, best for 1.5-2x jobs. anime: cartoons/anime/flat graphics."),
+             "grain": Param(N, 0.0, 0.0, 1.0, desc="Re-add the source's own fine grain/noise so the result looks camera-made rather than painted."),
+             "quality": Param(E, "fast", enum=("fast", "best"), desc="fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size."),
+             "denoise": Param(N, 0.5, 0.0, 1.0, desc="[general model] 0 keeps all texture (and noise); 1 removes noise strongly (smoother)."),
              "strength": Param(N, 1.0, 0.0, 1.0, desc="Blend with a classical Lanczos upscale; lower looks more natural."),
              "temporal_stability": Param(N, 0.6, 0.0, 1.0, desc="Motion-compensated smoothing of the AI detail between frames (removes shimmer). 0 = per-frame."),
              "color_fidelity": Param(B, True, desc="Keep the original's colour/exposure/contrast exactly; the AI only adds fine detail."),

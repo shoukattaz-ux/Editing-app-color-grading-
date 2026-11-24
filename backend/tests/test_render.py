@@ -1,3 +1,4 @@
+import numpy as np, cv2
 import subprocess, json
 from pathlib import Path
 import pytest
@@ -209,3 +210,38 @@ def test_disabled_operation_not_executed(prep, media):
     ops = [dict(KEY, enabled=False, parameters={"background_color": "#ff0000"})]
     r, g, b = pixel(frame(prep, media, ops, 1.0), 5, 5)
     assert g > 200
+
+
+def test_prores_export_10bit_422_with_pcm(prep, media):
+    import json, subprocess
+    from evp.media import ffprobe_bin
+    p = prep(bp(output={"resolution": "160x90", "fps": 30, "format": "mov", "codec": "prores", "prores_profile": "lt"}))
+    assert p.plan, p.report.errors
+    out = media["dir"] / "pr.mov"
+    j = Job(p.plan, media["video"], str(out), RenderOptions(), str(media["dir"])); j.run()
+    assert j.state == "done", j.error
+    s = json.loads(subprocess.run([ffprobe_bin(), "-v", "error", "-show_streams", "-of", "json", str(out)], capture_output=True, text=True).stdout)["streams"]
+    v = next(x for x in s if x["codec_type"] == "video"); a = next(x for x in s if x["codec_type"] == "audio")
+    assert v["codec_name"] == "prores" and v["pix_fmt"] == "yuv422p10le" and v.get("profile", "").lower().startswith("lt")
+    assert a["codec_name"] == "pcm_s16le"
+    assert any(e.code == "INVALID_PARAMETER" for e in prep(bp(output={"format": "mp4", "codec": "prores"})).report.errors)
+
+
+@pytest.mark.parametrize("rate", ["25", "30000/1001"])
+def test_single_frame_preview_shows_the_exact_frame(prep, tmp_path, rate):
+    """Regression: seeking to the raw time could show the next frame (AI layers then misaligned by one frame)."""
+    import subprocess
+    from evp.media import ffmpeg_bin
+    from evp.security import PathPolicy
+    from evp.engine import prepare
+    v = tmp_path / "ramp.mp4"      # every frame a different grey level: frame index = round(level / 3)
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", f"color=c=gray:s=64x48:r={rate}:d=3", "-vf",
+                    "geq=lum='16+3*N':cb=128:cr=128", "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", str(v)], check=True)
+    plan = prepare(bp(), str(v), PathPolicy([tmp_path])).plan
+    fps = plan.blueprint.output.fps
+    raw = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", str(v), "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+    truth = np.frombuffer(raw, np.uint8).reshape(-1, 48 * 64).mean(1)          # brightness of every source frame
+    for t in (0.5, 1.0, 1.37, 2.0):
+        im = cv2.imdecode(np.frombuffer(render_frame(plan, str(v), t, None, str(tmp_path)), np.uint8), 0).astype(float)
+        shown = int(np.argmin(np.abs(truth - im.mean())))
+        assert shown == round(t * fps), (t, shown)

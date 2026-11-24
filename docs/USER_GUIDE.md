@@ -27,7 +27,16 @@ If no face is found the operation does nothing and the export log says so.
 ## AI upscaling (CPU or GPU)
 1. Set the output resolution larger than the source (Output settings or Export, e.g. 1920x1080 or 3840x2160).
 2. *Effects ▸ Enhance ▸ AI Resolution Enhancement*. It replaces the normal scaler, so all other effects then work on the sharper frames.
-* `quality`: **fast** (default) halves the network input when the output is ≤ 2× the source (about 4× faster); **best** always uses the full frame.
+* `model` — pick by footage and hardware (CPU times per frame for a 320×180 source, 4 threads):
+
+  | model | best for | CPU |
+  |---|---|---|
+  | **general** (default) | real-world footage, any factor; the CPU choice | ~0.5 s |
+  | **quality** (Real-ESRGAN x4plus) | finest natural detail for 3–4× jobs; use with a GPU | ~6 s |
+  | **quality_x2** (Real-ESRGAN x2plus) | 1.5–2× jobs (e.g. 1080p → 4K, 720p → 1440p) | ~1.4 s |
+  | **anime** | cartoons, anime, flat graphics (makes real faces look flat) | ~0.3 s |
+* `grain` (0–1) re-adds the source's own fine grain so the result looks camera-made rather than painted.
+* `quality`: **fast** (default) halves the network input when the needed factor is small enough (about 4× faster); **best** always uses the full frame.
 * `denoise` 0 keeps texture (and noise), 1 smooths strongly; `strength` < 1 blends with a classical upscale for a more natural look.
 * `temporal_stability` (default 0.6) keeps AI detail steady from frame to frame (no shimmer) by following the motion; it only blends where the motion estimate is reliable, so moving things don't leave trails.
 * `color_fidelity` (on) keeps the original's colour, exposure and contrast exactly — the AI only contributes fine detail, so your grade is not altered.
@@ -36,6 +45,11 @@ If no face is found the operation does nothing and the export log says so.
 * **Speed**: CPU ≈ 0.5 s per frame for a 320×180 source, ≈ 2 s for 640×360. The validator warns with an estimate when it will take over a minute. Results are cached, so later previews/exports are fast.
 * **GPU**: replace `onnxruntime` with `onnxruntime-gpu` (NVIDIA, needs CUDA 12 + cuDNN 9) or `onnxruntime-directml` (Windows, any DirectX 12 GPU). macOS uses CoreML automatically. The Export dialog shows the AI device in use. If the GPU fails (e.g. out of memory) the job continues on CPU and says so in the log.
 * It invents *plausible* detail; it cannot recover what the camera never captured.
+* **Check it at pixel level**: Preview ▸ *Before/After* ▸ choose **1:1 zoom / 200% / 400%** — before and after are shown side by side at full output resolution; drag either side to move around (both stay locked together).
+* For portrait (phone) video the resolution menus offer portrait sizes (e.g. 1080×1920) and a "2× source" choice.
+
+## ProRes export (for editing in other software)
+Export ▸ Codec ▸ **ProRes 422 10-bit** (container switches to .mov, audio becomes uncompressed PCM). Profiles: Proxy, LT, 422, 422 HQ. Note: the processing pipeline is 8-bit, so ProRes gives a high-quality, edit-friendly intermediate file but does not add colour precision beyond 8 bits.
 
 ## Shortcuts
 Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete operation · Ctrl+wheel on the timeline zooms.

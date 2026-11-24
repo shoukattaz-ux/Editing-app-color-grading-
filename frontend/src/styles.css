@@ -69,3 +69,5 @@ input[type=range]{accent-color:var(--acc)}.grid2{display:grid;grid-template-colu
 .fatal{height:100%;display:flex;align-items:center;justify-content:center}
 @media (max-width:900px){.badge{display:none}.welcome{flex-direction:column}.welcome .panel{width:100%}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.loupe{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;gap:2px;background:#fff2}.loupe-pane{position:relative;background-color:#000;cursor:grab;overflow:hidden}.loupe-pane:active{cursor:grabbing}
+.loupe-wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mute)}.loupe-sel{background:var(--bg4);border:1px solid var(--line);border-radius:6px;padding:4px 6px}

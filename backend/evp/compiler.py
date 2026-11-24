@@ -338,7 +338,10 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     graph = "sws_flags=bicubic+accurate_rnd+full_chroma_int+full_chroma_inp;" + g.text()
     args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
     if not opts.frame_only: args += ["-progress", "pipe:1", "-nostats"]
-    if opts.t_start: args += ["-ss", f"{opts.t_start:.4f}"]
+    if opts.t_start:
+        # seek half a frame before frame `seek_f` so decoding starts exactly on it (seeking to the raw time could land
+        # on the next frame, misaligning AI layers by one frame in previews)
+        args += ["-ss", f"{max(0.0, (seek_f - 0.5) / fps):.6f}"]
     args += ["-i", source]
     for grp in inputs: args += grp
     args += ["-filter_complex", graph, "-map", "[vout]"]
@@ -349,14 +352,20 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     out_dur = vid.duration
     if opts.t_start is not None or opts.t_end is not None:
         out_dur = max(0.0, min(opts.t_end if opts.t_end is not None else vid.duration, vid.duration) - (opts.t_start or 0.0))
+    prores = out.codec == "prores" and not opts.scale_width          # proxies stay H.264 for fast preview playback
     if vid.has_audio and opts.audio:
         args += ["-map", "0:a:0"]
         if audio_filters and not opts.t_start: args += ["-af", ",".join(audio_filters)]
-        args += ["-c:a", "aac", "-b:a", out.audio_bitrate]
+        args += ["-c:a", "pcm_s16le"] if prores else ["-c:a", "aac", "-b:a", out.audio_bitrate]
     else:
         args += ["-an"]
     args += ["-t", f"{out_dur:.4f}"]
-    enc = pick_encoder(out.codec, opts.encoder)
+    if prores:
+        # ProRes 422 10-bit intermediate for finishing in other software (processing itself is 8-bit)
+        prof = {"proxy": 0, "lt": 1, "standard": 2, "hq": 3}[out.prores_profile]
+        args += ["-c:v", "prores_ks", "-profile:v", str(prof), "-vendor", "apl0", "-pix_fmt", "yuv422p10le", "-r", f"{fps:g}", out_path]
+        return Compiled(args, graph, work_files, out_dur)
+    enc = pick_encoder("h264" if out.codec == "prores" else out.codec, opts.encoder)
     args += ["-c:v", enc]
     if enc in ("libx264", "libx265"):
         args += ["-preset", opts.preset or out.preset]

@@ -8,12 +8,13 @@ An external AI (Claude, ChatGPT…) analyses your video and writes a **JSON edit
 * Blueprint v1.0 schema, strict validation with 30+ error/warning codes, dependency + overlap resolution, frame-exact timing → [docs/BLUEPRINT.md](docs/BLUEPRINT.md)
 * **AI background removal without a green screen** (Robust Video Matting via ONNX Runtime, CPU or GPU), with hair detail, despeckle and halo removal
 * **Face & skin-tone correction and face relighting** with automatic face tracking (YuNet), skin-only colour changes, flicker-free auto exposure
-* **AI upscaling** (Real-ESRGAN) on CPU or GPU via ONNX Runtime, with automatic CPU fallback
+* **AI upscaling** (Real-ESRGAN: general, x4plus, x2plus, anime) on CPU or GPU via ONNX Runtime, with temporal stabilisation, colour fidelity, face protection, grain preservation and a 1:1 before/after magnifier
+* **ProRes 422 export** (Proxy/LT/422/HQ) for finishing in other software
 * FFmpeg pipeline: chroma key + despill + edge erode/feather, background replacement (image/video/colour, fit/zoom/offset/blur), full colour grading incl. curves/LGG/LUT, denoise/sharpen/deshake, text, audio gain → [docs/OPERATIONS.md](docs/OPERATIONS.md)
 * Jobs with progress, ETA, pause/resume/cancel/retry, GPU→CPU fallback, atomic output, original never touched
 * Projects: folders, autosave + crash recovery, versions, relink, recent
 * React UI: asset/blueprint panels, multi-track timeline (drag/resize/split/duplicate/disable/delete), generated properties panel, before/after, undo/redo, export dialog
-* **108 backend tests** (pixel-level render assertions, security, recovery, API) + **12 frontend logic tests**
+* **120 backend tests** (pixel-level render assertions, security, recovery, API) + **12 frontend logic tests**
 
 ## Install
 ```bash

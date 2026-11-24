@@ -73,6 +73,7 @@ class OutputSettings:
     video_bitrate: str | None = None
     audio_bitrate: str = "192k"
     preset: str = "medium"
+    prores_profile: str = "hq"
 
 
 @dataclass
@@ -248,7 +249,12 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
     fmt = out_in.get("format", "mp4")
     if fmt not in ("mp4", "mov"): rep.err("INVALID_PARAMETER", "output.format must be 'mp4' or 'mov'", path="output.format"); fmt = "mp4"
     codec = out_in.get("codec", "h264")
-    if codec not in ("h264", "h265"): rep.err("INVALID_PARAMETER", "output.codec must be 'h264' or 'h265'", path="output.codec"); codec = "h264"
+    if codec not in ("h264", "h265", "prores"): rep.err("INVALID_PARAMETER", "output.codec must be 'h264', 'h265' or 'prores'", path="output.codec"); codec = "h264"
+    if codec == "prores" and fmt != "mov":
+        rep.err("INVALID_PARAMETER", "ProRes needs output.format 'mov'", path="output.format")
+    prores_profile = out_in.get("prores_profile", "hq")
+    if prores_profile not in ("proxy", "lt", "standard", "hq"):
+        rep.err("INVALID_PARAMETER", "output.prores_profile must be proxy, lt, standard or hq", path="output.prores_profile"); prores_profile = "hq"
     crf = out_in.get("crf", 20)
     if not isinstance(crf, int) or isinstance(crf, bool) or not 0 <= crf <= 51:
         rep.err("INVALID_PARAMETER", "output.crf must be an integer 0..51", path="output.crf"); crf = 20
@@ -261,7 +267,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
     preset = out_in.get("preset", "medium")
     if preset not in ("ultrafast", "veryfast", "fast", "medium", "slow"):
         rep.err("INVALID_PARAMETER", "output.preset invalid", path="output.preset"); preset = "medium"
-    output = OutputSettings(w or 1920, h or 1080, fps_v, fmt, codec, crf, vb, ab, preset)
+    output = OutputSettings(w or 1920, h or 1080, fps_v, fmt, codec, crf, vb, ab, preset, prores_profile)
     if vid and w and h and abs(w / h - vid.width / vid.height) > 0.01:
         rep.warn("ASPECT_CHANGE", f"Output aspect {w}x{h} differs from source {vid.width}x{vid.height}; frames will be letterboxed.")
     if vid and fps_v > vid.fps * 1.01:
@@ -383,8 +389,12 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                 ok, why = False, "the 'onnx' package is not installed (pip install onnx)"
             if not ok:
                 rep.err("MODEL_RUNTIME_MISSING", f"AI upscaling unavailable: {why}", oid, p); continue
-            if not is_installed("esrgan_general"):
-                rep.warn("MODEL_DOWNLOAD", "Real-ESRGAN weights (2 x 4.9 MB, BSD-3) will be downloaded and converted on first use", oid)
+            from .ml.upscale import UPSCALE_MODELS
+            wname = UPSCALE_MODELS[params["model"]][0]
+            if not is_installed(wname):
+                rep.warn("MODEL_DOWNLOAD", f"Real-ESRGAN weights ({MODELS[wname].size / 1e6:.0f} MB, BSD-3) will be downloaded and converted on first use", oid)
+            if params["model"] != "general" and params["denoise"] != 0.5:
+                rep.warn("PARAM_IGNORED", "'denoise' only applies to the 'general' model", oid)
             if vid:
                 from .ml.upscale import fit_geometry, estimate_seconds_per_frame
                 fw, fh, _, _ = fit_geometry(vid.width, vid.height, output.width, output.height)
@@ -393,7 +403,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                     rep.warn("UPSCALE_NOT_NEEDED", f"Output ({output.width}x{output.height}) is not larger than the source ({vid.width}x{vid.height}); "
                              "AI upscaling will only re-draw detail. Set output.resolution higher (e.g. 1920x1080 or 3840x2160).", oid)
                 gpu = providers()[:1] != ["CPUExecutionProvider"]
-                est = estimate_seconds_per_frame(vid.width, vid.height, params["quality"], need, gpu) * (ef - sf)
+                est = estimate_seconds_per_frame(vid.width, vid.height, params["quality"], need, gpu, params["model"]) * (ef - sf)
                 if est > 60:
                     rep.warn("AI_SLOW", f"AI upscaling of {ef - sf} frames is estimated at ~{est / 60:.0f} min on "
                              f"{'GPU' if gpu else 'CPU (no GPU runtime found)'}; the result is cached for later previews/exports.", oid)

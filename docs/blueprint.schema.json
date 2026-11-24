@@ -933,6 +933,24 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "model": {
+                      "description": "general: fast real-world model (CPU friendly). quality: Real-ESRGAN x4plus, finest detail, ~12x slower (GPU recommended). quality_x2: native 2x x2plus model, best for 1.5-2x jobs. anime: cartoons/anime/flat graphics.",
+                      "type": "string",
+                      "enum": [
+                        "general",
+                        "quality",
+                        "quality_x2",
+                        "anime"
+                      ],
+                      "default": "general"
+                    },
+                    "grain": {
+                      "description": "Re-add the source's own fine grain/noise so the result looks camera-made rather than painted.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
                     "quality": {
                       "description": "fast: when the output is at most 2x the source, the network runs on a half-size frame (about 4x faster). best: always full size.",
                       "type": "string",
@@ -943,7 +961,7 @@
                       "default": "fast"
                     },
                     "denoise": {
-                      "description": "0 keeps all texture (and noise); 1 removes noise strongly (smoother).",
+                      "description": "[general model] 0 keeps all texture (and noise); 1 removes noise strongly (smoother).",
                       "type": "number",
                       "minimum": 0.0,
                       "maximum": 1.0,

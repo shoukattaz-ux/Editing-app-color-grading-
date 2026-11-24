@@ -6,7 +6,7 @@ import { Preview, Mode } from "./Preview";
 import { Timeline } from "./Timeline";
 import { Properties } from "./Properties";
 import { Sidebar, TABS, Tab, Ctx } from "./Sidebar";
-import { Btn, Empty, Icon, fmtEta } from "./ui";
+import { Btn, Empty, Icon, fmtEta, resolutionOptions } from "./ui";
 
 type Toast = { id: number; msg: string; kind: "ok" | "err" };
 const ACTIVE = ["queued", "running", "paused"];
@@ -167,7 +167,7 @@ function Editor({ api }: { api: Api }) {
         {job && <JobBar job={job} api={api} onUpdate={setJob} compact />}
         <span className="spacer" /><span>{hist.past.length} undo step(s)</span>
       </footer>
-      {exportOpen && <ExportDialog api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} />}
+      {exportOpen && <ExportDialog api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
       <Toasts toasts={toasts} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} />
     </div>
   );
@@ -187,7 +187,7 @@ function JobBar({ job, api, onUpdate, compact }: { job: JobState; api: Api; onUp
     </div>);
 }
 
-function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, projectName }: { api: Api; bp: Blueprint; edit: Ctx["edit"]; onClose: () => void; job: JobState | null; setJob: (j: JobState | null) => void; pollJob: (j: JobState, d: (j: JobState) => void) => Promise<void>; toast: Ctx["toast"]; projectName: string }) {
+function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, projectName, video }: { api: Api; bp: Blueprint; edit: Ctx["edit"]; onClose: () => void; video: ProjectState["video"]; job: JobState | null; setJob: (j: JobState | null) => void; pollJob: (j: JobState, d: (j: JobState) => void) => Promise<void>; toast: Ctx["toast"]; projectName: string }) {
   const o = bp.output ?? {};
   const [name, setName] = useState(projectName);
   const [enc, setEnc] = useState("auto");
@@ -210,13 +210,14 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
         <h3>Export final video</h3>
         <div className="grid2">
           <label className="field"><span className="fl">file name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
-          <label className="field"><span className="fl">container</span><select value={o.format ?? "mp4"} onChange={e => set({ format: e.target.value })}><option>mp4</option><option>mov</option></select></label>
-          <label className="field"><span className="fl">resolution</span><select value={String(o.resolution ?? "source")} onChange={e => set({ resolution: e.target.value })}>{["source", "1280x720", "1920x1080", "2560x1440", "3840x2160"].map(r => <option key={r}>{r}</option>)}</select></label>
+          <label className="field"><span className="fl">container</span><select value={o.format ?? "mp4"} onChange={e => set({ format: e.target.value })}><option disabled={o.codec === "prores"}>mp4</option><option>mov</option></select></label>
+          {o.codec === "prores" && <label className="field"><span className="fl">ProRes profile</span><select value={o.prores_profile ?? "hq"} onChange={e => set({ prores_profile: e.target.value })}><option value="proxy">Proxy</option><option value="lt">LT</option><option value="standard">422</option><option value="hq">422 HQ</option></select></label>}
+          <label className="field"><span className="fl">resolution</span><select value={String(o.resolution ?? "source")} onChange={e => set({ resolution: e.target.value })}>{resolutionOptions(video, o.resolution).map(r => <option key={r}>{r}</option>)}</select></label>
           <label className="field"><span className="fl">frame rate</span><select value={String(o.fps ?? "source")} onChange={e => set({ fps: e.target.value === "source" ? "source" : parseFloat(e.target.value) })}>{["source", "24", "25", "30", "50", "60"].map(r => <option key={r}>{r}</option>)}</select></label>
-          <label className="field"><span className="fl">codec</span><select value={o.codec ?? "h264"} onChange={e => set({ codec: e.target.value })}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
-          <label className="field"><span className="fl">quality CRF (lower = better)</span><input type="number" min={0} max={51} value={o.crf ?? 20} onChange={e => set({ crf: parseInt(e.target.value) || 20 })} /></label>
-          <label className="field"><span className="fl">bitrate (optional, e.g. 12M)</span><input value={o.video_bitrate ?? ""} onChange={e => set({ video_bitrate: e.target.value || undefined })} /></label>
-          <label className="field"><span className="fl">audio bitrate</span><select value={o.audio_bitrate ?? "192k"} onChange={e => set({ audio_bitrate: e.target.value })}>{["128k", "192k", "256k", "320k"].map(r => <option key={r}>{r}</option>)}</select></label>
+          <label className="field"><span className="fl">codec</span><select value={o.codec ?? "h264"} onChange={e => set(e.target.value === "prores" ? { codec: "prores", format: "mov" } : { codec: e.target.value })}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option><option value="prores">ProRes 422 10-bit (.mov, for editing)</option></select></label>
+          {o.codec !== "prores" && <label className="field"><span className="fl">quality CRF (lower = better)</span><input type="number" min={0} max={51} value={o.crf ?? 20} onChange={e => set({ crf: parseInt(e.target.value) || 20 })} /></label>}
+          {o.codec !== "prores" && <label className="field"><span className="fl">bitrate (optional, e.g. 12M)</span><input value={o.video_bitrate ?? ""} onChange={e => set({ video_bitrate: e.target.value || undefined })} /></label>}
+          {o.codec !== "prores" && <label className="field"><span className="fl">audio bitrate</span><select value={o.audio_bitrate ?? "192k"} onChange={e => set({ audio_bitrate: e.target.value })}>{["128k", "192k", "256k", "320k"].map(r => <option key={r}>{r}</option>)}</select></label>}
           <label className="field"><span className="fl">encoder</span><select value={enc} onChange={e => setEnc(e.target.value)}><option value="auto">Auto (GPU if it works, else CPU)</option><option value="cpu">CPU only</option></select></label>
         </div>
         {sys && <p className="muted">{sys.cpu_count} CPU threads · hardware encoders: {sys.hardware_encoders_working.length ? sys.hardware_encoders_working.join(", ") : "none detected (CPU encode)"} · AI device: {sys.ai_devices?.[0] ?? "unavailable"}{sys.ai_devices?.[0] === "CPU" ? " (install onnxruntime-gpu / -directml for GPU)" : ""}</p>}

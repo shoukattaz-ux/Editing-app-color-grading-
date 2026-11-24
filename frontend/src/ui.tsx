@@ -29,3 +29,16 @@ export const Empty = ({ icon, title, children }: { icon: string; title: string; 
 
 export const fmtSec = (s: number) => `${s.toFixed(2)}s`;
 export function fmtEta(s: number | null) { if (s == null || !isFinite(s)) return "—"; const m = Math.floor(s / 60); return m ? `${m}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`; }
+
+/** Output resolution choices matching the source orientation (portrait phone video gets portrait sizes). */
+export function resolutionOptions(video: { width: number; height: number } | null, current?: string): string[] {
+  const land = ["1280x720", "1920x1080", "2560x1440", "3840x2160"];
+  const portrait = video ? video.height > video.width : false;
+  const list = ["source", ...(portrait ? land.map(r => r.split("x").reverse().join("x")) : land)];
+  if (video) {
+    const two = `${Math.round(video.width * 2 / 2) * 2}x${Math.round(video.height * 2 / 2) * 2}`;
+    if (!list.includes(two) && video.width * 2 <= 7680 && video.height * 2 <= 7680) list.splice(1, 0, two);
+  }
+  if (current && !list.includes(current)) list.push(current);
+  return list;
+}

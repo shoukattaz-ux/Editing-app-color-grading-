@@ -38,41 +38,74 @@ _SESS: dict = {}
 _LOCK = threading.Lock()
 
 
-def onnx_path(denoise: float) -> Path:
-    d = int(round(denoise * 20)) * 5            # 0, 5, ... 100 (% of the with-denoise weights)
-    p = models_dir() / f"realesr-general-x4v3_dn{d:03d}.onnx"
+# model name -> (weights in the model store, network family, network scale, CPU microseconds per input pixel)
+UPSCALE_MODELS = {
+    "general":    ("esrgan_general", "srvgg", 4, 8.5),
+    "quality":    ("esrgan_x4plus", "rrdb", 4, 100.0),
+    "quality_x2": ("esrgan_x2plus", "rrdb", 2, 24.0),
+    "anime":      ("esrgan_anime", "srvgg", 4, 4.5),
+}
+
+
+def onnx_path(model: str, denoise: float = 0.0) -> Path:
+    weights, family, _, _ = UPSCALE_MODELS[model]
+    if model == "general":       # the denoise slider = DNI between the general and the with-denoise weights
+        d = int(round(denoise * 20)) * 5
+        p = models_dir() / f"realesr-general-x4v3_dn{d:03d}.onnx"
+    else:
+        p = models_dir() / f"{Path(MODELS_FILE(weights)).stem}.onnx"
     if not p.is_file():
-        from .srvgg import load_state_dict, build_onnx, dni
-        a = load_state_dict(ensure_model("esrgan_general"))
-        sd = a if d == 0 else dni(a, load_state_dict(ensure_model("esrgan_wdn")), d / 100.0)
-        build_onnx(sd, p)
+        from .srvgg import load_state_dict, dni
+        sd = load_state_dict(ensure_model(weights))
+        if model == "general" and d:
+            sd = dni(sd, load_state_dict(ensure_model("esrgan_wdn")), d / 100.0)
+        if family == "srvgg":
+            from .srvgg import build_onnx
+            build_onnx(sd, p)
+        else:
+            from .rrdb import build_onnx as build_rrdb
+            build_rrdb(sd, p)
     return p
 
 
-def session(denoise: float):
-    p = onnx_path(denoise)
+def MODELS_FILE(name: str) -> str:
+    from .models import MODELS
+    return MODELS[name].file
+
+
+def session(model: str, denoise: float = 0.0):
+    p = onnx_path(model, denoise)
     with _LOCK:
         if str(p) not in _SESS:
             _SESS[str(p)] = make_session(p)
         return _SESS[str(p)]
 
 
-def run_x4(sess, rgb: np.ndarray) -> np.ndarray:
-    """uint8 HxWx3 -> float32 (4H)x(4W)x3 in 0..1, tiled with overlap to bound memory."""
-    h, w = rgb.shape[:2]
+def run_net(sess, rgb: np.ndarray, scale: int = 4) -> np.ndarray:
+    """uint8 HxWx3 -> float32 (sH)x(sW)x3 in 0..1. Tiled with overlap to bound memory; odd sizes padded for x2 models."""
+    h0, w0 = rgb.shape[:2]
     x = rgb.astype(np.float32) / 255.0
+    if scale == 2 and (h0 % 2 or w0 % 2):                       # SpaceToDepth needs even sizes
+        x = np.pad(x, ((0, h0 % 2), (0, w0 % 2), (0, 0)), mode="edge")
+    h, w = x.shape[:2]
+    run = lambda a: sess.run(None, {"input": np.ascontiguousarray(a.transpose(2, 0, 1)[None])})[0][0].transpose(1, 2, 0)
     if h * w <= TILE * TILE * 2:
-        y = sess.run(None, {"input": x.transpose(2, 0, 1)[None]})[0][0]
-        return y.transpose(1, 2, 0)
-    out = np.zeros((h * NET_SCALE, w * NET_SCALE, 3), np.float32)
+        return run(x)[:h0 * scale, :w0 * scale]
+    out = np.zeros((h * scale, w * scale, 3), np.float32)
     for y0 in range(0, h, TILE):
         for x0 in range(0, w, TILE):
             y1, x1 = min(h, y0 + TILE), min(w, x0 + TILE)
             ya, xa, yb, xb = max(0, y0 - PAD), max(0, x0 - PAD), min(h, y1 + PAD), min(w, x1 + PAD)
-            t = sess.run(None, {"input": x[ya:yb, xa:xb].transpose(2, 0, 1)[None]})[0][0].transpose(1, 2, 0)
-            oy, ox = (y0 - ya) * NET_SCALE, (x0 - xa) * NET_SCALE
-            out[y0 * 4:y1 * 4, x0 * 4:x1 * 4] = t[oy:oy + (y1 - y0) * 4, ox:ox + (x1 - x0) * 4]
-    return out
+            ya, xa = ya - ya % 2, xa - xa % 2                    # keep tile origins even (x2 models)
+            yb, xb = yb + (yb - ya) % 2, xb + (xb - xa) % 2
+            t = run(np.pad(x[ya:yb, xa:xb], ((0, max(0, yb - h)), (0, max(0, xb - w)), (0, 0)), mode="edge"))
+            oy, ox = (y0 - ya) * scale, (x0 - xa) * scale
+            out[y0 * scale:y1 * scale, x0 * scale:x1 * scale] = t[oy:oy + (y1 - y0) * scale, ox:ox + (x1 - x0) * scale]
+    return out[:h0 * scale, :w0 * scale]
+
+
+def run_x4(sess, rgb: np.ndarray) -> np.ndarray:      # backwards-compatible helper
+    return run_net(sess, rgb, 4)
 
 
 class DetailProcessor:
@@ -142,6 +175,11 @@ class DetailProcessor:
             self.prev_src, self.prev_detail = g, detail
 
         out = low + detail
+        if p["grain"] > 0:
+            # re-inject the source's own fine grain/noise (edge-preserving residual), so the result looks camera-made
+            s = src_rgb.astype(np.float32)
+            noise = (s - cv2.bilateralFilter(s, 5, 40, 2)) / 255.0   # captures ~70% of noise, strong edges excluded
+            out = out + p["grain"] * cv2.resize(noise, (self.fw, self.fh), interpolation=cv2.INTER_CUBIC)
         if p["strength"] < 1.0:
             out = p["strength"] * out + (1 - p["strength"]) * lz
         return out
@@ -157,7 +195,7 @@ def fit_geometry(sw: int, sh: int, W: int, H: int) -> tuple[int, int, int, int]:
 
 def upscale_key(source: str, op, W, H, fps, start_frame, frames) -> str:
     st = os.stat(source)
-    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v2"]
+    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v3"]
     return hashlib.sha1(json.dumps(d, default=str).encode()).hexdigest()[:20]
 
 
@@ -170,11 +208,13 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
         return UpscaleRef(str(out), start_frame, frames)
     out.parent.mkdir(parents=True, exist_ok=True)
     p = op.params
-    sess = session(p["denoise"])
+    model = p["model"]
+    net_scale = UPSCALE_MODELS[model][2]
+    sess = session(model, p["denoise"])
     fw, fh, px, py = fit_geometry(src_w, src_h, W, H)
     # 'fast' halves the network input when the needed factor is <= 2 (4x fewer pixels to process)
     need = max(fw / src_w, fh / src_h)
-    pre = 0.5 if (p["quality"] == "fast" and need <= 2.0) else 1.0
+    pre = 0.5 if (p["quality"] == "fast" and need <= net_scale / 2) else 1.0
     tmp = out.with_suffix(".part.mkv")
     enc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                             "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(tmp)],   # stays RGB: no extra YUV round trip
@@ -189,13 +229,13 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
             if cancel is not None and cancel.is_set(): raise Cancelled()
             inp = rgb if pre == 1.0 else cv2.resize(rgb, (max(2, int(src_w * pre)), max(2, int(src_h * pre))), interpolation=cv2.INTER_AREA)
             try:
-                sr = run_x4(sess, inp)
+                sr = run_net(sess, inp, net_scale)
             except Exception as e:       # e.g. GPU out of memory / driver error -> continue on CPU
                 if sess.get_providers()[0] == "CPUExecutionProvider": raise
                 from .models import make_session_cpu
-                sess = make_session_cpu(onnx_path(p["denoise"]))
+                sess = make_session_cpu(onnx_path(model, p["denoise"]))
                 fell_back.append(str(e)[:200])
-                sr = run_x4(sess, inp)
+                sr = run_net(sess, inp, net_scale)
             sr = cv2.resize(sr, (fw, fh), interpolation=cv2.INTER_AREA if sr.shape[1] > fw else cv2.INTER_LANCZOS4)
             lz = cv2.resize(rgb, (fw, fh), interpolation=cv2.INTER_LANCZOS4).astype(np.float32) / 255.0
             sr = proc(rgb, sr, lz)
@@ -219,8 +259,9 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
         raise
 
 
-def estimate_seconds_per_frame(src_w: int, src_h: int, quality: str, need: float, gpu: bool) -> float:
-    """Measured on a 4-thread CPU: ~8.5 us per input pixel. GPU assumed ~25x faster (not measured here)."""
-    px = src_w * src_h * (0.25 if quality == "fast" and need <= 2 else 1.0)
-    s = px * 8.5e-6
+def estimate_seconds_per_frame(src_w: int, src_h: int, quality: str, need: float, gpu: bool, model: str = "general") -> float:
+    """CPU cost measured on a 4-thread machine (us per network input pixel); GPU assumed ~25x faster (not measured here)."""
+    _, _, net_scale, us = UPSCALE_MODELS[model]
+    px = src_w * src_h * (0.25 if quality == "fast" and need <= net_scale / 2 else 1.0)
+    s = px * us * 1e-6
     return s / 25 if gpu else s

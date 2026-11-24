@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import type { Blueprint, Op, OpSpec, ParamSpec, Schema } from "./model";
 import * as m from "./model";
 import type { Issue, VideoInfo } from "./api";
-import { Btn, Empty, Icon } from "./ui";
+import { Btn, Empty, Icon, resolutionOptions } from "./ui";
 
 type Edit = (fn: (b: Blueprint) => Blueprint, key?: string) => void;
 
@@ -95,14 +95,14 @@ function OutputPanel({ bp, edit, video }: { bp: Blueprint; edit: Edit; video: Vi
       <p className="muted">Select an operation in the timeline to edit it. These settings apply to the final render.</p>
       <label className="field"><span className="fl">resolution</span>
         <select value={String(o.resolution ?? "source")} onChange={e => set({ resolution: e.target.value })}>
-          {["source", "1280x720", "1920x1080", "2560x1440", "3840x2160"].map(r => <option key={r}>{r}</option>)}
-          {o.resolution && !["source", "1280x720", "1920x1080", "2560x1440", "3840x2160"].includes(o.resolution) && <option>{o.resolution}</option>}
+          {resolutionOptions(video, o.resolution).map(r => <option key={r} value={r}>{r === "source" ? "source" : video && r === `${video.width * 2}x${video.height * 2}` ? `${r} (2× source)` : r}</option>)}
         </select></label>
       <label className="field"><span className="fl">frame rate</span>
         <select value={String(o.fps ?? "source")} onChange={e => set({ fps: e.target.value === "source" ? "source" : parseFloat(e.target.value) })}>
           {["source", "24", "25", "30", "50", "60"].map(r => <option key={r}>{r}</option>)}</select></label>
-      <label className="field"><span className="fl">container</span><select value={o.format ?? "mp4"} onChange={e => set({ format: e.target.value })}><option>mp4</option><option>mov</option></select></label>
-      <label className="field"><span className="fl">codec</span><select value={o.codec ?? "h264"} onChange={e => set({ codec: e.target.value })}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option></select></label>
+      <label className="field"><span className="fl">container</span><select value={o.format ?? "mp4"} onChange={e => set({ format: e.target.value })}><option disabled={o.codec === "prores"}>mp4</option><option>mov</option></select></label>
+          {o.codec === "prores" && <label className="field"><span className="fl">ProRes profile</span><select value={o.prores_profile ?? "hq"} onChange={e => set({ prores_profile: e.target.value })}><option value="proxy">Proxy</option><option value="lt">LT</option><option value="standard">422</option><option value="hq">422 HQ</option></select></label>}
+      <label className="field"><span className="fl">codec</span><select value={o.codec ?? "h264"} onChange={e => set(e.target.value === "prores" ? { codec: "prores", format: "mov" } : { codec: e.target.value })}><option value="h264">H.264</option><option value="h265">H.265 / HEVC</option><option value="prores">ProRes 422 10-bit (.mov, for editing)</option></select></label>
       <label className="field"><span className="fl">quality (CRF) <em>lower = better</em></span><div className="slider-row"><input type="range" min={14} max={32} value={o.crf ?? 20} onChange={e => set({ crf: parseInt(e.target.value) })} /><input type="number" value={o.crf ?? 20} onChange={e => set({ crf: parseInt(e.target.value) || 20 })} /></div></label>
       <label className="field"><span className="fl">audio bitrate</span><select value={o.audio_bitrate ?? "192k"} onChange={e => set({ audio_bitrate: e.target.value })}>{["128k", "192k", "256k", "320k"].map(r => <option key={r}>{r}</option>)}</select></label>
       <label className="field"><span className="fl">encode speed</span><select value={o.preset ?? "medium"} onChange={e => set({ preset: e.target.value })}>{["ultrafast", "veryfast", "fast", "medium", "slow"].map(r => <option key={r}>{r}</option>)}</select></label>
