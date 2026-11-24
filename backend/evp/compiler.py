@@ -157,6 +157,9 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     half = 0.5 / fps
     g = _Graph()
     cs = ColorSpec.of(vid)
+    # transparent export: the keyer's matte becomes the alpha channel of the output (previews and proxies show a checkerboard instead)
+    alpha_out = plan.transparent_key is not None and not opts.frame_only and not opts.scale_width
+    alpha_stream: list[str] = []
     inputs: list[list[str]] = []
     work_files: list[str] = []
     asset_input: dict[str, int] = {}
@@ -297,6 +300,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     shift = f",setpts=N+{seek_f}" if seek_f else ""   # keep generated streams aligned with a seeked source
 
     def bg_stream(r: Operation | None, k: Operation) -> str:
+        if r is None and plan.transparent_key == k.id:                       # preview of a transparent export: checkerboard, like an editor
+            return g.add([], f"nullsrc=s={W}x{H}:r={fps:g},geq=lum='if(lt(mod(floor(X/16)+floor(Y/16)\\,2)\\,1)\\,92\\,138)':cb=128:cr=128,format=rgba{shift}")
         if r is None or not r.params.get("asset_id"):
             color = r.params["color"] if r else k.params["background_color"]
             return g.add([], f"color=c={hex0x(color)}:s={W}x{H}:r={fps:g},format=rgba{shift}")
@@ -478,7 +483,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         t, p = op.type, op.params
         if t in ("chroma_key", "background_removal"):
             if op.id in plan.consumed_keyers: continue
-            cur = composite(cur, op, None)
+            if alpha_out and op.id == plan.transparent_key:
+                keyed = make_keyed(cur, op)                                   # rgba: subject colour + matte
+                kc, ka = splitn(keyed, 2)
+                cur = g.add([kc], cs.rgb_to_yuv())                            # carry on with the subject's colour (grading etc. still apply)
+                alpha_stream.append(g.add([ka], "alphaextract"))
+            else:
+                cur = composite(cur, op, None)
         elif t == "background_replacement":
             cur = composite(cur, next(o for o in plan.steps if o.id == plan.alpha_source[op.id]), op)
         elif t == "color_grading":
@@ -579,7 +590,11 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         else:
             raise RuntimeError(f"compiler has no handler for '{t}' (registry/compiler mismatch)")
 
-    g.add([cur], cs.finish("yuv422p10le" if (out.codec == "prores" and not opts.scale_width) else "yuv420p"), "vout")
+    if alpha_stream:
+        cur = g.add([cur, alpha_stream[0]], "alphamerge")
+        g.add([cur], cs.finish("yuva444p10le" if out.codec == "prores4444" else "yuva420p"), "vout")
+    else:
+        g.add([cur], cs.finish("yuv422p10le" if (out.codec == "prores" and not opts.scale_width) else "yuv420p"), "vout")
     if pieces is not None and vid.has_audio and opts.audio and not opts.frame_only:
         # audio follows the same cuts, sample-accurately; a 4 ms fade at every real joint avoids clicks
         FADE = 0.004
@@ -632,16 +647,27 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if audio_filters and not opts.t_start: args += ["-af", ",".join(audio_filters)]
         else:
             args += ["-map", "[aout]"]
-        args += ["-c:a", "pcm_s16le"] if prores else ["-c:a", "aac", "-b:a", out.audio_bitrate]
+        if prores or (alpha_out and out.codec == "prores4444"): args += ["-c:a", "pcm_s16le"]
+        elif alpha_out and out.codec == "vp9_alpha": args += ["-c:a", "libopus", "-b:a", "128k"]
+        else: args += ["-c:a", "aac", "-b:a", out.audio_bitrate]
     else:
         args += ["-an"]
     args += ["-t", f"{out_dur:.4f}"]
+    if alpha_out and out.codec == "prores4444":
+        # ProRes 4444 with a 16-bit alpha channel: opens with transparency in Premiere, DaVinci Resolve, Final Cut, After Effects
+        args += ["-c:v", "prores_ks", "-profile:v", "4", "-vendor", "apl0", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-r", f"{fps:g}", out_path]
+        return Compiled(args, graph, work_files, out_dur)
+    if alpha_out and out.codec == "vp9_alpha":
+        # WebM / VP9 with alpha: plays with transparency in Chrome, Edge and Firefox (and OBS, CapCut, Resolve)
+        args += ["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", str(opts.crf if opts.crf is not None else max(18, min(40, out.crf + 4))),
+                 "-row-mt", "1", "-auto-alt-ref", "0", "-deadline", "good", "-cpu-used", "2", "-r", f"{fps:g}", out_path]
+        return Compiled(args, graph, work_files, out_dur)
     if prores:
         # ProRes 422 10-bit intermediate for finishing in other software (processing itself is 8-bit)
         prof = {"proxy": 0, "lt": 1, "standard": 2, "hq": 3}[out.prores_profile]
         args += ["-c:v", "prores_ks", "-profile:v", str(prof), "-vendor", "apl0", "-pix_fmt", "yuv422p10le", "-r", f"{fps:g}", out_path]
         return Compiled(args, graph, work_files, out_dur)
-    enc = pick_encoder("h264" if out.codec == "prores" else out.codec, opts.encoder)
+    enc = pick_encoder(out.codec if out.codec in ("h264", "h265") else "h264", opts.encoder)
     args += ["-c:v", enc]
     if enc in ("libx264", "libx265"):
         args += ["-preset", opts.preset or out.preset]

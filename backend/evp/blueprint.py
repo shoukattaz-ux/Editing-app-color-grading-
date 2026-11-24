@@ -322,11 +322,16 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
     else:
         rep.err("INVALID_PARAMETER", "output.fps must be 'source' or a number 1..120", path="output.fps"); fps_v = vid.fps if vid else 30.0
     fmt = out_in.get("format", "mp4")
-    if fmt not in ("mp4", "mov"): rep.err("INVALID_PARAMETER", "output.format must be 'mp4' or 'mov'", path="output.format"); fmt = "mp4"
+    if fmt not in ("mp4", "mov", "webm"): rep.err("INVALID_PARAMETER", "output.format must be 'mp4', 'mov' or 'webm'", path="output.format"); fmt = "mp4"
     codec = out_in.get("codec", "h264")
-    if codec not in ("h264", "h265", "prores"): rep.err("INVALID_PARAMETER", "output.codec must be 'h264', 'h265' or 'prores'", path="output.codec"); codec = "h264"
-    if codec == "prores" and fmt != "mov":
+    if codec not in ("h264", "h265", "prores", "prores4444", "vp9_alpha"):
+        rep.err("INVALID_PARAMETER", "output.codec must be 'h264', 'h265', 'prores', 'prores4444' (transparent) or 'vp9_alpha' (transparent)", path="output.codec"); codec = "h264"
+    if codec in ("prores", "prores4444") and fmt != "mov":
         rep.err("INVALID_PARAMETER", "ProRes needs output.format 'mov'", path="output.format")
+    if codec == "vp9_alpha" and fmt != "webm":
+        rep.err("INVALID_PARAMETER", "codec 'vp9_alpha' needs output.format 'webm'", path="output.format")
+    if codec in ("h264", "h265") and fmt == "webm":
+        rep.err("INVALID_PARAMETER", "output.format 'webm' needs codec 'vp9_alpha'", path="output.format")
     prores_profile = out_in.get("prores_profile", "hq")
     if prores_profile not in ("proxy", "lt", "standard", "hq"):
         rep.err("INVALID_PARAMETER", "output.prores_profile must be proxy, lt, standard or hq", path="output.prores_profile"); prores_profile = "hq"

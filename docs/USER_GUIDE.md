@@ -24,6 +24,13 @@ The **Video** track shows your footage as clips. The original file is never chan
 * *Original* preview plays your cut timeline by jumping between clips (small hiccups at joins are normal there); *Edited* is the real result.
 * One video per project for now, and changing a cut recomputes AI effects (matting, face, upscaling) for that range, so make your cuts *before* running heavy AI.
 
+## Transparent export: remove the screen and put nothing behind
+Use one `background_removal` (mode `screen` for a green/blue screen, `ai` for ordinary footage) or `chroma_key`, **no** `background_replacement`, and choose a transparent codec in Export (or `output`):
+* `"codec": "prores4444", "format": "mov"` - ProRes 4444 with a 16-bit alpha channel; opens with transparency in Premiere, DaVinci Resolve, Final Cut and After Effects. Large files.
+* `"codec": "vp9_alpha", "format": "webm"` - WebM VP9 with alpha; plays with transparency in Chrome, Edge and Firefox, and imports into OBS, CapCut and Resolve. Small files (quality: `output.crf`, lower = better).
+
+The key must cover the whole video (`TRANSPARENT_FULL_RANGE`), exactly one key is allowed (`TRANSPARENT_NEEDS_ONE_KEY`), and a background cannot be combined with transparency (`TRANSPARENT_WITH_BACKGROUND`). Colour grading, text and the other effects still apply to the person. Previews and the proxy show a grey checkerboard where the screen was, because ordinary video cannot show transparency. H.264/H.265 and ordinary ProRes cannot carry transparency; the app refuses to pretend they do.
+
 ## Professional green/blue-screen key (`background_removal`, `mode: "screen"`)
 The simple `chroma_key` removes pixels close to one colour. Hair, fuzzy wool and motion-blurred edges are *mixtures* of subject and screen, so a threshold either leaves a green halo or eats the fine strands. `mode: "screen"` unmixes them instead: the screen colour is found automatically (green or blue) and followed over time; the screen's brightness is modelled **locally**, so uneven lighting, hot spots and shadows on the screen do not leave haze or holes; each edge pixel's partial transparency is solved from how screen-like it is; and the subject's own colour is solved back out of the mixture, so edges carry no green. Spill is removed from the rest of the subject, isolated specks are dropped, and the matte is smoothed over time **only where nothing moved** (no flicker, no ghost trail). No model, no GPU.
 

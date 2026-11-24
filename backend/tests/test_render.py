@@ -706,3 +706,58 @@ def test_screen_key_treats_a_shadowed_part_of_the_screen_as_screen():
     shadow = (xx < 110) & (yy > 120)
     assert a[shadow].mean() < 0.05, f"the shadowed screen came out {a[shadow].mean():.2f} solid"
     assert a[(xx > 160) & (xx < 240) & (yy > 80) & (yy < 200)].min() > 0.9               # the subject stays solid
+
+
+# ---------------------------------------------------------------- transparent export (ProRes 4444 / WebM VP9 alpha)
+def _export_transparent(prep, media, tmp_path, codec, fmt, key=None):
+    from evp.security import PathPolicy  # noqa
+    ops = [key or {"id": "k", "type": "chroma_key", "start": 0, "parameters": {"edge_feather": 0.5}}]
+    p = prep(bp(ops=ops, output={"codec": codec, "format": fmt, "crf": 18, "preset": "ultrafast"}))
+    assert p.plan, p.report.errors
+    assert p.plan.transparent_key == ops[0]["id"]
+    out = tmp_path / f"t.{fmt}"
+    j = Job(p.plan, media["video"], str(out), RenderOptions(), str(tmp_path)); j.run()
+    assert j.state == "done", j.error
+    return out
+
+
+def _rgba_frame(path, decoder=None):
+    cmd = [ffmpeg_bin(), "-v", "error", *(["-c:v", decoder] if decoder else []), "-i", str(path), "-vf", "select=eq(n\\,10)", "-frames:v", "1", "-pix_fmt", "rgba", "-f", "rawvideo", "-"]
+    raw = subprocess.run(cmd, capture_output=True).stdout
+    meta = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", str(path)], capture_output=True, text=True).stdout)["streams"][0]
+    return np.frombuffer(raw, np.uint8).reshape(meta["height"], meta["width"], 4)
+
+
+def test_transparent_export_prores4444_has_a_real_alpha_channel(prep, media, tmp_path):
+    out = _export_transparent(prep, media, tmp_path, "prores4444", "mov")
+    v = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,profile", "-of", "json", str(out)], capture_output=True, text=True).stdout)["streams"][0]
+    assert v["codec_name"] == "prores" and v["pix_fmt"].startswith("yuva444p"), v
+    f = _rgba_frame(out)
+    assert f[2, 2, 3] == 0 and f[-3, -3, 3] == 0, "the green screen must be fully transparent"
+    h, w = f.shape[:2]
+    cx = f[h // 2, w // 2]
+    assert cx[3] == 255 and cx[0] > 150 and cx[2] < 160, f"the subject must be solid and keep its colour: {cx}"      # orange disc
+    bad = (f[..., 3] > 200) & (f[..., 1].astype(int) > f[..., 0].astype(int) + 40) & (f[..., 1].astype(int) > f[..., 2].astype(int) + 40)     # int: uint8 would wrap around
+    assert not bad.any(), f"green left in {int(bad.sum())} solid pixels"
+
+
+def test_transparent_export_webm_vp9_alpha(prep, media, tmp_path):
+    out = _export_transparent(prep, media, tmp_path, "vp9_alpha", "webm")
+    tags = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream_tags=alpha_mode", "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip()
+    assert tags == "1", f"WebM must be flagged as having alpha: {tags!r}"
+    f = _rgba_frame(out, decoder="libvpx-vp9")                      # FFmpeg's native VP9 decoder ignores the alpha plane: use libvpx
+    assert f[2, 2, 3] == 0 and f[f.shape[0] // 2, f.shape[1] // 2, 3] == 255
+
+
+def test_transparent_export_rules_and_preview_checkerboard(prep, media, tmp_path):
+    codes = lambda ops, codec="prores4444", fmt="mov": {e.code for e in prep(bp(ops=ops, assets=ASSETS, output={"codec": codec, "format": fmt})).report.errors}
+    assert "TRANSPARENT_WITH_BACKGROUND" in codes([KEY, REPL])                                       # a background and transparency are exclusive
+    assert "TRANSPARENT_NEEDS_ONE_KEY" in codes([])
+    assert "TRANSPARENT_FULL_RANGE" in codes([{**KEY, "start": 1.0, "end": 2.0}])
+    assert "INVALID_PARAMETER" in codes([KEY], "prores4444", "mp4") and "INVALID_PARAMETER" in codes([KEY], "vp9_alpha", "mov")
+    assert not codes([KEY])                                                                          # a key alone is fine
+    p = prep(bp(ops=[KEY], output={"codec": "prores4444", "format": "mov"}))
+    png = render_frame(p.plan, media["video"], 1.0, None, str(media["dir"]))                         # preview: checkerboard behind the subject
+    im = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR).astype(int)
+    a, b = im[2, 2], im[2, 20]
+    assert a.std() < 8 and abs(int(a[0]) - int(b[0])) > 20, "the preview should show a grey checkerboard where the screen was"

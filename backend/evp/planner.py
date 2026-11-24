@@ -16,6 +16,7 @@ class Plan:
     consumed_keyers: set[str] = field(default_factory=set)
     look_auto: dict = field(default_factory=dict)                 # studio_look id -> measured settings (filled by the engine)
     measuring: bool = False                                       # engine is measuring the composite: studio looks are skipped
+    transparent_key: str | None = None                            # id of the keyer whose matte becomes the output's alpha channel (transparent export)
     look_curves: dict = field(default_factory=dict)               # studio_look id -> [r, g, b] curve points matched to its reference picture (filled by the engine)
     look_for: dict[str, Operation] = field(default_factory=dict)  # replacement id -> the studio_look that integrates the subject into it
     total_frames: int = 0
@@ -99,6 +100,20 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
                      f"the global grade follows the look's own range ({lk.start:g}-{lk.end:g}s)", lk.id)
         if r.id not in lk.depends_on:
             lk.depends_on = lk.depends_on + [r.id]
+
+    # --- transparent export: the keyer's matte becomes the alpha channel instead of being composited on a background
+    if bp.output.codec in ("prores4444", "vp9_alpha"):
+        free = [k for k in ops if OPERATIONS[k.type].provides_alpha and k.id not in plan.consumed_keyers]
+        if any(o.type == "background_replacement" for o in ops):
+            rep.err("TRANSPARENT_WITH_BACKGROUND", "A transparent export cannot also replace the background: remove the background_replacement or choose an opaque codec (h264/h265/prores).")
+        elif len(free) != 1:
+            rep.err("TRANSPARENT_NEEDS_ONE_KEY", f"A transparent export needs exactly one chroma_key or background_removal (found {len(free)}): its matte becomes the alpha channel.")
+        else:
+            k = free[0]
+            if k.start_frame > 0 or k.end_frame < plan.total_frames:
+                rep.err("TRANSPARENT_FULL_RANGE", f"'{k.id}' must cover the whole video for a transparent export (it covers {k.start:g}-{k.end:g}s).", k.id)
+            else:
+                plan.transparent_key = k.id
 
     # --- overlap conflicts
     repl = [o for o in ops if o.type == "background_replacement"]
