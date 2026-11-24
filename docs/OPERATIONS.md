@@ -31,12 +31,17 @@ Timeline track: **effects** · provides an alpha layer for `background_replaceme
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
-| `mode` | enum | `chroma` | chroma, ai | 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = green/blue screen. |
+| `mode` | enum | `chroma` | chroma, ai, screen | 'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key. |
+| `auto_screen` | boolean | `True` |  | [screen] Find the screen colour automatically (and follow it over time). Off = use key_color. |
+| `fill_holes` | boolean | `False` |  | [screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands. |
+| `edge_shrink` | number | `0.0` | 0.0 … 5.0 px | [screen] Pull the matte edge inward to remove a remaining fringe. |
+| `edge_soften` | number | `0.0` | 0.0 … 10.0 px | [screen] Soften the matte edge. |
+| `temporal_smooth` | number | `0.5` | 0.0 … 1.0 | [screen] Calm edge flicker on still parts of the picture; moving edges pass through unsmoothed. |
 | `model` | enum | `rvm` | rvm | [ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable. |
 | `detail` | enum | `fast` | fast, balanced, high | [ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture. |
-| `matte_threshold` | number | `0.03` | 0.0 … 0.5 | [ai] Alpha below this becomes fully transparent (removes faint background haze). |
-| `despeckle` | boolean | `True` |  | [ai] Remove background blobs that are not connected to the person. |
-| `edge_color_fix` | boolean | `True` |  | [ai] Replace old-background colour in soft hair edges with the model's estimated foreground colour (removes halos). |
+| `matte_threshold` | number | `0.03` | 0.0 … 0.5 | [ai, screen] Alpha below this becomes fully transparent (removes faint background haze). |
+| `despeckle` | boolean | `True` |  | [ai, screen] Remove background blobs that are not connected to the person. |
+| `edge_color_fix` | boolean | `True` |  | [ai, screen] Replace old-background colour in soft hair edges with the estimated foreground colour (removes halos). |
 | `quality` | enum | `high` | draft, standard, high | [chroma] Higher = more edge processing. |
 | `edge_refinement` | boolean | `True` |  | [chroma] Erode + feather the matte edge. |
 | `key_color` | color | `#00ff00` |  | Colour to remove: '#rrggbb', 'green' or 'blue'. |
@@ -246,5 +251,5 @@ Timeline track: **video**
 
 Hair & Edge Refinement (matting)
 
-> **Not available in this build.** Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. A separate refinement pass for chroma keys is not implemented.
+> **Not available in this build.** Not a separate operation: use background_removal with mode 'screen' (green/blue screen) or 'ai' (no screen). Both produce hair-level partial transparency, solve the subject colour out of edge pixels and clean the matte; edge_shrink, edge_soften and temporal_smooth fine-tune it.
 

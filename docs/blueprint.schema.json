@@ -354,13 +354,45 @@
                   "type": "object",
                   "properties": {
                     "mode": {
-                      "description": "'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = green/blue screen.",
+                      "description": "'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key.",
                       "type": "string",
                       "enum": [
                         "chroma",
-                        "ai"
+                        "ai",
+                        "screen"
                       ],
                       "default": "chroma"
+                    },
+                    "auto_screen": {
+                      "description": "[screen] Find the screen colour automatically (and follow it over time). Off = use key_color.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "fill_holes": {
+                      "description": "[screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands.",
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "edge_shrink": {
+                      "description": "[screen] Pull the matte edge inward to remove a remaining fringe.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 5.0,
+                      "default": 0.0
+                    },
+                    "edge_soften": {
+                      "description": "[screen] Soften the matte edge.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 10.0,
+                      "default": 0.0
+                    },
+                    "temporal_smooth": {
+                      "description": "[screen] Calm edge flicker on still parts of the picture; moving edges pass through unsmoothed.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
                     },
                     "model": {
                       "description": "[ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable.",
@@ -381,19 +413,19 @@
                       "default": "fast"
                     },
                     "matte_threshold": {
-                      "description": "[ai] Alpha below this becomes fully transparent (removes faint background haze).",
+                      "description": "[ai, screen] Alpha below this becomes fully transparent (removes faint background haze).",
                       "type": "number",
                       "minimum": 0.0,
                       "maximum": 0.5,
                       "default": 0.03
                     },
                     "despeckle": {
-                      "description": "[ai] Remove background blobs that are not connected to the person.",
+                      "description": "[ai, screen] Remove background blobs that are not connected to the person.",
                       "type": "boolean",
                       "default": true
                     },
                     "edge_color_fix": {
-                      "description": "[ai] Replace old-background colour in soft hair edges with the model's estimated foreground colour (removes halos).",
+                      "description": "[ai, screen] Replace old-background colour in soft hair edges with the estimated foreground colour (removes halos).",
                       "type": "boolean",
                       "default": true
                     },

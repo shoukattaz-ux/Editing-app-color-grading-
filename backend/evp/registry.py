@@ -131,12 +131,17 @@ _reg(OpSpec("chroma_key", "Chroma Key", "Keying", STAGE_KEY, "effects",
 _reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "effects",
             "Remove the background. 'ai' works on ordinary footage (no green screen) using the Robust Video Matting model; "
             "'chroma' keys a green/blue screen.",
-            {"mode": Param(E, "chroma", enum=("chroma", "ai"), desc="'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = green/blue screen."),
+            {"mode": Param(E, "chroma", enum=("chroma", "ai", "screen"), desc="'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key."),
+             "auto_screen": Param(B, True, desc="[screen] Find the screen colour automatically (and follow it over time). Off = use key_color."),
+             "fill_holes": Param(B, False, desc="[screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands."),
+             "edge_shrink": Param(N, 0.0, 0.0, 5.0, unit="px", desc="[screen] Pull the matte edge inward to remove a remaining fringe."),
+             "edge_soften": Param(N, 0.0, 0.0, 10.0, unit="px", desc="[screen] Soften the matte edge."),
+             "temporal_smooth": Param(N, 0.5, 0.0, 1.0, desc="[screen] Calm edge flicker on still parts of the picture; moving edges pass through unsmoothed."),
              "model": Param(E, "rvm", enum=("rvm",), desc="[ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable."),
              "detail": Param(E, "fast", enum=("fast", "balanced", "high"), desc="[ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture."),
-             "matte_threshold": Param(N, 0.03, 0.0, 0.5, desc="[ai] Alpha below this becomes fully transparent (removes faint background haze)."),
-             "despeckle": Param(B, True, desc="[ai] Remove background blobs that are not connected to the person."),
-             "edge_color_fix": Param(B, True, desc="[ai] Replace old-background colour in soft hair edges with the model's estimated foreground colour (removes halos)."),
+             "matte_threshold": Param(N, 0.03, 0.0, 0.5, desc="[ai, screen] Alpha below this becomes fully transparent (removes faint background haze)."),
+             "despeckle": Param(B, True, desc="[ai, screen] Remove background blobs that are not connected to the person."),
+             "edge_color_fix": Param(B, True, desc="[ai, screen] Replace old-background colour in soft hair edges with the estimated foreground colour (removes halos)."),
              "quality": Param(E, "high", enum=("draft", "standard", "high"), desc="[chroma] Higher = more edge processing."),
              "edge_refinement": Param(B, True, desc="[chroma] Erode + feather the matte edge."),
              **{k: v for k, v in _KEY_PARAMS.items() if k not in ("edge_erode", "edge_feather")},
@@ -253,8 +258,9 @@ _reg(OpSpec("ai_upscale", "AI Resolution Enhancement", "Enhance", STAGE_UPSCALE,
              "face_detail": Param(N, 0.8, 0.0, 1.0, desc="Amount of AI detail on faces (1 = same as elsewhere). Lower avoids plastic skin and redrawn features.")}))
 _reg(OpSpec("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying", STAGE_KEY, "effects",
             "Hair & Edge Refinement (matting)", supported=False,
-            unsupported_reason="Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. "
-                               "A separate refinement pass for chroma keys is not implemented."))
+            unsupported_reason="Not a separate operation: use background_removal with mode 'screen' (green/blue screen) or 'ai' (no screen). "
+                               "Both produce hair-level partial transparency, solve the subject colour out of edge pixels and clean the matte; "
+                               "edge_shrink, edge_soften and temporal_smooth fine-tune it."))
 
 
 # ---------------------------------------------------------------------------------------------------------------------

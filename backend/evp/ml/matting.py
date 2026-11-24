@@ -25,6 +25,7 @@ class MatteRef:
     fgr_path: str | None    # RGB foreground-colour video (edge colour decontamination), or None
     start_frame: int        # first frame (on the output grid) contained in the file
     frames: int
+    screen: str | None = None   # "green" | "blue" for mode 'screen' (so the compiler despills the right colour)
 
 
 class Cancelled(Exception):
@@ -93,6 +94,9 @@ def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, fra
     p = op.params
     d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames,
          p["model"], p["detail"], p["matte_threshold"], p["despeckle"], p["edge_color_fix"], "v3", _edl.key(edl)]
+    if p.get("mode") == "screen":
+        d += ["screen4", p["auto_screen"], p["key_color"] if not p["auto_screen"] else "", p["similarity"], p["blend"], p["fill_holes"], p["edge_shrink"],
+              p["edge_soften"], p["temporal_smooth"], p["spill_suppression"], p["spill_strength"]]
     return hashlib.sha1(json.dumps(d).encode()).hexdigest()[:20]
 
 
@@ -102,8 +106,10 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
     """Run RVM over [start_frame, start_frame+frames) of the normalised timeline. Cached on disk."""
     out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     fgr_out = out.with_name(out.stem + "_fgr.mkv") if op.params["edge_color_fix"] else None
+    side = out.with_suffix(".json")
     if out.is_file() and (fgr_out is None or fgr_out.is_file()):
-        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames)
+        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames,
+                        json.loads(side.read_text()).get("screen") if side.is_file() else None)
     out.parent.mkdir(parents=True, exist_ok=True)
     p = op.params
     ds = min(1.0, DETAIL_TARGET[p["detail"]] / max(W, H))
@@ -117,19 +123,25 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
     fenc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                              "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(ftmp)],
                             stdin=subprocess.PIPE, stderr=subprocess.PIPE) if fgr_out else None
-    model = _model()
+    keyer = None
+    if p.get("mode") == "screen":
+        from .screenkey import ScreenKeyer
+        keyer = ScreenKeyer(p)
+    else:
+        model = _model()
     n = 0
     try:
         for rgb in decode(source, W, H, fps, first, total, edl, flags="lanczos"):
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
-            a, fg = model(rgb, ds)
+            if keyer is not None: a, fg = keyer(rgb)
+            else: a, fg = model(rgb, ds)
             n += 1
             if first + n - 1 < start_frame:
                 continue                       # warm-up frame, not written
-            a = clean_matte(a, p["matte_threshold"], p["despeckle"])
+            if keyer is None: a = clean_matte(a, p["matte_threshold"], p["despeckle"])
             enc.stdin.write((np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
-            if fenc:
+            if fenc and fg is not None:
                 fenc.stdin.write((np.clip(fg, 0, 1) * 255.0 + 0.5).astype(np.uint8).tobytes())
             if progress: progress(n - (start_frame - first), frames)
         for e in (enc, fenc):
@@ -141,8 +153,10 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
         if written <= 0:
             raise RuntimeError("AI matting produced no frames (could not decode the source in this range)")
         if fenc: os.replace(ftmp, fgr_out)
+        scr = keyer.screen_name if keyer is not None else None
+        if scr: side.write_text(json.dumps({"screen": scr}))
         os.replace(tmp, out)
-        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written)
+        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr)
     except BaseException:
         if ftmp: ftmp.unlink(missing_ok=True)
         for pr in (enc, fenc):

@@ -535,3 +535,94 @@ def test_studio_look_auto_match_fills_in_settings_and_explicit_values_win(prep, 
     assert resolve(p.plan.steps[-1].params, auto)["vignette"] == auto["vignette"]
     assert resolve({**p.plan.steps[-1].params, "vignette": 0.0}, auto)["vignette"] == 0.0
     assert resolve({"preset": "none", "auto_match": 0.0}, auto)["vignette"] == 0.0     # off = off
+
+
+# ---------------------------------------------------------------- professional screen key (mode "screen")
+def _hair_scene(seed=3, W=320, H=240, noise=2.0):
+    """ground truth: dark hair strands (1-2 px, partly transparent) + a face over an UNEVENLY lit green screen with a shadow patch"""
+    rng = np.random.default_rng(seed)
+    a = np.zeros((H, W), np.float32)
+    cv2.ellipse(a, (W // 2, H // 2 + 20), (75, 95), 0, 0, 360, 1.0, -1)
+    cv2.rectangle(a, (0, H - 60), (W, H), 1.0, -1)
+    for _ in range(130):
+        ang = rng.uniform(-np.pi * 0.95, -np.pi * 0.05); r0 = rng.uniform(85, 100); L = rng.uniform(8, 28)
+        x0, y0 = W // 2 + np.cos(ang) * 73, H // 2 + 20 + np.sin(ang) * r0
+        pts = [(x0 + np.cos(ang) * t, y0 + np.sin(ang) * t) for t in range(int(L))]
+        cv2.polylines(a, [np.array(pts, np.int32)], False, float(rng.uniform(.5, 1)), int(rng.integers(1, 3)), cv2.LINE_AA)
+    a = cv2.GaussianBlur(a, (0, 0), 0.8)
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    F = np.zeros((H, W, 3), np.float32) + [40, 32, 28]
+    F[H // 2 + 5:H // 2 + 85, W // 2 - 48:W // 2 + 48] = (200, 150, 125)
+    F[H - 60:] = (35, 45, 85)
+    light = 0.62 + 0.5 * (xx / W) - 0.25 * np.exp(-(((xx - 60) ** 2 + (yy - 75) ** 2) / (2 * 30 ** 2)))
+    B = np.array([55, 185, 60], np.float32)[None, None, :] * light[..., None]
+    I = a[..., None] * F + (1 - a[..., None]) * B + rng.normal(0, noise, (H, W, 3))
+    return np.clip(I, 0, 255).astype(np.uint8), a, F
+
+
+def _keyed_over(tmp_path, I, mode_params):
+    """render the scene through the real pipeline over a known background; returns RGB float"""
+    from evp.security import PathPolicy
+    from evp.engine import prepare
+    cv2.imwrite(str(tmp_path / "in.png"), I[:, :, ::-1])
+    H, W = I.shape[:2]
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-loop", "1", "-framerate", "25", "-t", "1", "-i", str(tmp_path / "in.png"), "-vf", "format=yuv420p",
+                    "-c:v", "libx264", "-qp", "0", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", str(tmp_path / "in.mp4")], check=True)
+    bgim = np.zeros((H, W, 3), np.uint8); bgim[:] = (70, 90, 150)[::-1]; bgim[:, :, 0] = np.linspace(60, 200, W).astype(np.uint8)[None, :]
+    cv2.imwrite(str(tmp_path / "bg.png"), bgim)
+    ops = [{"id": "k", "type": "background_removal" if "mode" in mode_params else "chroma_key", "start": 0, "parameters": mode_params},
+           {"id": "r", "type": "background_replacement", "start": 0, "parameters": {"asset_id": "bg", "fit": "stretch"}, "depends_on": ["k"]}]
+    p = prepare(bp(ops=ops, assets=[{"id": "bg", "type": "image", "path": "bg.png"}], output={"resolution": "source", "fps": "source"}),
+                str(tmp_path / "in.mp4"), PathPolicy([tmp_path]), tmp_path)
+    assert p.plan, [e.message for e in p.report.errors]
+    png = render_frame(p.plan, str(tmp_path / "in.mp4"), 0.4, None, str(tmp_path))
+    return cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1].astype(np.float32), bgim[:, :, ::-1].astype(np.float32)
+
+
+def test_screen_key_recovers_hair_on_uneven_screen_far_better_than_the_simple_key(tmp_path):
+    I, a, F = _hair_scene()
+    (tmp_path / "s").mkdir(); (tmp_path / "c").mkdir()
+    new, bgf = _keyed_over(tmp_path / "s", I, {"mode": "screen"})
+    old, _ = _keyed_over(tmp_path / "c", I, {"key_color": "#37b93c"})
+    truth = a[..., None] * F + (1 - a[..., None]) * bgf
+    band = cv2.dilate(((a > 0.02) & (a < 0.98)).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    e_new, e_old = np.abs(new - truth).mean(2)[band].mean(), np.abs(old - truth).mean(2)[band].mean()
+    assert e_new < 9.0, e_new
+    assert e_new < 0.6 * e_old, (e_new, e_old)                       # measured: ~5.5 vs ~21
+    assert np.abs(new - truth).mean() < 3.0                           # and no haze/holes elsewhere (the shadow patch on the screen)
+
+
+def test_screen_key_detects_blue_screens_and_needs_no_model(tmp_path):
+    I, a, F = _hair_scene()
+    blue = I[..., [0, 2, 1]]                                          # swap G<->B: the same scene on a blue screen
+    Fb = F[..., [0, 2, 1]]
+    out, bgf = _keyed_over(tmp_path, blue, {"mode": "screen"})
+    truth = a[..., None] * Fb + (1 - a[..., None]) * bgf
+    band = cv2.dilate(((a > 0.02) & (a < 0.98)).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    assert np.abs(out - truth).mean(2)[band].mean() < 10.0
+    from evp.ml.screenkey import ScreenKeyer
+    k = ScreenKeyer({"similarity": 0.12, "blend": 0.08, "auto_screen": True, "key_color": "#00ff00"}); k(blue)
+    assert k.screen_name == "blue"
+
+
+def test_screen_key_temporal_smoothing_calms_flicker_but_not_motion():
+    from evp.ml.screenkey import ScreenKeyer
+    P = dict(similarity=0.12, blend=0.08, auto_screen=True, key_color="#00ff00", fill_holes=False, edge_shrink=0, edge_soften=0,
+             spill_suppression=True, spill_strength=0.5, edge_color_fix=False, matte_threshold=0.0, despeckle=False)
+    frames = [_hair_scene(seed=3, noise=6.0)[0]]
+    rng = np.random.default_rng(7)
+    for _ in range(5): frames.append(np.clip(frames[0].astype(float) + rng.normal(0, 6, frames[0].shape), 0, 255).astype(np.uint8))      # same picture, new sensor noise
+    def flicker(ts):
+        k = ScreenKeyer({**P, "temporal_smooth": ts}); al = [k(f)[0] for f in frames]
+        return np.mean([np.abs(al[i] - al[i - 1]).mean() for i in range(2, len(al))])
+    assert flicker(1.0) < 0.7 * flicker(0.0)
+    k = ScreenKeyer({**P, "temporal_smooth": 1.0}); k(frames[0])
+    moved = np.roll(frames[0], 40, axis=1); a_moved = k(moved)[0]; a_ref = ScreenKeyer({**P, "temporal_smooth": 0.0})(moved)[0]
+    assert np.abs(a_moved - a_ref).max() < 0.25                       # a real change passes through (no ghost trail)
+
+
+def test_screen_key_validation_and_unsupported_op_message(prep):
+    r = prep(bp(ops=[{"id": "k", "type": "background_removal", "start": 0, "parameters": {"mode": "screen", "edge_shrink": 9}}]))
+    assert any(e.code == "INVALID_PARAMETER" for e in r.report.errors)
+    h = prep(bp(ops=[{"id": "h", "type": "hair_edge_refinement", "start": 0}]))
+    assert any("screen" in e.message for e in h.report.errors)         # tells you where hair refinement lives now
