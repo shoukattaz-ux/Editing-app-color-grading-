@@ -103,6 +103,8 @@ Timeline track: **effects**
 | `saturation` ◆ | number | `1.0` | 0.0 … 3.0 | 1.0 = unchanged. |
 | `vibrance` ◆ | number | `0.0` | -2.0 … 2.0 |  |
 | `gamma` ◆ | number | `1.0` | 0.1 … 5.0 |  |
+| `texture` | number | `0.0` | -1.0 … 1.0 | Fine/medium detail on the brightness only (skin pores, fabric, hair): + sharpens it, - smooths it. Colour is untouched. Between sharpen (finest) and clarity (broad). |
+| `dehaze` | number | `0.0` | -1.0 … 1.0 | + removes a milky veil (deeper blacks, more contrast and colour in hazy areas), - adds haze. A global approximation: one curve for the whole frame, not a per-pixel haze map. |
 | `lift` | points |  |  | [r,g,b] each -1..1. Lift: out = in + lift*(1-in): moves the black point per channel, white stays. Equal values = brightness of the shadows; unequal = colour cast in the shadows (colour wheel). |
 | `gamma_rgb` | points |  |  | [r,g,b] each -1..1. Gamma: out = in ** 2**(-gamma): bends the midtones per channel, black and white stay (+ brightens). Colour wheel for the midtones. |
 | `gain` | points |  |  | [r,g,b] each -1..1. Gain: out = in * (1+gain): scales per channel, black stays. Colour wheel for the highlights. |

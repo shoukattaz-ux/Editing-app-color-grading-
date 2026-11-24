@@ -471,6 +471,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                    lambda q: (q["contrast"], q["brightness"], q["saturation"], q["gamma"]) != (1, 0, 1, 1)),
             an.add("vibrance", ("vibrance",), lambda q: {"intensity": f"{q['vibrance']:.4f}"}, lambda q: q["vibrance"] != 0)) if x]
         pre_cmd[0] = an.sendcmd()
+        d = p["dehaze"]
+        if d:   # + : move the black point up the curve and stretch (removes the veil), - : lift blacks (adds haze); colour follows
+            b = 0.14 * abs(d)
+            f.append(f"curves=master='{curve_str([(b, 0), (1, 1)] if d > 0 else [(0, b), (1, 1)])}'")
+            f.append(f"eq=saturation={1 + 0.25 * d:.4f}:contrast={1 + 0.12 * d:.4f}")
+        if p["texture"]:   # luma-only unsharp at a finer radius than studio_look's clarity (13); negative = mid-frequency smoothing
+            f.append(f"unsharp=lx=7:ly=7:la={1.5 * p['texture']:.3f}:cx=7:cy=7:ca=0")
         if p["lift"] or p["gamma_rgb"] or p["gain"]:
             f.append(lgg_filter(p["lift"] or [0, 0, 0], p["gamma_rgb"] or [0, 0, 0], p["gain"] or [0, 0, 0]))
         cv = [f"{n}='{curve_str(p[k])}'" for n, k in (("master", "curve_master"), ("red", "curve_red"),

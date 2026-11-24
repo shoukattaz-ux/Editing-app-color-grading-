@@ -76,6 +76,31 @@ def test_lift_gamma_gain_curves_and_tone_controls_compile_and_change(prep, media
     assert out != base
 
 
+def _ld(prep, media, p, veil=False):
+    import io
+    import numpy as np
+    from PIL import Image
+    ops = [{"id": "v", "type": "color_grading", "start": 0, "end": 3, "parameters": {"curve_master": [[0, 0.2], [1, 1]]}}] if veil else []   # milky: blacks lifted
+    if p:
+        ops.append({"id": "g", "type": "color_grading", "start": 0, "end": 3, "parameters": p})
+    return np.asarray(Image.open(io.BytesIO(frame(prep, media, ops, 1.0))).convert("RGB"), dtype=float)
+
+
+def test_texture_changes_detail_and_keeps_colour(prep, media):
+    import numpy as np
+    base, up, down = _ld(prep, media, None), _ld(prep, media, {"texture": 1.0}), _ld(prep, media, {"texture": -1.0})
+    hf = lambda a: np.abs(a[:, 1:] - a[:, :-1]).mean()
+    assert hf(up) > hf(base) > hf(down)                                                  # + more detail, - less
+    assert abs(up.mean(axis=(0, 1)) - base.mean(axis=(0, 1))).max() < 3                   # overall colour/brightness unchanged
+
+
+def test_dehaze_removes_veil_and_negative_adds_it(prep, media):
+    import numpy as np
+    hazy, clear, hazier = (_ld(prep, media, {"dehaze": v} if v else None, veil=True).mean(axis=2) for v in (0.0, 1.0, -1.0))
+    assert np.percentile(clear, 2) < np.percentile(hazy, 2) - 5 < np.percentile(hazier, 2)    # blacks deeper / lifted
+    assert clear.std() > hazy.std() > hazier.std()                                              # contrast follows
+
+
 def test_all_presets_render(prep, media):
     from evp.registry import OPERATIONS
     for pr in OPERATIONS["color_grading"].params["preset"].enum:

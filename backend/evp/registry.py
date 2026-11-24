@@ -103,6 +103,8 @@ _COLOR_PARAMS = {
     "saturation": Param(N, 1.0, 0.0, 3.0, desc="1.0 = unchanged."),
     "vibrance": Param(N, 0.0, -2.0, 2.0),
     "gamma": Param(N, 1.0, 0.1, 5.0),
+    "texture": Param(N, 0.0, -1.0, 1.0, desc="Fine/medium detail on the brightness only (skin pores, fabric, hair): + sharpens it, - smooths it. Colour is untouched. Between sharpen (finest) and clarity (broad)."),
+    "dehaze": Param(N, 0.0, -1.0, 1.0, desc="+ removes a milky veil (deeper blacks, more contrast and colour in hazy areas), - adds haze. A global approximation: one curve for the whole frame, not a per-pixel haze map."),
     "lift": Param(PT, None, desc="[r,g,b] each -1..1. Lift: out = in + lift*(1-in): moves the black point per channel, white stays. Equal values = brightness of the shadows; unequal = colour cast in the shadows (colour wheel)."),
     "gamma_rgb": Param(PT, None, desc="[r,g,b] each -1..1. Gamma: out = in ** 2**(-gamma): bends the midtones per channel, black and white stay (+ brightens). Colour wheel for the midtones."),
     "gain": Param(PT, None, desc="[r,g,b] each -1..1. Gain: out = in * (1+gain): scales per channel, black stays. Colour wheel for the highlights."),
@@ -283,6 +285,8 @@ _REASONS: dict[tuple[str, str], str] = {
     ("background_replacement", "blur"): "FFmpeg's Gaussian blur cannot change its radius per frame reliably (measured: it renders a different blur than requested)",
     ("video_enhancement", "denoise"): "the denoiser keeps temporal state and its strength cannot be changed per frame exactly",
     ("video_enhancement", "sharpen"): "the sharpen filter has no per-frame control",
+    ("color_grading", "texture"): "the unsharp filter has no per-frame control",
+    ("color_grading", "dehaze"): "it is built from curves and eq values that are fixed per render in this version",
     ("color_grading", "lut_intensity"): "per-frame LUT blending is not frame-exact in FFmpeg",
 }
 for _t, _names in _ANIMATABLE.items():
