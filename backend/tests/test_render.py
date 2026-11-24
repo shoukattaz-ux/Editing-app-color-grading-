@@ -660,3 +660,49 @@ def test_solidity_makes_semi_transparent_areas_solid_but_keeps_clear_areas_clear
     assert s[3] > 0.8 and s[4] >= 0.99                                                       # a 60% finger becomes (nearly) solid
     assert all(s[i] <= s[i + 1] for i in range(len(s) - 1))                                 # monotonic: never inverts
     assert solidify(a, 1.0)[0][3] >= s[3]                                                   # stronger setting = more solid
+
+
+def test_screen_key_leaves_no_green_on_motion_blurred_skin(tmp_path):
+    """Regression: a blurred finger over the screen kept a lime-green outline (skin + green mixture). Over a magenta background no
+    green-dominant pixel may remain, and untouched skin must keep its colour."""
+    H, W = 240, 320
+    I = np.zeros((H, W, 3), np.float32) + [60, 190, 70]                   # the screen
+    skin = np.zeros((H, W), np.float32); cv2.rectangle(skin, (60, 40), (110, 200), 1.0, -1); skin = cv2.GaussianBlur(skin, (0, 0), 7)    # motion-blurred finger
+    solid = np.zeros((H, W), np.float32); cv2.rectangle(solid, (200, 40), (280, 200), 1.0, -1); solid = cv2.GaussianBlur(solid, (0, 0), 0.8)
+    skin_rgb = np.array([205, 150, 120], np.float32)
+    hat = np.zeros((H, W), np.float32); cv2.rectangle(hat, (112, 20), (160, 220), 1.0, -1); hat = cv2.GaussianBlur(hat, (0, 0), 0.8)
+    hat_rgb = np.array([55, 72, 58], np.float32)                           # dark grey-green: the beanie with a little spill on it
+    I = I * (1 - skin[..., None]) + skin_rgb * skin[..., None]
+    I = I * (1 - hat[..., None]) + hat_rgb * hat[..., None]
+    I = I * (1 - solid[..., None]) + skin_rgb * solid[..., None]
+    I = np.clip(I + np.random.default_rng(1).normal(0, 1.5, I.shape), 0, 255).astype(np.uint8)
+    from evp.ml.screenkey import ScreenKeyer
+    P = dict(similarity=0.12, blend=0.08, auto_screen=True, key_color="#00ff00", fill_holes=False, edge_shrink=0, edge_soften=0, temporal_smooth=0.0,
+             spill_suppression=True, spill_strength=0.5, edge_color_fix=True, matte_threshold=0.0, despeckle=False)
+    a, fg = ScreenKeyer(P)(I)
+    comp = fg * a[..., None] + np.array([1.0, 0.0, 1.0], np.float32) * (1 - a[..., None])          # over magenta
+    rgb = comp * 255
+    green = (rgb[..., 1] > rgb[..., 0] + 8) & (rgb[..., 1] > rgb[..., 2] + 8) & (a > 0.15)
+    assert green.sum() < 15, f"{int(green.sum())} green-dominant pixels left on the blurred finger"
+    core = (fg[130:150, 215:265] * 255).mean((0, 1))
+    assert np.abs(core - skin_rgb).max() < 6, f"solid skin colour changed: {core}"                    # skin is not shifted by despill
+
+
+def test_screen_key_treats_a_shadowed_part_of_the_screen_as_screen():
+    """Regression: the dim lower-left corner of a real green sheet (in shadow) was judged by absolute greenness, so it came out half solid
+    - a olive ribbon around the subject. Greenness must be judged relative to brightness."""
+    H, W = 240, 320
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    light = np.where((xx < 130) & (yy > 100), 0.42, 1.0).astype(np.float32)               # a deep shadow over the lower-left of the sheet
+    light = cv2.GaussianBlur(light, (0, 0), 6)
+    I = np.array([95, 205, 45], np.float32)[None, None, :] * light[..., None]
+    subj = np.zeros((H, W), np.float32); cv2.rectangle(subj, (140, 50), (260, 230), 1.0, -1); subj = cv2.GaussianBlur(subj, (0, 0), 0.8)
+    I = I * (1 - subj[..., None]) + np.array([200, 140, 110], np.float32) * subj[..., None]
+    I = np.clip(I + np.random.default_rng(3).normal(0, 1.2, I.shape), 0, 255).astype(np.uint8)
+    from evp.ml.screenkey import ScreenKeyer
+    P = dict(similarity=0.12, blend=0.08, auto_screen=True, key_color="#00ff00", fill_holes=False, edge_shrink=0, edge_soften=0, temporal_smooth=0.0,
+             spill_suppression=True, spill_strength=0.5, edge_color_fix=True, matte_threshold=0.0, despeckle=False)
+    a, _ = ScreenKeyer(P)(I)
+    shadow = (xx < 110) & (yy > 120)
+    assert a[shadow].mean() < 0.05, f"the shadowed screen came out {a[shadow].mean():.2f} solid"
+    assert a[(xx > 160) & (xx < 240) & (yy > 80) & (yy < 200)].min() > 0.9               # the subject stays solid

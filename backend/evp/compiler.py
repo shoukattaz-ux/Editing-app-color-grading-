@@ -258,7 +258,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             # matte file covers [start_frame, start_frame+frames): pad before with opaque, clone after, align to (seeked) timeline
             m = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:color=white:stop={pad_after(ref)}:stop_mode=clone,"
                       f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H},format=gray")
-            if p["mode"] == "screen" and p["spill_suppression"] and ref.screen:
+            own_colour = p["mode"] == "screen" and not any(o.type in ("video_enhancement", "ai_upscale") for o in plan.steps)   # nothing changed the frame before the key
+            if p["mode"] == "screen" and p["spill_suppression"] and ref.screen and not own_colour:
                 # core pixels keep the (already processed) frame; take the screen's spill out of them. Edge pixels use the keyer's solved, despilled colour.
                 src = g.add([src], f"{cs.yuv_to_rgb('gbrp')},despill=type={ref.screen}:mix={min(1.0, p['spill_strength'] * 1.6):.3f}:expand=0,{cs.rgb_to_yuv()}")
             colour = src
@@ -269,7 +270,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                            f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}")
                 # take the model's / keyer's foreground colour only in semi-transparent edges (weight = (1-alpha)*4), keep the
                 # (possibly already processed) frame elsewhere
-                w = g.add([m_edge], f"lut=y='clip((255-val)*{10 if p['mode'] == 'screen' else 4}\\,0\\,255)',format=gray")
+                w = g.add([m_edge], "lut=y=255,format=gray" if own_colour else f"lut=y='clip((255-val)*{10 if p['mode'] == 'screen' else 4}\\,0\\,255)',format=gray")
                 a_rgb, b_rgb = g.add([src], cs.yuv_to_rgb("gbrp")), g.add([fg], "format=gbrp")
                 colour = g.add([a_rgb, b_rgb, g.add([w], "format=gbrp")], "maskedmerge")
             return g.add([g.add([colour], "format=rgba"), m], "alphamerge,format=rgba")

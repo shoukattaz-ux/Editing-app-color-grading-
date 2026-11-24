@@ -59,13 +59,18 @@ class ScreenKeyer:
         h, w = f.shape[:2]
         self._find_screen(f)
         c, K = self.c, self.K
+        # Which parts of the sheet ARE screen is judged by chromaticity (green excess relative to brightness), so a shadowed or dim corner
+        # counts as screen and gets its own local reference. Transparency itself uses the absolute green excess against that LOCAL reference
+        # (relative measures amplify noise on dark hair).
+        def chroma(x):
+            return _dom(x, c) / np.maximum(x[..., c], 0.08)
         dom = _dom(f, c)
         D0 = max(float(_dom(K[None, None, :], c)[0, 0]), 0.1)
+        C0 = max(float(chroma(K[None, None, :])[0, 0]), 0.1)
         # local screen model at 1/8 resolution: normalised blur of the pixels that are clearly screen
         s = 8
         small = cv2.resize(f, (max(2, w // s), max(2, h // s)), interpolation=cv2.INTER_AREA)
-        dsm = _dom(small, c)
-        S = (dsm > 0.5 * D0).astype(np.float32)
+        S = (chroma(small) > 0.6 * C0).astype(np.float32)
         sig = max(2.0, min(small.shape[:2]) / 6)
         num = cv2.GaussianBlur(small * S[..., None], (0, 0), sig)
         den = cv2.GaussianBlur(S, (0, 0), sig)[..., None]
@@ -76,6 +81,9 @@ class ScreenKeyer:
         d = dom / Dloc
         n0, n1 = float(p["similarity"]), float(p["blend"]) * 0.5
         a = np.clip((1.0 - d - n0) / max(1e-3, 1.0 - n0 - n1), 0.0, 1.0).astype(np.float32)
+        f_clean = self._despill(f, c, p) if p.get("spill_suppression", True) else f      # borrowed colours must not carry spill
+        core = cv2.erode((a > 0.995).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(np.float32)      # safely inside the subject: no mixed pixels
+        near, got = self._nearest_solid(f_clean, core, h, w)
         a = self._clean(a, p)
         # temporal smoothing where nothing moved (large changes pass straight through: no ghosting)
         ts = float(p.get("temporal_smooth", 0.5))
@@ -88,23 +96,43 @@ class ScreenKeyer:
         # solve the subject colour back out of the mix and despill it
         F = np.clip((f - (1.0 - a)[..., None] * B) / np.maximum(a, 0.05)[..., None], 0, 1)
         # where almost everything is screen the solve divides noise by a tiny alpha: lean on the nearest solid subject colour instead
-        solid = (a > 0.9).astype(np.float32)
-        sig = max(3.0, min(h, w) / 120)
-        near = np.zeros_like(f); got = np.zeros((h, w, 1), bool)
-        for sg in (sig, sig * 4, sig * 16):                       # nearest solid subject colour, widening until every pixel has one
-            den = cv2.GaussianBlur(solid, (0, 0), sg)[..., None]
-            cand = cv2.GaussianBlur(f * solid[..., None], (0, 0), sg) / np.maximum(den, 1e-4)
-            use = (den > 0.02) & ~got
-            near = np.where(use, cand, near); got |= den > 0.02
         conf = np.clip(a / 0.6, 0.0, 1.0)[..., None]
         F = np.where(got, F * conf + np.clip(near, 0, 1) * (1 - conf), F)
         t = np.clip((1.0 - a) * 8.0, 0.0, 1.0)[..., None]
         fg = np.clip(f * (1 - t) + F * t, 0, 1)
         if p.get("spill_suppression", True):
-            others = [i for i in range(3) if i != c]
-            sp = np.maximum(0.0, fg[..., c] - 0.5 * (fg[..., others[0]] + fg[..., others[1]]))
-            fg[..., c] = fg[..., c] - float(p.get("spill_strength", 0.5)) * 1.6 * sp
+            fg = self._despill(fg, c, p)
+            # thin edge band only: motion-blurred fingers and fabric fringes keep an olive-yellow rim (red about equal to green) that the rule
+            # above does not see. Cap the screen channel at 85% of the larger other one there; solid areas (alpha >= 0.97) are never touched.
+            o1, o2 = [i for i in range(3) if i != c]
+            cap = 0.85 * np.maximum(fg[..., o1], fg[..., o2])
+            edge = (a < 0.97) & (a > 0.02)
+            fg[..., c] = np.where(edge, np.minimum(fg[..., c], cap), fg[..., c])
         return a, np.clip(fg, 0, 1).astype(np.float32)
+
+    @staticmethod
+    def _nearest_solid(f_clean: np.ndarray, solid: np.ndarray, h: int, w: int):
+        """colour of the nearest solid subject pixels (blurred, widening until every pixel has one) and where such a colour exists"""
+        sig = max(3.0, min(h, w) / 120)
+        near = np.zeros_like(f_clean); got = np.zeros((h, w, 1), bool)
+        for sg in (sig, sig * 4, sig * 16):
+            den = cv2.GaussianBlur(solid, (0, 0), sg)[..., None]
+            cand = cv2.GaussianBlur(f_clean * solid[..., None], (0, 0), sg) / np.maximum(den, 1e-4)
+            use = (den > 0.02) & ~got
+            near = np.where(use, cand, near); got |= den > 0.02
+        return np.clip(near, 0, 1), got
+
+    @staticmethod
+    def _despill(x: np.ndarray, c: int, p: dict) -> np.ndarray:
+        """Remove only what is unmistakably screen colour: the screen channel rising ABOVE both others. Skin (red > green > blue) is never
+        touched; a green-tinted beanie or blurred-finger edge is pulled back to neutral. (The old average-based rule also shifted skin tones.)"""
+        out = x.copy()
+        o1, o2 = [i for i in range(3) if i != c]
+        green_dominant = out[..., c] > np.maximum(out[..., o1], out[..., o2])             # skin, grey, blue/red clothing: never true
+        excess = np.maximum(0.0, out[..., c] - 0.5 * (out[..., o1] + out[..., o2]))         # down to the average of the other two = neutral
+        k = min(1.0, 0.4 + 0.6 * float(p.get("spill_strength", 0.5)))
+        out[..., c] = out[..., c] - np.where(green_dominant, k * excess, 0.0)
+        return out
 
     @staticmethod
     def _clean(a: np.ndarray, p: dict) -> np.ndarray:
