@@ -37,6 +37,7 @@ const pngChunks = (buf) => { const n = []; let i = 8; while (i + 8 <= buf.length
   try {
     await page.goto(`http://127.0.0.1:${web.address().port}/?port=${be.port}&token=${be.token}`);
     // start screen: ONE step from a video to the editor (no folder, no name to fill in)
+    await page.waitForSelector(".drop");
     check(await page.locator(".drop").count() === 1 && await page.locator("text=Drop a video here").count() === 1, "the start screen offers a drop zone");
     await page.click(".drop"); await page.fill('input[placeholder="Full path"]', video); await page.keyboard.press("Enter");
     await page.waitForSelector(".timeline");
@@ -101,6 +102,18 @@ const pngChunks = (buf) => { const n = []; let i = 8; while (i + 8 <= buf.length
     await page.click('button[title^="Play / pause"]'); await page.waitForTimeout(900);
     check((await page.locator(".side-content .muted").first().innerText()).includes("playing video") && await page.locator(".side-content .issue").count() === 0 && await lit() > 300, "scopes follow the playing video without a cross-origin error");
     await page.click('button[title^="Play / pause"]');
+    // importing a background picture from the toolbar's Import button (this used to do nothing useful)
+    const pic = path.join(work, "studio picture.png");
+    execFileSync(process.env.EVP_FFMPEG || "ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x3060a0:s=320x180", "-frames:v", "1", pic]);
+    await page.click("button[aria-label=Backgrounds]"); await page.click("text=AI remove background"); await page.waitForTimeout(500);   // a background needs something to replace
+    await page.click("button:has-text('Import')");
+    check(await page.locator("[role=menuitem]").count() === 3, "Import opens a menu: video, background, LUT");
+    await page.click("[role=menuitem]:has-text('Background image')");
+    await page.fill('input[placeholder="Full path"]', pic); await page.keyboard.press("Enter");
+    await page.waitForTimeout(1500);
+    const bpNow = (await (await fetch(`${base}/api/project`, { headers: H })).json()).blueprint;
+    check(bpNow.assets.some(a => a.id === "studio_picture" && a.type === "image") && fs.readdirSync(path.join(work, "proj")).length > 0, "the picture was imported into the project as an asset (file name with a space is fine)");
+    check(bpNow.operations.some(o => o.type === "background_replacement" && o.parameters.asset_id === "studio_picture"), "and it is applied as the background immediately");
     check(errs.length === 0, "no console or page errors", errs.join(" | "));
   } catch (e) { console.log("FAIL  unexpected error: " + e.message); failures++; }
   await browser.close(); web.close(); be.proc.kill();

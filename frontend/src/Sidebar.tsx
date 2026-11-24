@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { Api, Issue, ProjectState, Validation, VideoInfo } from "./api";
 import type { Blueprint, Schema } from "./model";
 import * as m from "./model";
+import { importAssetFile, importBackground, importVideoFile, addBackground } from "./imports";
 import { Btn, Empty, Icon } from "./ui";
 import { ScopesPanel } from "./ScopesPanel";
 
@@ -27,10 +28,7 @@ const span = (ctx: Ctx) => { const d = ctx.duration || ctx.video?.duration || 5;
 
 function MediaTab({ ctx }: { ctx: Ctx }) {
   const { video, project } = ctx;
-  const importVideo = async () => {
-    const p = await ctx.askPath("Import original video (MP4, MOV, MKV, AVI, WebM)", "video"); if (!p) return;
-    try { ctx.reload(await ctx.api.setSource(p)); ctx.toast("Video imported (original is never modified)"); } catch (e: any) { ctx.toast(e.message, "err"); }
-  };
+  const importVideo = () => importVideoFile(ctx);
   return (<>
     <h3>Source video</h3>
     {video ? <div className="card"><Icon n="film" size={20} /><div><b>{project.source?.path?.split(/[\\/]/).pop()}</b>
@@ -38,6 +36,12 @@ function MediaTab({ ctx }: { ctx: Ctx }) {
       : <Empty icon="film" title="No video yet">Import the original video. The file is only referenced — never overwritten.</Empty>}
     {project.missing.source && <div className="issue error"><Icon n="warn" size={14} /> Source missing: {project.missing.source}</div>}
     <Btn icon="plus" kind="primary" label={video ? "Replace / relink video…" : "Import video…"} onClick={importVideo} />
+    <h3 style={{ marginTop: 18 }}>Backgrounds and looks</h3>
+    <p className="muted">Pictures or videos to put behind the person, and colour LUTs. They are copied into the project folder.</p>
+    <div className="btn-row">
+      <Btn icon="image" label="Import background…" onClick={() => importBackground(ctx)} title="Pick an image or video; it is added to the project and used as the background right away" />
+      <Btn icon="color" label="Import LUT…" onClick={() => importAssetFile(ctx, "Import a colour LUT (.cube / .3dl)", "any")} />
+    </div>
   </>);
 }
 
@@ -117,11 +121,7 @@ function BackgroundsTab({ ctx }: { ctx: Ctx }) {
   const bgs = ctx.bp.assets.filter(a => a.type === "image" || a.type === "video");
   const spec = ctx.schema.operations["background_replacement"];
   const hasKey = ctx.bp.operations.some(o => ctx.schema.operations[o.type]?.provides_alpha);
-  const add = (assetId?: string) => {
-    const [a, b] = span(ctx); let id = "";
-    ctx.edit(bp => { const r = m.addOp(bp, spec, a, b); id = r.id; return m.setParam(r.bp, r.id, assetId ? "asset_id" : "color", assetId ?? "#101820"); });
-    setTimeout(() => ctx.setSel(id), 0);
-  };
+  const add = (assetId?: string) => addBackground(ctx, assetId);
   return (<>
     <h3>Backgrounds</h3><p className="muted">Replace the removed background with an image, video or colour.</p>
     {!hasKey && <div className="issue warning"><Icon n="warn" size={14} /> No chroma key / background removal operation yet — add one in Effects, or a replacement will be reported as having no alpha source.</div>}
@@ -130,7 +130,8 @@ function BackgroundsTab({ ctx }: { ctx: Ctx }) {
         onClick={() => { const d = ctx.duration; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, ctx.schema.operations["background_removal"], 0, d); id = r.id; return m.setParam(r.bp, r.id, "mode", "ai"); }); setTimeout(() => ctx.setSel(id), 0); }} />
       <Btn icon="plus" label="Solid colour background" onClick={() => add()} disabled={!ctx.video} />
     </div>
-    {bgs.length === 0 ? <Empty icon="image" title="No background assets">Import images or videos in the Assets tab.</Empty> :
+    <Btn icon="image" kind="primary" label="Import background image / video…" onClick={() => importBackground(ctx)} />
+    {bgs.length === 0 ? <Empty icon="image" title="No background pictures yet">Use the button above: the picture is added to the project and applied as the background.</Empty> :
       bgs.map(a => <button key={a.id} className="item" disabled={!ctx.video} onClick={() => add(a.id)}><Icon n={a.type === "image" ? "image" : "film"} size={14} /> {a.id} <em>{a.path}</em></button>)}
   </>);
 }
@@ -154,12 +155,7 @@ function ColorTab({ ctx }: { ctx: Ctx }) {
 function AssetsTab({ ctx }: { ctx: Ctx }) {
   const isMissing = (id: string) => ctx.issues.some(i => (i.code === "MISSING_ASSET" || i.code === "UNSAFE_PATH") && i.message.includes(`'${id}'`));
   const ext = (p: string) => p.split(".").pop()!.toLowerCase();
-  const add = async () => {
-    const p = await ctx.askPath("Import asset (image, video or .cube LUT)", "any"); if (!p) return;
-    const e = ext(p); const type = ["cube", "3dl"].includes(e) ? "lut" : ["mp4", "mov", "mkv", "webm", "avi"].includes(e) ? "video" : "image";
-    const base = (p.split(/[\\/]/).pop() ?? "asset").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 40);
-    try { const r = await ctx.api.importAsset(p); ctx.edit(bp => m.addAsset(bp, { id: base, type, path: r.path })); ctx.toast(`Imported as '${base}'`); } catch (e: any) { ctx.toast(e.message, "err"); }
-  };
+  const add = () => importAssetFile(ctx, "Import asset (image, video or .cube LUT)", "any");
   const locate = async (id: string, type: string) => {
     const p = await ctx.askPath(`Locate file for '${id}'`, "any"); if (!p) return;
     try { const r = await ctx.api.importAsset(p); ctx.edit(bp => m.addAsset(bp, { id, type, path: r.path })); } catch (e: any) { ctx.toast(e.message, "err"); }

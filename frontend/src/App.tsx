@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { importAssetFile, importBackground, importVideoFile } from "./imports";
 import { Api, ApiError, JobState, ProjectState, ReportConfig, Validation, connection } from "./api";
 import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
@@ -42,6 +43,7 @@ function Editor({ api }: { api: Api }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [importMenu, setImportMenu] = useState(false);
   useEffect(() => { if (window.evp?.isElectron) document.body.classList.add("electron"); }, []);
   const [pathDlg, setPathDlg] = useState<{ title: string; kind: string; resolve: (p: string | null) => void } | null>(null);
   const [saved, setSaved] = useState<Blueprint | null>(null);
@@ -166,7 +168,14 @@ function Editor({ api }: { api: Api }) {
         <span className="logo"><Icon n="film" size={18} /> EVP</span>
         <b className="pname">{project.name}{dirty ? " •" : ""}</b>
         <span className="sep" />
-        <Btn icon="plus" label="Import" onClick={() => setTab("media")} title="Import media" />
+        <span className="menu-wrap">
+          <Btn icon="plus" label="Import" onClick={() => setImportMenu(v => !v)} title="Import a video, a background picture or a LUT" />
+          {importMenu && <div className="menu" role="menu" onMouseLeave={() => setImportMenu(false)}>
+            <button role="menuitem" onClick={() => { setImportMenu(false); importVideoFile(ctx); }}><Icon n="film" size={15} /> Video (the footage to edit)…</button>
+            <button role="menuitem" onClick={() => { setImportMenu(false); importBackground(ctx); }}><Icon n="image" size={15} /> Background image or video…</button>
+            <button role="menuitem" onClick={() => { setImportMenu(false); importAssetFile(ctx, "Import a colour LUT (.cube / .3dl)", "any"); }}><Icon n="color" size={15} /> Colour LUT…</button>
+          </div>}
+        </span>
         <Btn icon="save" label="Save" onClick={save} title="Save (Ctrl+S)" />
         <Btn icon="undo" onClick={() => setHist(m.undo)} disabled={!hist.past.length} title="Undo (Ctrl+Z)" />
         <Btn icon="redo" onClick={() => setHist(m.redo)} disabled={!hist.future.length} title="Redo (Ctrl+Shift+Z)" />
