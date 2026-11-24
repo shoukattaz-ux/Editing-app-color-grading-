@@ -10,15 +10,32 @@ const TRACKS: { id: string; label: string; icon: string }[] = [
 ];
 const CAT_COLOR: Record<string, string> = { Keying: "#2fb57a", Compositing: "#7a6cf0", Color: "#e3913a", Enhance: "#3aa6e3", Graphics: "#e35a8a", Audio: "#a0a63a" };
 
-export function Timeline({ bp, schema, video, t, setT, sel, setSel, edit, issues, zoom, setZoom, sourceName }: {
-  bp: Blueprint; schema: Schema; video: VideoInfo | null; t: number; setT: (t: number) => void; sel: string | null; setSel: (id: string | null) => void;
+export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selClip, setSelClip, edit, issues, zoom, setZoom, sourceName, onCut, onDeleteClip }: {
+  bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; sel: string | null; setSel: (id: string | null) => void;
+  selClip: string | null; setSelClip: (id: string | null) => void;
   edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void; issues: Issue[]; zoom: number; setZoom: (z: number) => void; sourceName: string;
+  onCut: () => void; onDeleteClip: () => void;
 }) {
-  const fps = video?.fps ?? 30, dur = video?.duration ?? 10;
+  const fps = layout.fps, dur = layout.duration || 10;
+  const clipDrag = useRef<{ id: string; side: "start" | "end"; x0: number; edge0: number } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "start" | "end"; x0: number; op: Op } | null>(null);
   const width = Math.max(300, dur * zoom + 40);
   useEffect(() => { const w = (scroller.current?.clientWidth ?? 900) - 160; if (video) setZoom(Math.max(8, Math.min(600, w / video.duration))); }, [video?.duration]);
+  const srcDur = video?.duration ?? 0;
+  const downClip = (e: React.PointerEvent, c: m.LaidClip) => {
+    e.stopPropagation(); setSel(null); setSelClip(c.id);
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const side = e.clientX - r.left < 8 ? "start" : r.right - e.clientX < 8 ? "end" : null;
+    if (!side) return;
+    clipDrag.current = { id: c.id, side, x0: e.clientX, edge0: side === "start" ? c.srcStart : c.srcEnd };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const moveClipDrag = (e: React.PointerEvent) => {
+    const d = clipDrag.current; if (!d) return;
+    const target = d.edge0 + (e.clientX - d.x0) / zoom;
+    edit(b => m.trimClip(b, d.id, d.side, target, srcDur, fps), `trim:${d.id}:${d.side}`);
+  };
 
   const lanes = useMemo(() => {
     const res: Record<string, { op: Op; lane: number }[]> = {};
@@ -44,7 +61,7 @@ export function Timeline({ bp, schema, video, t, setT, sel, setSel, edit, issues
   const onWheel = (e: React.WheelEvent) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom(Math.min(600, Math.max(8, zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); } };
 
   const down = (e: React.PointerEvent, op: Op) => {
-    e.stopPropagation(); setSel(op.id);
+    e.stopPropagation(); setSel(op.id); setSelClip(null);
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const mode = e.clientX - r.left < 7 ? "start" : r.right - e.clientX < 7 ? "end" : "move";
     drag.current = { id: op.id, mode, x0: e.clientX, op };
@@ -60,8 +77,11 @@ export function Timeline({ bp, schema, video, t, setT, sel, setSel, edit, issues
     <div className="timeline">
       <div className="tl-bar">
         <span className="tl-title"><Icon n="layers" /> Timeline</span>
-        <Btn icon="split" label="Split" title="Split the selected operation at the playhead" disabled={!sel} onClick={() => { if (!sel) return; const r = m.splitOp(bp, sel, t, fps); if (r.ids) { edit(() => r.bp); setSel(r.ids[1]); } }} />
-        <Btn icon="trash" label="Delete" title="Delete selected operation (Del)" disabled={!sel} onClick={() => { if (sel) { edit(b => m.deleteOp(b, sel)); setSel(null); } }} />
+        <Btn icon="scissors" label="Cut" title="Cut the footage at the playhead (C)" disabled={!video} onClick={onCut} />
+        <Btn icon="trash" label="Delete clip" kind="danger" title="Delete the selected clip; later footage and effects move earlier (Del)" disabled={!selClip || layout.clips.length < 2} onClick={onDeleteClip} />
+        <span className="sep" />
+        <Btn icon="split" label="Split effect" title="Split the selected effect at the playhead" disabled={!sel} onClick={() => { if (!sel) return; const r = m.splitOp(bp, sel, t, fps); if (r.ids) { edit(() => r.bp); setSel(r.ids[1]); } }} />
+        <Btn icon="trash" label="Delete effect" title="Delete the selected effect (Del)" disabled={!sel} onClick={() => { if (sel) { edit(b => m.deleteOp(b, sel)); setSel(null); } }} />
         <span className="spacer" />
         <label className="zoom">Zoom <input type="range" min={8} max={600} value={zoom} onChange={e => setZoom(parseInt(e.target.value))} aria-label="Timeline zoom" /></label>
         <Btn label="Fit" onClick={() => { const w = (scroller.current?.clientWidth ?? 800) - 150; setZoom(Math.max(8, Math.min(600, w / dur))); }} />
@@ -81,9 +101,15 @@ export function Timeline({ bp, schema, video, t, setT, sel, setSel, edit, issues
             return (
               <div className="tl-row" key={tr.id} style={{ height: 8 + nl * 28 }}>
                 <div className="tl-label"><Icon n={tr.icon} size={14} /> {tr.label}</div>
-                <div className="tl-lane" style={{ width }} onPointerDown={e => { setSel(null); seek(e, e.currentTarget as HTMLElement); }}>
-                  {tr.id === "video" && video && <div className="clip source" style={{ left: 0, width: dur * zoom, top: 4 }}><Icon n="film" size={12} /> {sourceName}</div>}
-                  {tr.id === "audio" && video?.has_audio && items.length === 0 && <div className="clip source audio" style={{ left: 0, width: dur * zoom, top: 4 }}><Icon n="audio" size={12} /> Source audio</div>}
+                <div className="tl-lane" style={{ width }} onPointerDown={e => { setSel(null); setSelClip(null); seek(e, e.currentTarget as HTMLElement); }}>
+                  {tr.id === "video" && video && layout.clips.map((c, i) => (
+                    <div key={c.id} className={`clip source footage ${selClip === c.id ? "sel" : ""}`} style={{ left: c.tStart * zoom, width: Math.max(10, (c.tEnd - c.tStart) * zoom - 1), top: 4 }}
+                      title={`${c.label || sourceName} · source ${m.formatTime(c.srcStart, fps).slice(3)} – ${m.formatTime(c.srcEnd, fps).slice(3)} · drag an edge to trim`}
+                      onPointerDown={e => downClip(e, c)} onPointerMove={moveClipDrag} onPointerUp={() => { clipDrag.current = null; }}>
+                      <i className="handle l" /><Icon n="film" size={12} /><span>{layout.cut ? (c.label || `${sourceName} · ${m.formatTime(c.srcStart, fps).slice(3, 8)}–${m.formatTime(c.srcEnd, fps).slice(3, 8)}`) : sourceName}</span><i className="handle r" />
+                    </div>))}
+                  {tr.id === "video" && layout.cut && layout.clips.slice(1).map(c => <i key={"cut" + c.id} className="cutmark" style={{ left: c.tStart * zoom - 1 }} />)}
+                  {tr.id === "audio" && video?.has_audio && items.length === 0 && <div className="clip source audio" style={{ left: 0, width: dur * zoom, top: 4 }}><Icon n="audio" size={12} /> Source audio{layout.cut ? " (follows the cuts)" : ""}</div>}
                   {items.map(({ op, lane }) => {
                     const spec = schema.operations[op.type]; const end = op.end ?? dur;
                     return (

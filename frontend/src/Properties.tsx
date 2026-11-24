@@ -38,12 +38,52 @@ function ParamField({ name, spec, value, onChange, bp }: { name: string; spec: P
   </label>);
 }
 
-export function Properties({ bp, schema, video, sel, edit, t, issues, onReapply, onSelect }: {
-  bp: Blueprint; schema: Schema; video: VideoInfo | null; sel: string | null; edit: Edit; t: number; issues: Issue[]; onReapply: () => void; onSelect: (id: string | null) => void;
+function ClipPanel({ bp, video, layout, id, edit, t, onCut, onDeleteClip, onSelectClip }: {
+  bp: Blueprint; video: VideoInfo; layout: m.Layout; id: string; edit: Edit; t: number; onCut: () => void; onDeleteClip: () => void; onSelectClip: (id: string | null) => void;
+}) {
+  const c = layout.clips.find(x => x.id === id), fps = layout.fps;
+  if (!c) return null;
+  const i = layout.clips.indexOf(c), n = layout.clips.length, step = 1 / fps;
+  const inside = Math.round(t * fps) > Math.round(c.tStart * fps) && Math.round(t * fps) < Math.round(c.tEnd * fps);
+  return (
+    <div className="props">
+      <header className="props-head"><div><h3>Clip {i + 1} of {n}</h3><code>{c.id}</code></div></header>
+      <p className="muted">A piece of your original footage. Trim it, cut it, reorder it or delete it — the original file is never changed. Effects are timed on this cut timeline.</p>
+      <label className="field"><span className="fl">name</span><input type="text" value={c.implicit ? "" : (c.label ?? "")} placeholder="optional label"
+        onChange={e => edit(b => m.labelClip(b, id, e.target.value, video.duration, fps), "label:" + id)} /></label>
+      <div className="btn-row">
+        <Btn icon="scissors" label="Cut at playhead" disabled={!inside} onClick={onCut} title="Split this clip at the playhead (C)" />
+        <Btn icon="copy" label="Duplicate" onClick={() => { const r = m.duplicateClip(bp, id, video.duration, fps); if (r.id) { edit(() => r.bp); onSelectClip(r.id); } }} title="Repeat this clip right after itself" />
+        <Btn label="◀ Earlier" disabled={i === 0} onClick={() => edit(b => m.moveClip(b, id, -1, video.duration, fps))} title="Move this clip before the previous one" />
+        <Btn label="Later ▶" disabled={i === n - 1} onClick={() => edit(b => m.moveClip(b, id, 1, video.duration, fps))} title="Move this clip after the next one" />
+        <Btn icon="trash" label="Delete" kind="danger" disabled={n < 2} onClick={onDeleteClip} title="Remove this clip; later footage and effects move earlier" />
+      </div>
+      <section>
+        <h4>Source footage</h4>
+        <div className="grid2">
+          <label className="field"><span className="fl">in <em>s</em></span><input type="number" step={step} min={0} max={video.duration} value={+c.srcStart.toFixed(4)}
+            onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) edit(b => m.trimClip(b, id, "start", v, video.duration, fps), `clipin:${id}`); }} /></label>
+          <label className="field"><span className="fl">out <em>s</em></span><input type="number" step={step} min={0} max={video.duration} value={+c.srcEnd.toFixed(4)}
+            onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) edit(b => m.trimClip(b, id, "end", v, video.duration, fps), `clipout:${id}`); }} /></label>
+        </div>
+        <p className="muted">Source {m.formatTime(c.srcStart, fps)} → {m.formatTime(c.srcEnd, fps)} of {video.duration.toFixed(2)} s</p>
+      </section>
+      <section>
+        <h4>On the timeline</h4>
+        <p className="muted">{m.formatTime(c.tStart, fps)} → {m.formatTime(c.tEnd, fps)} · {(c.tEnd - c.tStart).toFixed(2)} s</p>
+        <p className="muted">Trimming or deleting moves later footage <b>and</b> effects automatically. Reordering clips keeps effects at their timeline times.</p>
+      </section>
+    </div>);
+}
+
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip }: {
+  bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; issues: Issue[];
+  onReapply: () => void; onSelect: (id: string | null) => void; onSelectClip: (id: string | null) => void; onCut: () => void; onDeleteClip: () => void;
 }) {
   const op: Op | undefined = bp.operations.find(o => o.id === sel);
-  const fps = video?.fps ?? 30, dur = video?.duration ?? 0;
-  if (!op) return <OutputPanel bp={bp} edit={edit} video={video} />;
+  const fps = layout.fps, dur = layout.duration;
+  if (!op && selClip && video) return <ClipPanel bp={bp} video={video} layout={layout} id={selClip} edit={edit} t={t} onCut={onCut} onDeleteClip={onDeleteClip} onSelectClip={onSelectClip} />;
+  if (!op) return <OutputPanel bp={bp} edit={edit} video={video} layout={layout} />;
   const spec: OpSpec | undefined = schema.operations[op.type];
   const mine = issues.filter(i => i.op_id === op.id);
   const end = op.end ?? dur;
@@ -86,7 +126,7 @@ export function Properties({ bp, schema, video, sel, edit, t, issues, onReapply,
   );
 }
 
-function OutputPanel({ bp, edit, video }: { bp: Blueprint; edit: Edit; video: VideoInfo | null }) {
+function OutputPanel({ bp, edit, video, layout }: { bp: Blueprint; edit: Edit; video: VideoInfo | null; layout: m.Layout }) {
   const o = bp.output ?? {};
   const set = (patch: Record<string, any>) => edit(b => m.setOutput(b, patch), "out");
   return (
@@ -106,7 +146,7 @@ function OutputPanel({ bp, edit, video }: { bp: Blueprint; edit: Edit; video: Vi
       <label className="field"><span className="fl">quality (CRF) <em>lower = better</em></span><div className="slider-row"><input type="range" min={14} max={32} value={o.crf ?? 20} onChange={e => set({ crf: parseInt(e.target.value) })} /><input type="number" value={o.crf ?? 20} onChange={e => set({ crf: parseInt(e.target.value) || 20 })} /></div></label>
       <label className="field"><span className="fl">audio bitrate</span><select value={o.audio_bitrate ?? "192k"} onChange={e => set({ audio_bitrate: e.target.value })}>{["128k", "192k", "256k", "320k"].map(r => <option key={r}>{r}</option>)}</select></label>
       <label className="field"><span className="fl">encode speed</span><select value={o.preset ?? "medium"} onChange={e => set({ preset: e.target.value })}>{["ultrafast", "veryfast", "fast", "medium", "slow"].map(r => <option key={r}>{r}</option>)}</select></label>
-      {video && <p className="muted">Source: {video.width}×{video.height} · {video.fps} fps · {video.duration.toFixed(2)}s · {video.codec}</p>}
+      {video && <p className="muted">Source: {video.width}×{video.height} · {video.fps} fps · {video.duration.toFixed(2)}s · {video.codec}{layout.cut ? ` · timeline after cuts: ${layout.duration.toFixed(2)}s (${layout.clips.length} clips)` : ""}</p>}
       {!video && <Empty icon="film" title="No source video">Import a video from the Media tab.</Empty>}
     </div>
   );

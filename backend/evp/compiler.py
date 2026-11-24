@@ -382,7 +382,9 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 off = 0.5 / fps if s0 > 0 else 0.0
                 st = (a - s0) / fps + off
             ln = (b - a) / fps
-            chain = [f"atrim=start={st:.6f}:end={st + ln:.6f}", "asetpts=PTS-STARTPTS"]
+            # apad: if the source's audio ends before its video does, pad this piece with silence to its exact length, otherwise
+            # concat would pull every later piece earlier and break sync
+            chain = [f"atrim=start={st:.6f}:end={st + ln:.6f}", "asetpts=PTS-STARTPTS", f"apad=whole_dur={ln:.6f}"]
             if k > 0 and pieces[k - 1][1] != a: chain.append(f"afade=t=in:st=0:d={FADE}")
             if k < len(pieces) - 1 and pieces[k + 1][0] != b: chain.append(f"afade=t=out:st={ln - FADE:.6f}:d={FADE}")
             segs.append(g.add([src_label], ",".join(chain)))

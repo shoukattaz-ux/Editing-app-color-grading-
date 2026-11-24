@@ -249,3 +249,12 @@ def test_face_analysis_follows_the_cuts(ramp, tmp_path):
     finally:
         face.FaceTracker = orig
     assert seen == [50, 51, 52, 10, 11, 12] and ref.frames == 6
+
+
+def test_audio_shorter_than_video_keeps_later_pieces_in_sync(prep_r, ramp):
+    """source audio ends at 3.5 s while the video runs to 4 s (common with phone clips)."""
+    short = make_ramp(ramp["dir"] / "short_audio.mp4", audio_seconds=3.5)
+    _, out = export_ids(prep_r, ramp, bp() | {"clips": clips((3.0, 4.0), (0.0, 1.0))}, src=short, name="short_audio_out.mp4")
+    freqs, dur = audio_freqs(out)
+    assert abs(dur - 2.0) < 0.06, dur                          # without padding the audio would be only 1.5 s long
+    assert freqs[0] == 500 and freqs[2:4] == [200, 200], freqs   # source second 3 first, then second 0 starting at exactly t=1.0

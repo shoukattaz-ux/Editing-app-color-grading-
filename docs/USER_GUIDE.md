@@ -13,6 +13,17 @@ See the [README](../README.md#install). You need Python 3.10+, FFmpeg/ffprobe on
 7. **Export**: resolution, fps, codec, CRF/bitrate, container, audio bitrate. Progress, ETA, Pause/Resume/Cancel/Retry, and the FFmpeg log are shown. Files go to `<project>.evproj/exports/`.
 8. **Save** (Ctrl+S) keeps a restorable version (Projects tab). Edits are also autosaved a second after each change; after a crash you'll be offered recovery.
 
+## Cutting and trimming your footage
+The **Video** track shows your footage as clips. The original file is never changed; clips are just ranges of it.
+* **Cut**: put the playhead where you want the cut and press **Cut** (or **C**). The clip splits in two; nothing changes in the picture.
+* **Delete a clip**: click it, then **Delete clip** (or Del). Everything after it moves earlier (ripple), and so do effects. Effects that were only on the deleted part are removed (you'll be told how many).
+* **Trim**: drag a clip's left or right edge, or type exact *in/out* times in the properties panel. Later footage and effects follow.
+* **Reorder / repeat**: select a clip and use **◀ Earlier / Later ▶**, or **Duplicate** to repeat it. Effects keep their timeline times when you reorder (they don't follow the footage).
+* Audio is cut at exactly the same points, with a tiny fade at each join to avoid clicks. All of it is undoable (Ctrl+Z).
+* **Effects are timed on the cut timeline.** If you paste an AI blueprint that has no `clips`, nothing changes; if it has `clips`, its effect times are after the cuts (see [BLUEPRINT.md](BLUEPRINT.md#cutting-clips)).
+* *Original* preview plays your cut timeline by jumping between clips (small hiccups at joins are normal there); *Edited* is the real result.
+* One video per project for now, and changing a cut recomputes AI effects (matting, face, upscaling) for that range, so make your cuts *before* running heavy AI.
+
 ## AI background removal (no green screen)
 *Backgrounds ▸ AI remove background* adds `background_removal` with `mode: "ai"` over the whole clip; then pick a background (image, video or colour). The first use downloads the 15 MB model to `~/.evp/models`. The matte is computed once per clip/settings (progress shows "AI matting … frame n/N"; about 10 frames/s on a 4-core CPU at 720p) and then reused, so later previews and exports are fast.
 * `detail`: **fast** (default) is the most robust on busy or patterned walls; **balanced/high** give finer hair on plain backgrounds but are slower and may pick up wall texture.
@@ -52,7 +63,7 @@ If no face is found the operation does nothing and the export log says so.
 Export ▸ Codec ▸ **ProRes 422 10-bit** (container switches to .mov, audio becomes uncompressed PCM). Profiles: Proxy, LT, 422, 422 HQ. Note: the processing pipeline is 8-bit, so ProRes gives a high-quality, edit-friendly intermediate file but does not add colour precision beyond 8 bits.
 
 ## Shortcuts
-Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete operation · Ctrl+wheel on the timeline zooms.
+C cut at playhead · Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete effect or clip · Ctrl+wheel on the timeline zooms.
 
 ## Tips & limits
 * Greenscreen: raise *similarity* if green remains, raise *blend* for softer edges, use *edge_erode* 1–2 to remove fringe, *spill_strength* for green cast on hair/skin.

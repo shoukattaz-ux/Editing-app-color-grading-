@@ -40,6 +40,13 @@ def json_schema_doc() -> dict:
                 "assets": {"type": "array", "items": {"type": "object", "required": ["id", "type", "path"], "properties": {
                     "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"}, "type": {"enum": ["image", "video", "lut"]},
                     "path": {"type": "string", "description": "Relative to the project folder (no '..'); absolute paths must be inside the project."}}}},
+                "clips": {"type": "array", "minItems": 1, "maxItems": 500,
+                          "description": "Optional cuts: the timeline is these ranges of the source video played back to back (no gaps). Omit to use the whole video. Operation times are on THIS cut timeline.",
+                          "items": {"type": "object", "required": ["id"], "properties": {
+                              "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"},
+                              "start": {**time, "default": 0, "description": "Source time of the clip's first frame."},
+                              "end": {**time, "description": "Source time after the clip's last frame. Omit for 'until the end of the source'."},
+                              "label": {"type": "string"}}, "additionalProperties": False}},
                 "operations": {"type": "array", "maxItems": 2000, "items": {
                     "type": "object", "required": ["id", "type"], "properties": {
                         "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"}, "type": {"enum": [t for t, s in OPERATIONS.items() if s.supported]},

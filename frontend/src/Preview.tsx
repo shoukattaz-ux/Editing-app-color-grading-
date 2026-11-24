@@ -29,12 +29,13 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   return { url, err, busy };
 }
 
-export function Preview({ api, bp, video, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef }: {
-  api: Api; bp: Blueprint; video: VideoInfo | null; t: number; setT: (t: number) => void; mode: Mode; setMode: (m: Mode) => void;
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef }: {
+  api: Api; bp: Blueprint; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; mode: Mode; setMode: (m: Mode) => void;
   proxyUrl: string | null; stale: boolean; onUpdateProxy: () => void; proxyBusy: boolean; videoRef: React.RefObject<HTMLVideoElement>;
 }) {
-  const fps = video?.fps ?? 30, dur = video?.duration ?? 0;
+  const fps = layout.fps, dur = layout.duration;
   const [playing, setPlaying] = useState(false);
+  const clipIdx = useRef(0);                       // clip being played in Original mode (the cut timeline is played by jumping between clips)
   const [wipe, setWipe] = useState(50);
   const [loupe, setLoupe] = useState<number>(0);          // 0 = off, else zoom factor (1 = 100% / 1:1 pixels)
   const wrap = useRef<HTMLDivElement>(null);
@@ -46,16 +47,30 @@ export function Preview({ api, bp, video, t, setT, mode, setMode, proxyUrl, stal
   const src = mode === "original" ? api.sourceUrl() : proxyUrl;
 
   // keep the <video> element and the shared playhead in sync
+  // the time the <video> should show for timeline time t: Original = the source file (through the cuts), Edited = the rendered proxy
+  const mediaTime = (tt: number) => (mode === "original" ? m.timelineToSource(layout, tt).src : tt);
   useEffect(() => {
     const v = videoRef.current; if (!v || !playable) return;
-    if (!playing && Math.abs(v.currentTime - t) > 0.5 / fps) v.currentTime = t;
-  }, [t, playable, src, playing, fps]);
+    if (!playing && Math.abs(v.currentTime - mediaTime(t)) > 0.5 / fps) v.currentTime = mediaTime(t);
+    if (!playing) clipIdx.current = m.timelineToSource(layout, t).index;
+  }, [t, playable, src, playing, fps, layout]);
   useEffect(() => {
     if (!playing) return;
     let raf = 0;
-    const tick = () => { const v = videoRef.current; if (v) { setT(v.currentTime); if (v.ended) setPlaying(false); } raf = requestAnimationFrame(tick); };
+    const tick = () => {
+      const v = videoRef.current;
+      if (v && mode === "original" && layout.cut) {
+        const c = layout.clips[clipIdx.current], s = v.currentTime;
+        if (c && s >= c.srcEnd - 0.5 / fps) {
+          const next = layout.clips[clipIdx.current + 1];
+          if (next) { clipIdx.current += 1; v.currentTime = next.srcStart; setT(next.tStart); }
+          else { v.pause(); setPlaying(false); setT(Math.max(0, c.tEnd - 1 / fps)); return; }
+        } else if (c) setT(c.tStart + Math.max(0, s - c.srcStart));
+      } else if (v) { setT(v.currentTime); if (v.ended) setPlaying(false); }
+      raf = requestAnimationFrame(tick);
+    };
     raf = requestAnimationFrame(tick); return () => cancelAnimationFrame(raf);
-  }, [playing]);
+  }, [playing, mode, layout]);
   useEffect(() => { const v = videoRef.current; if (!v) return; if (playing && playable) v.play().catch(() => setPlaying(false)); else v.pause(); }, [playing, playable]);
   useEffect(() => { if (!playable) setPlaying(false); }, [playable]);
 
@@ -71,7 +86,7 @@ export function Preview({ api, bp, video, t, setT, mode, setMode, proxyUrl, stal
   return (
     <div className="preview">
       <div className="stage" ref={wrap}>
-        {playable && src && <video ref={videoRef} key={src} src={src} className="media" playsInline preload="auto" onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = t; }} />}
+        {playable && src && <video ref={videoRef} key={src} src={src} className="media" playsInline preload="auto" onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = mediaTime(t); }} />}
         {mode === "edited" && !playable && (edited.url ? <img className="media" src={edited.url} alt="Edited frame" /> : <div className="media ph">{edited.err ? <span className="err-text">{edited.err}</span> : "Rendering frame…"}</div>)}
         {mode === "compare" && loupe > 0 && <Loupe before={orig.url} after={edited.url} zoom={loupe} />}
         {mode === "compare" && loupe === 0 && (

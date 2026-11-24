@@ -10,7 +10,7 @@ export const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "effects", label: "Effects", icon: "wand" }, { id: "backgrounds", label: "Backgrounds", icon: "image" }, { id: "color", label: "Color", icon: "color" }, { id: "assets", label: "Assets", icon: "layers" },
 ];
 export interface Ctx {
-  api: Api; project: ProjectState; bp: Blueprint; schema: Schema; video: VideoInfo | null; t: number; edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void;
+  api: Api; project: ProjectState; bp: Blueprint; schema: Schema; video: VideoInfo | null; duration: number; t: number; edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void;
   setSel: (id: string | null) => void; askPath: (title: string, kind: "video" | "image" | "lut" | "any") => Promise<string | null>; toast: (msg: string, kind?: "ok" | "err") => void;
   reload: (p: ProjectState) => void; issues: Issue[]; report: Validation | null; executeBlueprint: (bp: Blueprint) => Promise<void>; setReport: (v: Validation | null) => void;
 }
@@ -22,7 +22,7 @@ export function Sidebar({ tab, ctx }: { tab: Tab; ctx: Ctx }) {
   }[tab]}</div>;
 }
 
-const span = (ctx: Ctx) => { const d = ctx.video?.duration ?? 5; const s = m.snap(Math.min(ctx.t, Math.max(0, d - 1)), ctx.video?.fps ?? 30); return [s, Math.min(d, m.snap(s + Math.min(5, d), ctx.video?.fps ?? 30))] as const; };
+const span = (ctx: Ctx) => { const d = ctx.duration || ctx.video?.duration || 5; const s = m.snap(Math.min(ctx.t, Math.max(0, d - 1)), ctx.video?.fps ?? 30); return [s, Math.min(d, m.snap(s + Math.min(5, d), ctx.video?.fps ?? 30))] as const; };
 
 function MediaTab({ ctx }: { ctx: Ctx }) {
   const { video, project } = ctx;
@@ -126,7 +126,7 @@ function BackgroundsTab({ ctx }: { ctx: Ctx }) {
     {!hasKey && <div className="issue warning"><Icon n="warn" size={14} /> No chroma key / background removal operation yet — add one in Effects, or a replacement will be reported as having no alpha source.</div>}
     <div className="btn-row">
       <Btn icon="wand" kind={hasKey ? undefined : "primary"} label="AI remove background" disabled={!ctx.video} title="Person matting without a green screen (Robust Video Matting; model downloads once, ~15 MB)"
-        onClick={() => { const d = ctx.video!.duration; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, ctx.schema.operations["background_removal"], 0, d); id = r.id; return m.setParam(r.bp, r.id, "mode", "ai"); }); setTimeout(() => ctx.setSel(id), 0); }} />
+        onClick={() => { const d = ctx.duration; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, ctx.schema.operations["background_removal"], 0, d); id = r.id; return m.setParam(r.bp, r.id, "mode", "ai"); }); setTimeout(() => ctx.setSel(id), 0); }} />
       <Btn icon="plus" label="Solid colour background" onClick={() => add()} disabled={!ctx.video} />
     </div>
     {bgs.length === 0 ? <Empty icon="image" title="No background assets">Import images or videos in the Assets tab.</Empty> :

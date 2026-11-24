@@ -26,7 +26,12 @@ function Editor({ api }: { api: Api }) {
   const [project, setProject] = useState<ProjectState | null>(null);
   const [hist, setHist] = useState<m.History<Blueprint>>(() => m.newHistory(m.emptyBlueprint()));
   const bp = hist.present;
-  const [sel, setSel] = useState<string | null>(null);
+  const srcFps = project?.video?.fps ?? 30;
+  const tl = useMemo(() => m.layoutClips(bp, project?.video?.duration ?? 0, m.gridFps(bp, srcFps)), [bp, project?.video?.duration, srcFps]);
+  const [sel, setSelRaw] = useState<string | null>(null);
+  const [selClip, setSelClipRaw] = useState<string | null>(null);
+  const setSel = useCallback((id: string | null) => { setSelRaw(id); if (id) setSelClipRaw(null); }, []);
+  const setSelClip = useCallback((id: string | null) => { setSelClipRaw(id); if (id) setSelRaw(null); }, []);
   const [t, setT] = useState(0);
   const [tab, setTab] = useState<Tab>("blueprint");
   const [mode, setMode] = useState<Mode>("original");
@@ -50,10 +55,28 @@ function Editor({ api }: { api: Api }) {
   const askPath = useCallback((title: string, kind: string) => new Promise<string | null>(res => setPathDlg({ title, kind, resolve: res })), []);
 
   const load = useCallback((p: ProjectState) => {
-    setProject(p); setHist(m.reset(p.blueprint)); setSaved(p.blueprint); setSel(null); setT(0); setProxy(null); setReport(null);
+    setProject(p); setHist(m.reset(p.blueprint)); setSaved(p.blueprint); setSelRaw(null); setSelClipRaw(null); setT(0); setProxy(null); setReport(null);
     setMode("original"); setTab(p.video ? "blueprint" : "media");
     if (p.recovery_available) toast("Unsaved changes from a previous session were found — see the banner above the timeline.", "err");
   }, [toast]);
+
+  useEffect(() => { if (t > tl.duration) setT(Math.max(0, tl.duration - 1 / tl.fps)); }, [tl.duration]);
+  useEffect(() => { if (selClip && !tl.clips.some(c => c.id === selClip)) setSelClipRaw(null); }, [tl, selClip]);
+
+  // ---- footage cutting (clips)
+  const cutHere = useCallback(() => {
+    const v = project?.video; if (!v) return;
+    const r = m.cutAt(bp, t, v.duration, tl.fps);
+    if (!r.ids) { toast("Move the playhead inside a clip to cut (not at its very start or end)", "err"); return; }
+    edit(() => r.bp); setSelClip(r.ids[1]);
+  }, [bp, t, project?.video, tl.fps, edit, toast, setSelClip]);
+  const removeClip = useCallback((id?: string | null) => {
+    const v = project?.video, cid = id ?? selClip; if (!v || !cid) return;
+    if (tl.clips.length < 2) { toast("A project needs at least one clip", "err"); return; }
+    const r = m.deleteClip(bp, cid, v.duration, tl.fps);
+    edit(() => r.bp); setSelClipRaw(null);
+    toast(r.removedOps.length ? `Clip deleted; ${r.removedOps.length} effect(s) that were only on it were removed` : "Clip deleted");
+  }, [bp, selClip, project?.video, tl, edit, toast]);
 
   // validate (debounced) + autosave (debounced) after every document change
   const first = useRef(true);
@@ -103,10 +126,12 @@ function Editor({ api }: { api: Api }) {
       else if (e.key === " ") { e.preventDefault(); (window as any).__evpToggle?.(); }
       else if (e.key === "ArrowLeft") (window as any).__evpStep?.(-1);
       else if (e.key === "ArrowRight") (window as any).__evpStep?.(1);
+      else if ((e.key === "c" || e.key === "C") && !mod) { cutHere(); }
       else if ((e.key === "Delete" || e.key === "Backspace") && sel) { edit(b => m.deleteOp(b, sel)); setSel(null); }
+      else if ((e.key === "Delete" || e.key === "Backspace") && selClip) { removeClip(); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
-  }, [save, sel, edit]);
+  }, [save, sel, selClip, edit, cutHere, removeClip]);
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } }; window.addEventListener("beforeunload", f); return () => window.removeEventListener("beforeunload", f); }, [dirty]);
 
   if (fatal) return <Fatal title="Backend error">{fatal}</Fatal>;
@@ -116,7 +141,7 @@ function Editor({ api }: { api: Api }) {
   const video = project.video;
   const stale = !proxy || proxy.bp !== bp;
   const issues = [...(report?.errors ?? []), ...(report?.warnings ?? [])];
-  const ctx: Ctx = { api, project, bp, schema, video, t, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport };
+  const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport };
   const drag = (key: "left" | "right" | "bottom", sign: 1 | -1) => (e: React.PointerEvent) => {
     const start = key === "bottom" ? e.clientY : e.clientX, v0 = layout[key]; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const mv = (ev: PointerEvent) => setLayout(l => ({ ...l, [key]: Math.max(key === "bottom" ? 140 : 220, Math.min(key === "bottom" ? 520 : 560, v0 + sign * ((key === "bottom" ? ev.clientY : ev.clientX) - start))) }));
@@ -151,16 +176,17 @@ function Editor({ api }: { api: Api }) {
           <div className="recovery"><Icon n="warn" /> Unsaved edits from an earlier session were recovered.
             <Btn label="Restore them" kind="primary" onClick={async () => { try { load(await api.recover()); toast("Recovered"); } catch (e: any) { toast(e.message, "err"); } }} />
             <Btn label="Discard" onClick={async () => { await api.discardAutosave(); setProject(p => p && { ...p, recovery_available: false }); }} /></div>)}
-        <Preview api={api} bp={bp} video={video} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
+        <Preview api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
           stale={stale} onUpdateProxy={() => updateProxy()} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />
-      <aside className="side right"><Properties bp={bp} schema={schema} video={video} sel={sel} edit={edit} t={t} issues={issues} onSelect={setSel} onReapply={() => updateProxy()} /></aside>
+      <aside className="side right"><Properties bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
+          onCut={cutHere} onDeleteClip={() => removeClip()} onReapply={() => updateProxy()} /></aside>
 
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />
       <div style={{ gridColumn: "1 / -1" }}>
-        <Timeline bp={bp} schema={schema} video={video} t={t} setT={setT} sel={sel} setSel={setSel} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
-          sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
+        <Timeline bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
+          onCut={cutHere} onDeleteClip={() => removeClip()} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
       </div>
       <footer className="status" style={{ gridColumn: "1 / -1" }}>
         <span>{report ? (report.ok ? `✔ ${report.plan.length} ops valid` : `✖ ${report.errors.length} error(s)`) : "…"}{report?.warnings.length ? ` · ${report.warnings.length} warning(s)` : ""}</span>

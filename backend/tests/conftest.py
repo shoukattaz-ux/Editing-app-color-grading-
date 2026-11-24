@@ -41,13 +41,13 @@ def pixel(png: bytes, x: int, y: int):
 
 
 # ---------- cut/EDL helpers
-def make_ramp(path, seconds=4, fps="25", audio=True, size="64x48"):
+def make_ramp(path, seconds=4, fps="25", audio=True, size="64x48", audio_seconds=None):
     """Frame N has luma 16+2N (unique per frame); audio is a sine whose frequency is 200+100*floor(t) Hz."""
     import subprocess
     from evp.media import ffmpeg_bin
     cmd = [ffmpeg_bin(), "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c=gray:s={size}:r={fps}:d={seconds}"]
     if audio:
-        cmd += ["-f", "lavfi", "-i", f"aevalsrc='sin(2*PI*(200+100*floor(t))*t)':s=16000:d={seconds}"]
+        cmd += ["-f", "lavfi", "-i", f"aevalsrc='sin(2*PI*(200+100*floor(t))*t)':s=16000:d={audio_seconds or seconds}"]
     cmd += ["-vf", "geq=lum='16+2*N':cb=128:cr=128", "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p"]
     cmd += (["-c:a", "aac", "-b:a", "128k"] if audio else ["-an"]) + [str(path)]
     subprocess.run(cmd, check=True)
