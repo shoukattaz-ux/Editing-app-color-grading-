@@ -68,7 +68,7 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
         key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, mtimes, lk.id, ops_sig, plan.edl, "auto1"], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "look" / f"auto_{key}.json"
         if f.is_file():
-            plan.look_auto[lk.id] = _json.loads(f.read_text()); continue
+            plan.look_auto[lk.id] = _json.loads(f.read_text(encoding="utf-8")); continue
         t = ((lk.start_frame + lk.end_frame) // 2) / plan.blueprint.output.fps
         dec = lambda png: cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1]
         plan.measuring = True
@@ -101,7 +101,7 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
                 res["saturation"] = round(1 + (res["saturation"] - 1) * 0.6, 3)
                 res["measured"]["skin_guard_steps"] = res["measured"].get("skin_guard_steps", 0) + 1
                 plan.look_auto[lk.id] = res
-        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res))
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res), encoding="utf-8")
         plan.look_auto[lk.id] = res
 
 
@@ -120,7 +120,7 @@ def ensure_references(plan: Plan, source: str, cache_dir: str) -> None:
         key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, ref_path, st.st_size, st.st_mtime_ns, lk.id, ops_sig, plan.edl], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "look" / f"ref_{key}.json"
         if f.is_file():
-            plan.look_curves[lk.id] = _json.loads(f.read_text())
+            plan.look_curves[lk.id] = _json.loads(f.read_text(encoding="utf-8"))
             continue
         mid = (lk.start_frame + lk.end_frame) // 2
         png = render_frame(plan, source, mid / plan.blueprint.output.fps, None, cache_dir, _measuring=True)
@@ -129,7 +129,7 @@ def ensure_references(plan: Plan, source: str, cache_dir: str) -> None:
         if ref is None: raise RuntimeError(f"cannot read reference picture {ref_path}")
         ref = cv2.resize(ref[:, :, ::-1], (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_AREA)
         curves = match_curves(np.ascontiguousarray(frame), np.ascontiguousarray(ref), lk.params["reference_strength"])
-        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(curves))
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(curves), encoding="utf-8")
         plan.look_curves[lk.id] = curves
 
 
@@ -326,7 +326,7 @@ class Job:
         self.current = "encoding: " + (", ".join(o.id for o in self.plan.steps) or "no operations (re-encode)")
         with self._lock:
             if self._cancel.is_set(): return False
-            self._proc = subprocess.Popen(self.compiled.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            self._proc = subprocess.Popen(self.compiled.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
         err_lines: list[str] = []
         t_err = threading.Thread(target=lambda: err_lines.extend(self._proc.stderr), daemon=True); t_err.start()
         dur = max(self.compiled.out_duration, 0.001)

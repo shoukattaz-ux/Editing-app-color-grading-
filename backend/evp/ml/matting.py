@@ -109,7 +109,7 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
     side = out.with_suffix(".json")
     if out.is_file() and (fgr_out is None or fgr_out.is_file()):
         return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames,
-                        json.loads(side.read_text()).get("screen") if side.is_file() else None)
+                        json.loads(side.read_text(encoding="utf-8")).get("screen") if side.is_file() else None)
     out.parent.mkdir(parents=True, exist_ok=True)
     p = op.params
     ds = min(1.0, DETAIL_TARGET[p["detail"]] / max(W, H))
@@ -154,7 +154,7 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
             raise RuntimeError("AI matting produced no frames (could not decode the source in this range)")
         if fenc: os.replace(ftmp, fgr_out)
         scr = keyer.screen_name if keyer is not None else None
-        if scr: side.write_text(json.dumps({"screen": scr}))
+        if scr: side.write_text(json.dumps({"screen": scr}), encoding="utf-8")
         os.replace(tmp, out)
         return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr)
     except BaseException:

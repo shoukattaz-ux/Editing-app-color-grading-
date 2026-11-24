@@ -80,14 +80,14 @@ class Reporter:
     def _install_id(self) -> str:
         f = self.dir / "install_id"
         try:
-            if f.is_file(): return f.read_text().strip()[:36]
-            self.dir.mkdir(parents=True, exist_ok=True); i = uuid.uuid4().hex; f.write_text(i); return i
+            if f.is_file(): return f.read_text(encoding="utf-8").strip()[:36]
+            self.dir.mkdir(parents=True, exist_ok=True); i = uuid.uuid4().hex; f.write_text(i, encoding="utf-8"); return i
         except OSError:
             return "unknown"
 
     def config(self) -> dict:
         c: dict = {}
-        try: c = json.loads(self.cfg_path.read_text())
+        try: c = json.loads(self.cfg_path.read_text(encoding="utf-8"))
         except (OSError, ValueError): pass
         env = {"endpoint": os.environ.get("EVP_REPORT_ENDPOINT"), "bucket": os.environ.get("EVP_REPORT_BUCKET"),
                "access_key_id": os.environ.get("EVP_REPORT_ACCESS_KEY_ID"), "secret_access_key": os.environ.get("EVP_REPORT_SECRET_ACCESS_KEY")}
@@ -147,7 +147,7 @@ class Reporter:
                 "details": json.loads(self._mask(json.dumps(details or {}, default=str)))}
         try:
             from .media import ffmpeg_bin; import subprocess
-            info["system"]["ffmpeg"] = subprocess.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, timeout=5).stdout.splitlines()[0]
+            info["system"]["ffmpeg"] = subprocess.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5).stdout.splitlines()[0]
         except Exception: pass
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

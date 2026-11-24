@@ -186,7 +186,7 @@ def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: i
     out = Path(cache_dir) / "face" / f"ctrl_{control_key(op.type, source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     meta = out.with_suffix(".json")
     if out.is_file() and meta.is_file():
-        return ControlRef(str(out), start_frame, frames, json.loads(meta.read_text())["faces_found"])
+        return ControlRef(str(out), start_frame, frames, json.loads(meta.read_text(encoding="utf-8"))["faces_found"])
     out.parent.mkdir(parents=True, exist_ok=True)
     fn = KINDS[op.type]
     tracker = FaceTracker(aw, ah, conf=op.params["detection_confidence"])
@@ -206,7 +206,7 @@ def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: i
             if progress: progress(written, frames)
         if written == 0: raise RuntimeError("face analysis decoded no frames in this range")
         wr.close()
-        meta.write_text(json.dumps({"faces_found": found, "frames": written}))
+        meta.write_text(json.dumps({"faces_found": found, "frames": written}), encoding="utf-8")
         return ControlRef(str(out), start_frame, written, found)
     except BaseException:
         wr.abort(); raise

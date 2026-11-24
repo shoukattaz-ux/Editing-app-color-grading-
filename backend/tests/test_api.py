@@ -260,3 +260,17 @@ def test_quick_project_creates_a_uniquely_named_project_in_the_default_folder(tm
     e = c.post("/api/project/quick", headers=H, json={"name": "../../evil"}).json()               # names cannot escape the folder
     assert str(tmp_path / "EVP Projects") in e["path"]
     assert c.post("/api/project/quick", headers=H, json={"source": "/nonexistent.mp4"}).status_code >= 400
+
+
+def test_probe_survives_non_ascii_metadata_under_a_legacy_text_encoding(tmp_path):
+    """Regression (Windows): ffprobe prints UTF-8; decoding it with the legacy code page crashed the import of phone videos whose
+    tags contain emoji or other characters ('internal error' on the start screen). LC_ALL=C + PYTHONUTF8=0 reproduces the same class of failure."""
+    import subprocess, sys, os
+    from evp.media import ffmpeg_bin
+    v = tmp_path / "meta.mp4"
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=64x48:r=25:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-metadata", "title=Привет 😀 café — 测试", "-metadata", "comment=☃ snowman", str(v)], check=True)
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"}
+    r = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, r'{os.path.dirname(os.path.dirname(__file__))}'); from evp.media import probe; print(probe(r'{v}').width)"],
+                       capture_output=True, env=env)
+    assert r.returncode == 0 and r.stdout.strip() == b"64", r.stderr.decode(errors="replace")[-400:]

@@ -84,7 +84,11 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
     async def _unexpected(request: Request, exc: Exception):
         import traceback
         st.reporter.auto("server_error", f"{type(exc).__name__}: {exc}", {"path": request.url.path}, None, "".join(traceback.format_exception(exc))[-8000:])
-        return Response(json.dumps({"detail": "internal error"}), status_code=500, media_type="application/json")
+        tb = "".join(traceback.format_exception(exc))
+        try:                                              # keep the full traceback next to the other app data, for support
+            with open(st.data_dir / "engine-errors.log", "a", encoding="utf-8") as f: f.write(f"--- {request.method} {request.url.path}\n{tb}\n")
+        except OSError: pass
+        return Response(json.dumps({"detail": f"Unexpected error ({type(exc).__name__}): {str(exc)[:300]}"}), status_code=500, media_type="application/json")
 
     @app.get("/api/health")
     def health(): return {"ok": True, "version": __version__}

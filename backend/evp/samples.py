@@ -34,5 +34,5 @@ def make_cube_lut(path: str | Path) -> str:
         for g in range(n):
             for r in range(n):
                 lines.append(f"{min(1.0, r / (n - 1) * 1.3):.5f} {g / (n - 1):.5f} {b / (n - 1):.5f}")
-    Path(path).write_text("\n".join(lines) + "\n")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return str(path)

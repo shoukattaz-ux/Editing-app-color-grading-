@@ -111,7 +111,7 @@ class Project:
     def versions(self) -> list[dict]:
         out = []
         for f in sorted(self.versions_dir.glob("v*.json"), reverse=True):
-            try: d = json.loads(f.read_text()); out.append({"file": f.name, "version": d.get("version"), "modified": d.get("modified"),
+            try: d = json.loads(f.read_text(encoding="utf-8")); out.append({"file": f.name, "version": d.get("version"), "modified": d.get("modified"),
                                                           "operations": len(d.get("blueprint", {}).get("operations", []))})
             except Exception: out.append({"file": f.name, "corrupt": True})
         return out
@@ -120,7 +120,7 @@ class Project:
         if not re.fullmatch(r"v\d{5}\.json", filename): raise ProjectError("invalid version name")
         f = self.versions_dir / filename
         if not f.is_file(): raise ProjectError("version not found")
-        d = json.loads(f.read_text())
+        d = json.loads(f.read_text(encoding="utf-8"))
         self.data["blueprint"], self.data["source"] = d["blueprint"], d.get("source", self.data.get("source"))
         self.save()
 
@@ -163,7 +163,7 @@ class RecentProjects:
         self.f = Path(config_file)
 
     def list(self) -> list[dict]:
-        try: items = json.loads(self.f.read_text())
+        try: items = json.loads(self.f.read_text(encoding="utf-8"))
         except Exception: return []
         return [i for i in items if Path(i["path"]).is_dir()]
 
@@ -171,4 +171,4 @@ class RecentProjects:
         items = [i for i in self.list() if i["path"] != str(path)]
         items.insert(0, {"path": str(path), "name": name, "opened": time.time()})
         self.f.parent.mkdir(parents=True, exist_ok=True)
-        self.f.write_text(json.dumps(items[:15]))
+        self.f.write_text(json.dumps(items[:15]), encoding="utf-8")

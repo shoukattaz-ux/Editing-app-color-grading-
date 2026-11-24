@@ -39,6 +39,8 @@ jobs:
           npm ci
           npm pkg set version=0.1.${{ github.run_number }}
           npx electron-builder --win --publish never
+      - name: Self-test the frozen engine (non-ASCII video tags, one-click project, key + look preview)
+        run: python scripts/selftest_engine.py
       - name: Smoke test the unpacked app (starts it, loads the UI, checks the engine)
         continue-on-error: true
         shell: pwsh
