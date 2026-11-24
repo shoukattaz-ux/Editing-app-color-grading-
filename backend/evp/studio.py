@@ -32,3 +32,25 @@ def tint_vector(hex_colour: str, amount: float, gain: float = 0.3) -> tuple[floa
     d = [x - m for x in c]
     peak = max(abs(x) for x in d) or 1.0
     return tuple(round(gain * amount * x / peak, 4) for x in d)
+
+
+def match_curves(frame_rgb, ref_rgb, strength: float, points: int = 17, max_shift: float = 0.25):
+    """Per-channel histogram specification: curves that move `frame_rgb`'s tonal distribution toward `ref_rgb`'s.
+    Inputs are HxWx3 uint8 RGB arrays (different sizes are fine). Returns three lists of (x, y) control points in 0..1.
+    The correction is capped at `max_shift` and scaled by `strength`, so content differences between the two pictures cannot wreck the image."""
+    import numpy as np
+    out = []
+    xs = np.linspace(0.0, 1.0, points)
+    for ch in range(3):
+        a = np.bincount(frame_rgb[..., ch].ravel(), minlength=256).astype(float)
+        b = np.bincount(ref_rgb[..., ch].ravel(), minlength=256).astype(float)
+        ca, cb = np.cumsum(a) / a.sum(), np.cumsum(b) / b.sum()
+        lut = np.interp(ca, cb, np.arange(256) / 255.0)                     # frame level -> reference level with the same rank
+        k = np.ones(9) / 9
+        lut = np.convolve(np.pad(lut, 4, mode="edge"), k, mode="valid")        # smooth: histograms are noisy
+        y = np.interp(xs, np.arange(256) / 255.0, lut)
+        y = xs + np.clip(y - xs, -max_shift, max_shift) * strength
+        y[0], y[-1] = max(0.0, min(0.15, y[0])), 1.0 if strength == 0 else min(1.0, max(0.85, y[-1]))
+        y = np.maximum.accumulate(np.clip(y, 0, 1))                          # monotonic
+        out.append([(round(float(x), 4), round(float(v), 4)) for x, v in zip(xs, y)])
+    return out

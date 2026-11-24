@@ -1,0 +1,70 @@
+{
+  "blueprint_version": "1.0",
+  "project": {
+    "name": "Green screen to creator studio",
+    "source_video": "greenscreen.mp4"
+  },
+  "output": {
+    "resolution": "source",
+    "fps": "source",
+    "format": "mp4",
+    "codec": "h264",
+    "crf": 18
+  },
+  "assets": [
+    {
+      "id": "studio_bg",
+      "type": "image",
+      "path": "studio_background.png"
+    }
+  ],
+  "operations": [
+    {
+      "id": "key",
+      "type": "chroma_key",
+      "start": 0,
+      "parameters": {
+        "key_color": "#4cb82a",
+        "similarity": 0.12,
+        "blend": 0.05,
+        "edge_erode": 0,
+        "edge_feather": 0.6,
+        "spill_strength": 0.8
+      }
+    },
+    {
+      "id": "bg",
+      "type": "background_replacement",
+      "start": 0,
+      "parameters": {
+        "asset_id": "studio_bg",
+        "fit": "cover",
+        "offset_x": -0.135
+      },
+      "depends_on": [
+        "key"
+      ]
+    },
+    {
+      "id": "look",
+      "type": "studio_look",
+      "start": 0,
+      "parameters": {
+        "preset": "clean_bright",
+        "shadow_tint": "#0a1f8b",
+        "highlight_tint": "#e8f0ff",
+        "tint_amount": 0.275,
+        "saturation": 0.954,
+        "ambient_match": 0.148,
+        "light_wrap": 0.111,
+        "depth": 0.25,
+        "glow": 0.194,
+        "vignette": 0,
+        "contrast": 0.374
+      },
+      "depends_on": [
+        "bg"
+      ]
+    }
+  ]
+}

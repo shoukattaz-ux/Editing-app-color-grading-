@@ -356,7 +356,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             col = g.add([col, light, edge], "maskedmerge")
         return b_main, g.add([g.add([col], "format=rgba"), a_keep], "alphamerge,format=rgba")
 
-    def look_block(src: str, L: dict) -> str:
+    def look_block(src: str, L: dict, ref_curves=None) -> str:
         """the global finish, in RGB (curve, split-tone, bloom) then YUV (vignette, local contrast, saturation, grain)"""
         from .studio import tint_vector
         rgbf: list[str] = []
@@ -380,6 +380,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             tail.append(f"unsharp=lx=13:ly=13:la={0.7 * L['clarity']:.3f}:cx=13:cy=13:ca=0")
         if L["saturation"] != 1:
             tail.append(f"eq=saturation={L['saturation']:.3f}")
+        if ref_curves:                                   # correction measured against the reference picture
+            tail += cs.wrap_rgb(["curves=" + ":".join(f"{n}='{curve_str(pts)}'" for n, pts in zip(("red", "green", "blue"), ref_curves))])
         if L["grain"] > 0:
             tail.append(f"noise=alls={L['grain'] * 14:.2f}:allf=t+u")
         return g.add([rgb], ",".join(tail))
@@ -459,7 +461,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 cur = ranged_block(cur, op, build)
         elif t == "studio_look":
             L = resolve_look(p)
-            cur = ranged_block(cur, op, lambda s_: look_block(s_, L))
+            cur = ranged_block(cur, op, lambda s_: look_block(s_, L, plan.look_curves.get(op.id)))
         elif t in ("face_tone_correction", "face_relighting"):
             ref = plan.face_controls.get(op.id)
             if ref is None:

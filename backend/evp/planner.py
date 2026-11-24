@@ -14,6 +14,7 @@ class Plan:
     steps: list[Operation] = field(default_factory=list)          # execution order (enabled ops only)
     alpha_source: dict[str, str] = field(default_factory=dict)    # replacement id -> keyer id
     consumed_keyers: set[str] = field(default_factory=set)
+    look_curves: dict = field(default_factory=dict)               # studio_look id -> [r, g, b] curve points matched to its reference picture (filled by the engine)
     look_for: dict[str, Operation] = field(default_factory=dict)  # replacement id -> the studio_look that integrates the subject into it
     total_frames: int = 0
     edl: list | None = None                                       # [(src_a, src_b)] pieces on the output grid; None = uncut source

@@ -123,6 +123,8 @@ Timeline track: **effects**
 | `clarity` | number |  | 0.0 … 1.0 | Local contrast (mid-frequency sharpening). |
 | `grain` | number |  | 0.0 … 1.0 | Fine film grain; also hides banding and the 'digital' look of a composite. |
 | `saturation` | number |  | 0.5 … 1.5 | Overall saturation. |
+| `reference_asset_id` | asset |  |  | A reference picture whose overall colour and tone you want. The app measures how the finished frame differs from it (per colour channel, mid-point frame of the look's range) and adds the correction as RGB curves. It matches colour and tone only - not content, framing or lighting direction. |
+| `reference_strength` | number | `0.8` | 0.0 … 1.0 | How much of the measured correction to apply. |
 
 ## `video_enhancement` — Video Enhancement
 

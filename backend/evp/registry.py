@@ -174,7 +174,9 @@ _reg(OpSpec("studio_look", "Studio Look", "Color", STAGE_LOOK, "effects",
              "vignette": Param(N, None, 0.0, 1.0, desc="Darken the frame edges."),
              "clarity": Param(N, None, 0.0, 1.0, desc="Local contrast (mid-frequency sharpening)."),
              "grain": Param(N, None, 0.0, 1.0, desc="Fine film grain; also hides banding and the 'digital' look of a composite."),
-             "saturation": Param(N, None, 0.5, 1.5, desc="Overall saturation.")}))
+             "saturation": Param(N, None, 0.5, 1.5, desc="Overall saturation."),
+             "reference_asset_id": Param(A, None, asset_types=("image",), desc="A reference picture whose overall colour and tone you want. The app measures how the finished frame differs from it (per colour channel, mid-point frame of the look's range) and adds the correction as RGB curves. It matches colour and tone only - not content, framing or lighting direction."),
+             "reference_strength": Param(N, 0.8, 0.0, 1.0, desc="How much of the measured correction to apply.")}))
 _reg(OpSpec("video_enhancement", "Video Enhancement", "Enhance", STAGE_RESTORE, "effects",
             "Noise reduction, sharpening and basic stabilisation (classical algorithms; limited by source quality).",
             {"denoise": Param(N, 0.0, 0.0, 1.0, desc="hqdn3d strength."),

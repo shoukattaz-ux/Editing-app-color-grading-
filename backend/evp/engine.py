@@ -53,6 +53,34 @@ def prepare(blueprint: Any, source: str | None, policy: PathPolicy, base_dir: Pa
     return Prepared(rep, plan, video)
 
 
+def ensure_references(plan: Plan, source: str, cache_dir: str) -> None:
+    """studio_look with a reference picture: render the frame without the correction, measure it against the reference, keep the curves."""
+    looks = [o for o in plan.steps if o.type == "studio_look" and o.params.get("reference_asset_id") and o.params["reference_strength"] > 0]
+    if not looks: return
+    import hashlib, json as _json, cv2
+    import numpy as np
+    from .studio import match_curves
+    plan.look_curves = {}                                  # the measuring render must not use stale curves
+    for lk in looks:
+        ref_path = plan.blueprint.assets[lk.params["reference_asset_id"]].resolved
+        ops_sig = [(o.id, o.type, o.start_frame, o.end_frame, sorted(o.params.items(), key=lambda kv: kv[0]).__repr__(), repr(sorted(o.keyframes))) for o in plan.steps]
+        st = Path(ref_path).stat()
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, ref_path, st.st_size, st.st_mtime_ns, lk.id, ops_sig, plan.edl], default=str).encode()).hexdigest()[:24]
+        f = Path(cache_dir) / "look" / f"ref_{key}.json"
+        if f.is_file():
+            plan.look_curves[lk.id] = _json.loads(f.read_text())
+            continue
+        mid = (lk.start_frame + lk.end_frame) // 2
+        png = render_frame(plan, source, mid / plan.blueprint.output.fps, None, cache_dir, _measuring=True)
+        frame = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1]
+        ref = cv2.imread(ref_path, cv2.IMREAD_COLOR)
+        if ref is None: raise RuntimeError(f"cannot read reference picture {ref_path}")
+        ref = cv2.resize(ref[:, :, ::-1], (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_AREA)
+        curves = match_curves(np.ascontiguousarray(frame), np.ascontiguousarray(ref), lk.params["reference_strength"])
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(curves))
+        plan.look_curves[lk.id] = curves
+
+
 def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel=None, frame: int | None = None) -> None:
     """Generate (or reuse cached) AI mattes for every 'ai' background_removal in the plan.
     frame=None -> whole operation range (export/proxy). frame=N -> a cheap single-frame matte for live preview,
@@ -196,6 +224,7 @@ class Job:
                     if self.progress > 0.02: self.eta = el * (1 - self.progress) / self.progress
                 try:
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
+                    ensure_references(self.plan, self.source, self.work_dir)
                 except (Cancelled, FaceCancelled, UpCancelled):
                     self.state = self.current = "cancelled"; return
                 if self.plan.mattes: self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
@@ -265,11 +294,12 @@ def _rm(p: str):
     except OSError: pass
 
 
-def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 960, work_dir: str | None = None) -> bytes:
+def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 960, work_dir: str | None = None, _measuring: bool = False) -> bytes:
     """Single processed frame as PNG (same pipeline as export, so preview == render)."""
     t = min(max(0.0, t), max(0.0, plan.timeline_duration - 1.0 / plan.blueprint.output.fps))
     wd = work_dir or tempfile.mkdtemp(prefix="evp_f_")
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
+    if not _measuring: ensure_references(plan, source, wd)
     c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)
     try:
         r = subprocess.run(c.args, capture_output=True, timeout=120)

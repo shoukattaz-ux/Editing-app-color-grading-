@@ -825,6 +825,17 @@
                       "type": "number",
                       "minimum": 0.5,
                       "maximum": 1.5
+                    },
+                    "reference_asset_id": {
+                      "description": "A reference picture whose overall colour and tone you want. The app measures how the finished frame differs from it (per colour channel, mid-point frame of the look's range) and adds the correction as RGB curves. It matches colour and tone only - not content, framing or lighting direction.",
+                      "type": "string"
+                    },
+                    "reference_strength": {
+                      "description": "How much of the measured correction to apply.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.8
                     }
                   },
                   "additionalProperties": false

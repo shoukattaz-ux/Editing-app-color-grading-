@@ -425,3 +425,26 @@ def test_studio_look_presets_resolve_and_overrides_win():
     assert resolve({"preset": "studio_warm"})["glow"] == PRESETS["studio_warm"]["glow"]
     assert resolve({"preset": "studio_warm", "glow": 0.0})["glow"] == 0.0
     assert resolve({"preset": "none"})["vignette"] == 0.0
+
+
+def test_match_curves_move_the_picture_toward_the_reference_and_are_inert_at_zero():
+    from evp.studio import match_curves
+    rng = np.random.default_rng(0)
+    frame = np.clip(rng.normal(90, 30, (80, 80, 3)), 0, 255).astype(np.uint8)
+    ref = np.clip(rng.normal(150, 30, (60, 90, 3)) + [20, 0, -20], 0, 255).astype(np.uint8)       # brighter, warmer, other size
+    for pts in match_curves(frame, ref, 0.0): assert all(abs(x - y) < 1e-6 for x, y in pts)
+    cv = match_curves(frame, ref, 1.0, max_shift=1.0)
+    for ch in range(3):
+        xs, ys = zip(*cv[ch]); out = np.interp(frame[..., ch] / 255.0, xs, ys) * 255
+        assert abs(out.mean() - ref[..., ch].mean()) < abs(frame[..., ch].mean() - ref[..., ch].mean()) / 4
+        assert all(b >= a for a, b in zip(ys, ys[1:]))                                       # monotonic: never inverts tones
+
+
+def test_studio_look_reference_picture_pulls_the_render_toward_it(prep, media):
+    from evp.security import PathPolicy  # noqa
+    assets = [*ASSETS, {"id": "ref", "type": "image", "path": "bg.png"}]
+    off = frame(prep, media, [_look(contrast=0.1)], 1.0, assets=assets)
+    on = frame(prep, media, [_look(contrast=0.1, reference_asset_id="ref", reference_strength=1.0)], 1.0, assets=assets)
+    ref = cv2.imread(str(media["dir"] / "bg.png"))[:, :, ::-1].reshape(-1, 3).mean(0)
+    mean = lambda png: cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1].reshape(-1, 3).mean(0)
+    assert np.abs(mean(on) - ref).sum() < np.abs(mean(off) - ref).sum()
