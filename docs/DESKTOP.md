@@ -43,3 +43,11 @@ restarts by itself, so an export in progress is never interrupted. Every workflo
 plus `latest.yml` and a block map (so updates download only the changed parts). Development runs and the portable version are not
 updated automatically. The updater only trusts files published to this repository's releases; Windows still shows the
 "unknown publisher" warning because builds are not code-signed (a signing certificate removes it).
+
+## How changes reach your installed app
+Every push to `ccr-1fd2c60d-4i1i2q` (or `main`) that changes code starts the **Desktop app** workflow by itself: it tests, builds,
+self-tests the packaged engine on Windows (create project, preview, export) and, only if all of that passes, publishes a new release.
+The installed app checks for updates shortly after it starts and every 4 hours (also: gear icon > About > Check for updates), asks
+before downloading, and asks again before restarting. So the routine is: code is pushed, wait about 6 minutes, open the app.
+A failing build publishes nothing, so a broken change never reaches the installed app. (An installed program cannot "pull" source
+code: Python and the interface are bundled inside it, which is why updates travel as a new release.)

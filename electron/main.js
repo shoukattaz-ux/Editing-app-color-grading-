@@ -205,7 +205,7 @@ app.whenReady().then(async () => {
         setTimeout(() => res({ error: "timeout" }), 20000);
       });
       process.stdout.write("UPDATE " + JSON.stringify({ ...found, current: app.getVersion() }) + "\n");
-    } else if (!SMOKE) setTimeout(() => checkForUpdates(false), 8000);          // quiet check a few seconds after start
+    } else if (!SMOKE) { setTimeout(() => checkForUpdates(false), 8000); setInterval(() => checkForUpdates(false), 4 * 3600 * 1000); }   // quiet checks: shortly after start, then every 4 hours
     if (SMOKE) {
       let body = "";
       for (let i = 0; i < 40; i++) {                       // wait until the UI has connected to the engine

@@ -2,7 +2,11 @@ name: Desktop app
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    branches: [ccr-1fd2c60d-4i1i2q, main]          # every code change on these branches builds and publishes an update
+    paths-ignore: ["docs/**", "**.md"]
+concurrency:
+  group: desktop-build
+  cancel-in-progress: true                          # a newer push replaces a build that is still running
 permissions:
   contents: write
 jobs:
