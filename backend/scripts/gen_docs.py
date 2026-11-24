@@ -21,6 +21,7 @@ def json_schema_doc() -> dict:
             elif p.type in ("string", "asset"): d["type"] = "string"
             elif p.type == "points": d["type"] = "array"
             if p.default is not None: d["default"] = p.default
+            if p.animatable: d["x-animatable"] = True
             props[k] = d
         ops.append({"if": {"properties": {"type": {"const": t}}},
                     "then": {"properties": {"parameters": {"type": "object", "properties": props, "additionalProperties": False,
@@ -51,7 +52,14 @@ def json_schema_doc() -> dict:
                     "type": "object", "required": ["id", "type"], "properties": {
                         "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"}, "type": {"enum": [t for t, s in OPERATIONS.items() if s.supported]},
                         "start": {**time, "default": 0}, "end": {**time, "description": "Omit for 'until end of video'."},
-                        "parameters": {"type": "object"}, "depends_on": {"type": "array", "items": {"type": "string"}},
+                        "parameters": {"type": "object"},
+                        "keyframes": {"type": "object", "description": "Animate numeric parameters (those marked animatable in OPERATIONS.md). Keys = parameter names; each value is an array of keyframes.",
+                                      "additionalProperties": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "object", "required": ["time", "value"], "properties": {
+                                          "time": {"type": "number", "description": "Seconds after the operation's start (may be outside the operation; values are held before the first / after the last keyframe)."},
+                                          "value": {"type": "number"},
+                                          "easing": {"enum": ["linear", "hold", "ease_in", "ease_out", "ease_in_out"], "default": "linear", "description": "Shape of the segment that STARTS at this keyframe."}},
+                                          "additionalProperties": False}}},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
                         "enabled": {"type": "boolean", "default": True}, "label": {"type": "string"}},
                     "allOf": ops}}}}
 
@@ -62,11 +70,12 @@ def ops_md() -> str:
         out += [f"## `{t}` — {s.title}", "", s.description, ""]
         if not s.supported:
             out += [f"> **Not available in this build.** {s.unsupported_reason}", ""]; continue
+        if any(p.animatable for p in s.params.values()): out += ["◆ = can be keyframed (animated over time).", ""]
         out += [f"Timeline track: **{s.track}**" + (" · provides an alpha layer for `background_replacement`" if s.provides_alpha else ""), "",
                 "| parameter | type | default | range / values | description |", "|---|---|---|---|---|"]
         for k, p in s.params.items():
             rng = f"{p.min} … {p.max}" if p.min is not None else (", ".join(p.enum) if p.enum else "")
-            out.append(f"| `{k}` | {p.type}{' (required)' if p.required else ''} | {'' if p.default is None else '`' + str(p.default) + '`'} | {rng}{' ' + p.unit if p.unit and rng else ''} | {p.desc} |")
+            out.append(f"| `{k}`{' ◆' if p.animatable else ''} | {p.type}{' (required)' if p.required else ''} | {'' if p.default is None else '`' + str(p.default) + '`'} | {rng}{' ' + p.unit if p.unit and rng else ''} | {p.desc} |")
         out.append("")
     return "\n".join(out)
 

@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from .. import edl as _edl
+from ..animate import op_params_at, keyframes_key
 from .frames import decode
 from .models import ensure_model, models_dir, make_session
 from ..media import ffmpeg_bin
@@ -196,7 +197,7 @@ def fit_geometry(sw: int, sh: int, W: int, H: int) -> tuple[int, int, int, int]:
 
 def upscale_key(source: str, op, W, H, fps, start_frame, frames, edl=None) -> str:
     st = os.stat(source)
-    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), "v4", _edl.key(edl)]
+    d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames, sorted(op.params.items()), keyframes_key(op), "v5", _edl.key(edl)]
     return hashlib.sha1(json.dumps(d, default=str).encode()).hexdigest()[:20]
 
 
@@ -222,8 +223,12 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
                            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     n = 0
     fell_back: list[str] = []
-    proc = DetailProcessor(p, fw, fh, src_w, src_h)
-    first = max(0, start_frame - warmup) if p["temporal_stability"] > 0 else start_frame
+    # processor components are created once, so decide from the extreme keyframe values whether they can ever be needed
+    pi = dict(p)
+    if "temporal_stability" in op.keyframes: pi["temporal_stability"] = max(k.value for k in op.keyframes["temporal_stability"])
+    if "face_detail" in op.keyframes: pi["face_detail"] = min(k.value for k in op.keyframes["face_detail"])
+    proc = DetailProcessor(pi, fw, fh, src_w, src_h)
+    first = max(0, start_frame - warmup) if pi["temporal_stability"] > 0 else start_frame
     warm = start_frame - first
     try:
         for rgb in decode(source, src_w, src_h, fps, first, frames + warm, edl):
@@ -239,6 +244,7 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
                 sr = run_net(sess, inp, net_scale)
             sr = cv2.resize(sr, (fw, fh), interpolation=cv2.INTER_AREA if sr.shape[1] > fw else cv2.INTER_LANCZOS4)
             lz = cv2.resize(rgb, (fw, fh), interpolation=cv2.INTER_LANCZOS4).astype(np.float32) / 255.0
+            if op.keyframes: proc.p = op_params_at(op, fps, first + n)     # per-frame parameters (n counts decoded frames incl. warm-up)
             sr = proc(rgb, sr, lz)
             if n < warm: n += 1; continue          # priming frames for the temporal filter (previews only)
             frame = np.zeros((H, W, 3), np.uint8)

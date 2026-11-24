@@ -7,6 +7,8 @@ from typing import Callable
 
 from .blueprint import Operation
 from .planner import Plan, _dominant
+from .animate import AnimChain
+from .keyframes import to_expr
 from .media import supports_timeline, ffmpeg_bin, encoders, _try_encoder
 
 
@@ -107,6 +109,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     else:
         multi = False
 
+    # last timeline frame (exclusive) this render touches: keyframe command files stop there
+    range_end_f = seek_f + 1 if opts.frame_only else (round(opts.t_end * fps) if opts.t_end is not None else plan.total_frames)
+
+    def chain_for(op: Operation, tag: str = "") -> AnimChain:
+        """animation context for one linear chain of `op` (first frame = where this render starts inside the op)"""
+        return AnimChain(op, fps, seek_f, range_end_f, wd, work_files, tag)
+
     def pad_after(ref) -> int:
         """frames needed after an analysis file ends so the stream covers the whole timeline (+2 spare)"""
         return max(0, plan.total_frames - ref.start_frame - ref.frames) + 2
@@ -135,13 +144,15 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         proc = build(work)
         return g.add([keep, proc], f"overlay=enable='{en}':shortest=1,format=yuv420p")
 
-    def apply_ranged(cur: str, filters: list[str], op: Operation) -> str:
+    def apply_ranged(cur: str, filters: list[str], op: Operation, pre: list[str] | None = None) -> str:
+        """pre = filters (sendcmd) that must run in the same chain, in front, without a time range of their own"""
+        pre = pre or []
         if not filters: return cur
         en = enable(op)
-        if en is None: return g.add([cur], ",".join(filters))
-        if all(supports_timeline(f.split("=", 1)[0]) for f in filters):
-            return g.add([cur], ",".join(f"{f}:enable='{en}'" for f in filters))
-        return ranged_block(cur, op, lambda s: g.add([s], ",".join(filters)))
+        if en is None: return g.add([cur], ",".join([*pre, *filters]))
+        if all(supports_timeline(f.split("=", 1)[0].split("@", 1)[0]) for f in filters):
+            return g.add([cur], ",".join([*pre, *(f"{f}:enable='{en}'" for f in filters)]))
+        return ranged_block(cur, op, lambda s: g.add([s], ",".join([*pre, *filters])))
 
     # ---- base: source -> constant fps, output size
     fit = (f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
@@ -195,12 +206,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 erode, feather = (1, 0.8) if q == "standard" else (1, 1.5)
             else:
                 erode, feather = 0, 0.0
-        chain = [f"chromakey=color={hex0x(p['key_color'])}:similarity={p['similarity']:.4f}:blend={p['blend']:.4f}"]
+        an = chain_for(k)
+        chain = [an.add("chromakey", ("similarity", "blend"), lambda q: {"color": hex0x(q["key_color"]), "similarity": f"{q['similarity']:.4f}", "blend": f"{q['blend']:.4f}"})]
         dom = _dominant(p["key_color"])
         if p["spill_suppression"] and dom:
-            chain.append(f"despill=type={dom}:mix={p['spill_strength']:.3f}:expand=0")
+            chain.append(an.add("despill", ("spill_strength",), lambda q: {"type": dom, "mix": f"{q['spill_strength']:.3f}", "expand": "0"}))
         chain.append("format=rgba")
-        keyed = g.add([src], ",".join(chain))
+        keyed = g.add([src], ",".join([*an.sendcmd(), *chain]))
         if erode or feather > 0:
             a, b = g.split(keyed)
             m = "alphaextract" + ",erosion=coordinates=255" * erode + (f",gblur=sigma={feather:.3f}" if feather > 0 else "")
@@ -215,25 +227,38 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             return g.add([], f"color=c={hex0x(color)}:s={W}x{H}:r={fps:g},format=rgba{shift}")
         p = r.params
         idx = asset_idx(p["asset_id"])
-        z = p["scale"]
+        zoom_anim = "scale" in r.keyframes
+        z = 1.0 if zoom_anim else p["scale"]            # animated zoom is applied LAST (any filter after a per-frame size change makes FFmpeg undo it)
         if p["fit"] in ("cover", "contain"):
             fac = f"{'max' if p['fit'] == 'cover' else 'min'}({W}/iw,{H}/ih)"
             sc = f"scale=w='trunc(iw*{fac}*{z}/2)*2':h='trunc(ih*{fac}*{z}/2)*2'"
         else:
             sc = f"scale={int(W * z) // 2 * 2}:{int(H * z) // 2 * 2}"
-        chain = [f"fps={fps:g}", sc, "setsar=1", "format=rgba"]
+        an = chain_for(r, "bg")
+        eqf = an.add("eq", ("brightness", "saturation"), lambda q: {"brightness": f"{q['brightness']:.4f}", "saturation": f"{q['saturation']:.4f}"},
+                     lambda q: q["brightness"] != 0 or q["saturation"] != 1)
+        # asset stream is shifted onto the timeline FIRST so sendcmd times / expressions see timeline timestamps
+        chain = [f"fps={fps:g}"] + ([f"setpts=N+{seek_f}"] if seek_f else []) + an.sendcmd() + [sc, "setsar=1", "format=rgba"]
         if p["blur"] > 0: chain.append(f"gblur=sigma={p['blur']:.3f}")
-        if p["brightness"] != 0 or p["saturation"] != 1:
-            chain.append(f"eq=brightness={p['brightness']:.4f}:saturation={p['saturation']:.4f}")
+        if eqf: chain.append(eqf)
+        if zoom_anim:
+            zx = to_expr(r.keyframes["scale"], r.start)
+            chain.append(f"scale=w='trunc(iw*({zx})/2)*2':h='trunc(ih*({zx})/2)*2':eval=frame")
         a = g.add([f"{idx}:v"], ",".join(chain))
-        canvas = g.add([], f"color=c={hex0x(p['color'])}:s={W}x{H}:r={fps:g},format=rgba")
-        return g.add([canvas, a], f"overlay=x='(W-w)/2+{p['offset_x']}*W':y='(H-h)/2+{p['offset_y']}*H':shortest=1,format=rgba{shift}")
+        canvas = g.add([], f"color=c={hex0x(p['color'])}:s={W}x{H}:r={fps:g},format=rgba{shift}")
+        offs = []
+        for nm in ("offset_x", "offset_y"):
+            offs.append(f"({to_expr(r.keyframes[nm], r.start)})" if nm in r.keyframes else f"{p[nm]}")
+        per_frame = zoom_anim or "offset_x" in r.keyframes or "offset_y" in r.keyframes
+        return g.add([canvas, a], f"overlay={'eval=frame:' if per_frame else ''}x='(W-w)/2+{offs[0]}*W':y='(H-h)/2+{offs[1]}*H':shortest=1,format=rgba")
 
     def composite(cur: str, k: Operation, r: Operation | None) -> str:
         rng = r or k
         def build(src: str) -> str:
             return g.add([bg_stream(r, k), make_keyed(src, k)], "overlay=shortest=1:format=auto,format=yuv420p")
         return ranged_block(cur, rng, build)
+
+    pre_cmd: list[list[str]] = [[]]          # sendcmd filter(s) produced by the last grade_filters() call
 
     def grade_filters(op: Operation) -> list[str]:
         p = op.params
@@ -248,20 +273,26 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             "high_contrast_bw": ["eq=saturation=0:contrast=1.35"],
         }
         f += presets.get(p["preset"], [])
-        if p["exposure"] != 0: f.append(f"exposure=exposure={p['exposure']:.4f}")
-        b, s, hi, w = p["blacks"], p["shadows"], p["highlights"], p["whites"]
-        if any((b, s, hi, w)):
+        an = chain_for(op)
+        def tonal(q: dict) -> dict[str, str]:
+            b, s, hi, w = q["blacks"], q["shadows"], q["highlights"], q["whites"]
             pts = {0.0: max(0.0, 0.1 * b), 0.25: min(1, max(0, 0.25 + 0.12 * s)), 0.5: 0.5,
                    0.75: min(1, max(0, 0.75 + 0.12 * hi)), 1.0: min(1.0, 1.0 + 0.1 * min(0, w))}
             if b < 0: pts[round(-0.1 * b, 4)] = 0.0
             if w > 0: pts[round(1 - 0.1 * w, 4)] = 1.0
-            f.append(f"curves=master='{curve_str(sorted(pts.items()))}'")
-        t, ti = p["temperature"] / 100.0, p["tint"] / 100.0
-        if t or ti:
-            f.append(f"colorchannelmixer=rr={1 + 0.2 * t + 0.05 * ti:.4f}:gg={1 - 0.2 * ti:.4f}:bb={1 - 0.2 * t + 0.05 * ti:.4f}")
-        if (p["contrast"], p["brightness"], p["saturation"], p["gamma"]) != (1, 0, 1, 1):
-            f.append(f"eq=contrast={p['contrast']:.4f}:brightness={p['brightness']:.4f}:saturation={p['saturation']:.4f}:gamma={p['gamma']:.4f}")
-        if p["vibrance"] != 0: f.append(f"vibrance=intensity={p['vibrance']:.4f}")
+            return {"master": f"'{curve_str(sorted(pts.items()))}'"}
+        def mixer(q: dict) -> dict[str, str]:
+            tt, ti = q["temperature"] / 100.0, q["tint"] / 100.0
+            return {"rr": f"{1 + 0.2 * tt + 0.05 * ti:.4f}", "gg": f"{1 - 0.2 * ti:.4f}", "bb": f"{1 - 0.2 * tt + 0.05 * ti:.4f}"}
+        f += [x for x in (
+            an.add("exposure", ("exposure",), lambda q: {"exposure": f"{q['exposure']:.4f}"}, lambda q: q["exposure"] != 0),
+            an.add("curves", ("blacks", "shadows", "highlights", "whites"), tonal, lambda q: any((q["blacks"], q["shadows"], q["highlights"], q["whites"]))),
+            an.add("colorchannelmixer", ("temperature", "tint"), mixer, lambda q: bool(q["temperature"] or q["tint"])),
+            an.add("eq", ("contrast", "brightness", "saturation", "gamma"),
+                   lambda q: {"contrast": f"{q['contrast']:.4f}", "brightness": f"{q['brightness']:.4f}", "saturation": f"{q['saturation']:.4f}", "gamma": f"{q['gamma']:.4f}"},
+                   lambda q: (q["contrast"], q["brightness"], q["saturation"], q["gamma"]) != (1, 0, 1, 1)),
+            an.add("vibrance", ("vibrance",), lambda q: {"intensity": f"{q['vibrance']:.4f}"}, lambda q: q["vibrance"] != 0)) if x]
+        pre_cmd[0] = an.sendcmd()
         if p["lift"] or p["gamma_rgb"] or p["gain"]:
             vals = [*(p["lift"] or [0, 0, 0]), *(p["gamma_rgb"] or [0, 0, 0]), *(p["gain"] or [0, 0, 0])]
             f.append("colorbalance=" + ":".join(f"{k}={v:.4f}" for k, v in
@@ -285,7 +316,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if lut_id and p["lut_intensity"] >= 1:
                 main.append(f"lut3d=file='{esc_path(bp.assets[lut_id].resolved)}'")
                 lut_id = None
-            cur = apply_ranged(cur, main, op)
+            cur = apply_ranged(cur, main, op, pre_cmd[0])
             if lut_id:   # partial-strength LUT: blend graded vs LUT'd
                 lut_path, k = esc_path(bp.assets[lut_id].resolved), p["lut_intensity"]
                 def build(src: str) -> str:
@@ -299,13 +330,17 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             inputs.append(["-i", ref.path])
             ctrl = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:start_mode=add:stop_mode=add:color=black,"
                          f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=bilinear,format=gbrp")
-            tone = []
+            tone, tone_pre = [], []
             if t == "face_tone_correction":
-                w_, ti = p["warmth"] / 100.0, p["tint"] / 100.0
-                if w_ or ti:
-                    tone.append(f"colorchannelmixer=rr={1 + 0.15 * w_ + 0.04 * ti:.4f}:gg={1 - 0.12 * ti:.4f}:bb={1 - 0.15 * w_ + 0.04 * ti:.4f}")
-                if p["saturation"] != 1:
-                    tone.append(f"eq=saturation={p['saturation']:.4f},format=gbrp")
+                an = chain_for(op, "ft")
+                def face_mixer(q: dict) -> dict[str, str]:
+                    w_, ti = q["warmth"] / 100.0, q["tint"] / 100.0
+                    return {"rr": f"{1 + 0.15 * w_ + 0.04 * ti:.4f}", "gg": f"{1 - 0.12 * ti:.4f}", "bb": f"{1 - 0.15 * w_ + 0.04 * ti:.4f}"}
+                mx = an.add("colorchannelmixer", ("warmth", "tint"), face_mixer, lambda q: bool(q["warmth"] or q["tint"]))
+                sat = an.add("eq", ("saturation",), lambda q: {"saturation": f"{q['saturation']:.4f}"}, lambda q: q["saturation"] != 1)
+                if mx: tone.append(mx)
+                if sat: tone.append(sat + ",format=gbrp")
+                tone_pre = an.sendcmd()
             mr, mg, mb = g.label("m"), g.label("m"), g.label("m")
             if tone: g.parts.append(f"[{ctrl}]extractplanes=r+g+b[{mr}][{mg}][{mb}]")
             else: g.parts.append(f"[{ctrl}]extractplanes=g+b[{mg}][{mb}]")
@@ -322,7 +357,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 mk = g.add([m1, m2, m3], "mergeplanes=0x001020:yuv444p")
                 return g.add([a, fx, mk], "maskedmerge")
 
-            if tone: cur = masked(cur, ",".join(tone), mr)
+            if tone: cur = masked(cur, ",".join([*tone_pre, *tone]), mr)
             gain = lambda k: "lutrgb=" + ":".join(f"{c}='clip(val*{k}\\,0\\,255)'" for c in "rgb")
             cur = masked(cur, gain(4), mg)      # = face.UP_GAIN
             cur = masked(cur, gain(0.25), mb)   # = face.DOWN_GAIN
@@ -348,15 +383,22 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             tf = os.path.join(wd, f"{op.id}.txt")           # textfile + expansion=none: no filter-injection via text
             Path(tf).write_text(p["text"], encoding="utf-8")
             work_files.append(tf)
-            dt = [f"textfile='{esc_path(tf)}'", "expansion=none", f"fontsize={p['font_size']}",
-                  f"fontcolor={hex0x(p['color'])}", f"x=w*{p['x']}-text_w/2", f"y=h*{p['y']}-text_h/2"]
             font = find_font()
-            if font: dt.append(f"fontfile='{esc_path(font)}'")
-            if p["box"]: dt += ["box=1", f"boxcolor=black@{p['box_opacity']}", "boxborderw=12"]
-            cur = apply_ranged(cur, ["drawtext=" + ":".join(dt)], op)
+            an = chain_for(op)
+            def text_opts(q: dict) -> dict[str, str]:
+                o = {"textfile": f"'{esc_path(tf)}'", "expansion": "none", "fontsize": str(int(round(q["font_size"]))),
+                     "fontcolor": hex0x(q["color"]), "x": f"w*{q['x']:.6f}-text_w/2", "y": f"h*{q['y']:.6f}-text_h/2"}
+                if font: o["fontfile"] = f"'{esc_path(font)}'"
+                if q["opacity"] != 1 or an.has("opacity"): o["alpha"] = f"{q['opacity']:.4f}"
+                if q["box"]: o.update({"box": "1", "boxcolor": f"black@{q['box_opacity'] * q['opacity']:.4f}", "boxborderw": "12"})   # opacity fades the box too
+                return o
+            dtf = an.add("drawtext", ("x", "y", "font_size", "opacity", "box_opacity"), text_opts)
+            cur = apply_ranged(cur, [dtf], op, an.sendcmd())
         elif t == "audio_gain":
             en = enable(op)
-            if p["gain_db"] != 0:
+            if "gain_db" in op.keyframes:        # automation: dB expression of the timeline time, updated per audio frame
+                audio_filters.append(f"volume=volume='pow(10,({to_expr(op.keyframes['gain_db'], op.start)})/20)':eval=frame" + (f":enable='{en}'" if en else ""))
+            elif p["gain_db"] != 0:
                 audio_filters.append(f"volume={p['gain_db']:.2f}dB" + (f":enable='{en}'" if en else ""))
             if p["fade_in"] > 0: audio_filters.append(f"afade=t=in:st={op.start:.4f}:d={p['fade_in']:.3f}")
             if p["fade_out"] > 0:

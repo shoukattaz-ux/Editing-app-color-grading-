@@ -5,7 +5,7 @@ the compiler, the properties panel in the UI and the published JSON schema are
 all generated from this single source of truth.
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 # Pipeline stages: lower runs earlier in the filter graph.
@@ -34,6 +34,8 @@ class Param:
     desc: str = ""
     unit: str = ""
     asset_types: tuple = ()        # for type == "asset"
+    animatable: bool = False       # can be keyframed (only parameters whose animated render was verified exact)
+    static_reason: str = ""        # why it cannot be animated (shown in validation errors)
 
     def to_json(self) -> dict:
         d: dict[str, Any] = {"type": self.type, "description": self.desc}
@@ -44,6 +46,7 @@ class Param:
         if self.required: d["required"] = True
         if self.unit: d["unit"] = self.unit
         if self.asset_types: d["asset_types"] = list(self.asset_types)
+        d["animatable"] = self.animatable
         return d
 
 
@@ -163,6 +166,7 @@ _reg(OpSpec("text_overlay", "Text Overlay", "Graphics", STAGE_OVERLAY, "overlay"
              "color": Param(C, "#ffffff"),
              "x": Param(N, 0.5, 0.0, 1.0, desc="Horizontal anchor (fraction, centred)."),
              "y": Param(N, 0.85, 0.0, 1.0, desc="Vertical anchor (fraction, centred)."),
+             "opacity": Param(N, 1.0, 0.0, 1.0, desc="Text opacity (keyframe it for fade in/out titles)."),
              "box": Param(B, True, desc="Draw a translucent box behind the text."),
              "box_opacity": Param(N, 0.5, 0.0, 1.0)}))
 _reg(OpSpec("audio_gain", "Audio Gain", "Audio", STAGE_AUDIO, "audio",
@@ -217,6 +221,34 @@ _reg(OpSpec("hair_edge_refinement", "Hair & Edge Refinement (matting)", "Keying"
             "Hair & Edge Refinement (matting)", supported=False,
             unsupported_reason="Use background_removal with mode 'ai': its Robust Video Matting model already produces hair-level alpha. "
                                "A separate refinement pass for chroma keys is not implemented."))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Keyframing. A parameter is animatable ONLY if its animated render was verified bit-exact against static renders
+# (see backend/tests/test_animation.py). Everything else says why it is not.
+_ANIMATABLE: dict[str, tuple[str, ...]] = {
+    "color_grading": ("exposure", "contrast", "brightness", "highlights", "shadows", "whites", "blacks", "temperature", "tint",
+                      "saturation", "vibrance", "gamma"),
+    "chroma_key": ("similarity", "blend", "spill_strength"),
+    "background_removal": ("similarity", "blend", "spill_strength"),
+    "background_replacement": ("scale", "offset_x", "offset_y", "brightness", "saturation"),
+    "text_overlay": ("x", "y", "font_size", "opacity", "box_opacity"),
+    "audio_gain": ("gain_db",),
+    "face_tone_correction": ("strength", "exposure", "target_brightness", "auto_strength", "max_auto_ev", "warmth", "tint", "saturation"),
+    "face_relighting": ("key_angle", "key_elevation", "key_intensity", "fill", "shadow_depth"),
+    "ai_upscale": ("strength", "grain", "face_detail", "temporal_stability"),
+}
+_REASONS: dict[tuple[str, str], str] = {
+    ("background_replacement", "blur"): "FFmpeg's Gaussian blur cannot change its radius per frame reliably (measured: it renders a different blur than requested)",
+    ("video_enhancement", "denoise"): "the denoiser keeps temporal state and its strength cannot be changed per frame exactly",
+    ("video_enhancement", "sharpen"): "the sharpen filter has no per-frame control",
+    ("color_grading", "lut_intensity"): "per-frame LUT blending is not frame-exact in FFmpeg",
+}
+for _t, _names in _ANIMATABLE.items():
+    for _n in _names:
+        OPERATIONS[_t].params[_n] = replace(OPERATIONS[_t].params[_n], animatable=True)
+for (_t, _n), _why in _REASONS.items():
+    OPERATIONS[_t].params[_n] = replace(OPERATIONS[_t].params[_n], static_reason=_why)
 
 
 def json_schema() -> dict:

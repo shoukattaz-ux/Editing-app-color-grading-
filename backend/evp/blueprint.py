@@ -62,6 +62,13 @@ class Operation:
     depends_on: list[str] = field(default_factory=list)
     enabled: bool = True
     label: str = ""
+    keyframes: dict = field(default_factory=dict)       # param name -> [evp.keyframes.Keyframe], times relative to `start`
+
+    def param_at(self, name: str, t_rel: float):
+        """value of a parameter at time t_rel (seconds after this operation's start), honouring keyframes"""
+        from .keyframes import value_at
+        kf = self.keyframes.get(name)
+        return value_at(kf, t_rel) if kf else self.params[name]
 
 
 @dataclass
@@ -209,6 +216,58 @@ def apply_params(op_type: str, raw: Any) -> tuple[dict, list[str]]:
         elif p.required: errs.append(f"missing required parameter '{name}'")
         else: out[name] = p.default
     return out, errs
+
+
+def apply_keyframes(op_type: str, raw: Any) -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]]:
+    """Validate an operation's `keyframes` object. Returns (parsed, errors, warnings) with (code, message) pairs."""
+    from .keyframes import Keyframe, EASINGS, MAX_KEYFRAMES
+    spec = OPERATIONS[op_type]
+    errs: list[tuple[str, str]] = []
+    warns: list[tuple[str, str]] = []
+    out: dict[str, list] = {}
+    if not isinstance(raw, dict):
+        return out, [("INVALID_STRUCTURE", "'keyframes' must be an object mapping parameter names to keyframe arrays")], warns
+    animatable = [k for k, p in spec.params.items() if p.animatable]
+    for name, items in raw.items():
+        ps = spec.params.get(name)
+        if ps is None:
+            errs.append(("UNKNOWN_PARAMETER", f"keyframes: '{name}' is not a parameter of {op_type}")); continue
+        if not ps.animatable:
+            why = ps.static_reason or ("only single numbers can be animated" if ps.type not in ("number", "integer") else "not supported")
+            errs.append(("PARAM_NOT_ANIMATABLE", f"'{name}' cannot be keyframed: {why}. Animatable for {op_type}: {', '.join(animatable) or 'none'}")); continue
+        if not isinstance(items, list) or not items:
+            errs.append(("INVALID_KEYFRAME", f"keyframes.{name} must be a non-empty array")); continue
+        if len(items) > MAX_KEYFRAMES:
+            errs.append(("TOO_MANY_KEYFRAMES", f"keyframes.{name} has {len(items)} keyframes (at most {MAX_KEYFRAMES})")); continue
+        parsed, bad = [], False
+        for j, it in enumerate(items):
+            where = f"keyframes.{name}[{j}]"
+            if not isinstance(it, dict):
+                errs.append(("INVALID_KEYFRAME", f"{where} must be an object {{time, value, easing}}")); bad = True; continue
+            for k in it:
+                if k not in ("time", "value", "easing"):
+                    warns.append(("UNKNOWN_FIELD", f"{where}: unknown field '{k}' ignored"))
+            tm = it.get("time")
+            if isinstance(tm, str):
+                try: tm = parse_time(tm)
+                except ValueError: tm = None
+            if isinstance(tm, bool) or not isinstance(tm, (int, float)) or tm != tm or abs(tm) == float("inf"):
+                errs.append(("INVALID_KEYFRAME", f"{where}.time must be a finite number of seconds after the operation's start")); bad = True; continue
+            v = it.get("value")
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or abs(v) == float("inf"):
+                errs.append(("INVALID_KEYFRAME", f"{where}.value must be a number")); bad = True; continue
+            if (ps.min is not None and v < ps.min) or (ps.max is not None and v > ps.max):
+                errs.append(("INVALID_KEYFRAME", f"{where}.value {v} for '{name}' is outside {ps.min} .. {ps.max}")); bad = True; continue
+            ea = it.get("easing", "linear")
+            if ea not in EASINGS:
+                errs.append(("INVALID_KEYFRAME", f"{where}.easing {ea!r} is not one of {list(EASINGS)}")); bad = True; continue
+            parsed.append(Keyframe(float(tm), float(v), ea))
+        if bad: continue
+        parsed.sort(key=lambda k: k.time)
+        if any(b.time - a.time < 1e-6 for a, b in zip(parsed, parsed[1:])):
+            errs.append(("INVALID_KEYFRAME", f"keyframes.{name} has two keyframes at the same time")); continue
+        out[name] = parsed
+    return out, errs, warns
 
 
 def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolicy | None = None,
@@ -393,7 +452,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         if not spec.supported:
             rep.err("UNSUPPORTED_OPERATION", f"'{otype}' is recognised but not available: {spec.unsupported_reason}", oid, p); continue
         for k in o:
-            if k not in {"id", "type", "start", "end", "parameters", "depends_on", "enabled", "label", "note"}:
+            if k not in {"id", "type", "start", "end", "parameters", "depends_on", "enabled", "label", "note", "keyframes"}:
                 rep.warn("UNKNOWN_FIELD", f"Unknown field '{k}' on operation '{oid}' ignored", oid, f"{p}.{k}")
         # timestamps
         try: s = parse_time(o.get("start", 0))
@@ -422,6 +481,12 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         params, perrs = apply_params(otype, o.get("parameters"))
         for m in perrs: rep.err("INVALID_PARAMETER", m, oid, f"{p}.parameters")
         if perrs: continue
+        kfs: dict = {}
+        if o.get("keyframes") is not None:
+            kfs, kerrs, kwarns = apply_keyframes(otype, o["keyframes"])
+            for code, msg in kerrs: rep.err(code, msg, oid, f"{p}.keyframes")
+            for code, msg in kwarns: rep.warn(code, msg, oid, f"{p}.keyframes")
+            if kerrs: continue
         # asset refs
         for pn, ps in spec.params.items():
             if ps.type == "asset" and params.get(pn):
@@ -479,7 +544,7 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         en = o.get("enabled", True)
         if not isinstance(en, bool): rep.err("INVALID_PARAMETER", "'enabled' must be boolean", oid, p); continue
         ops.append(Operation(oid, otype, sf / fps_for_grid, ef / fps_for_grid, sf, ef, params, list(deps), en,
-                             str(o.get("label", ""))[:120]))
+                             str(o.get("label", ""))[:120], kfs))
 
     bp = Blueprint(ver, name, source_video, output, assets, ops, clips, timeline_dur)
     _check_graph(bp, rep, set(seen))

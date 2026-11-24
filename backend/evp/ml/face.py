@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from .. import edl as _edl
+from ..animate import op_params_at, keyframes_key
 from .frames import decode, Writer
 from .models import ensure_model
 
@@ -119,7 +120,7 @@ def skin_weight(ycc: np.ndarray, t: Track, ell: np.ndarray, sigma: float = 11.0)
 def control_key(kind: str, source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, edl: list | None = None) -> str:
     st = os.stat(source)
     d = [kind, os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames,
-         sorted(op.params.items()), "v2", _edl.key(edl)]
+         sorted(op.params.items()), keyframes_key(op), "v3", _edl.key(edl)]
     return hashlib.sha1(json.dumps(d, default=str).encode()).hexdigest()[:20]
 
 
@@ -197,7 +198,7 @@ def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: i
         for i, rgb in enumerate(decode(source, aw, ah, fps, first, total, edl)):
             if cancel is not None and cancel.is_set(): raise Cancelled()
             faces = tracker.update(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-            R, G, B = fn(rgb, faces, op.params, None)
+            R, G, B = fn(rgb, faces, op_params_at(op, fps, first + i), None)       # first+i = timeline frame (keyframes are per frame)
             if first + i < start_frame: continue
             found += bool(faces)
             wr.write((np.stack([R, G, B], -1).clip(0, 1) * 255 + 0.5).astype(np.uint8))
