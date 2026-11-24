@@ -1,5 +1,6 @@
 """Shared frame decoding for analysis passes, aligned with the engine's base timeline."""
 from __future__ import annotations
+from .. import proc
 import subprocess
 from typing import Iterator
 
@@ -14,7 +15,7 @@ SWS = "bicubic+accurate_rnd+full_chroma_int+full_chroma_inp"
 def _decode_pieces(source: str, W: int, H: int, fps: float, a: int, n: int, flags: str) -> Iterator[np.ndarray]:
     """n RGB frames of the *source* grid starting at grid frame a (exact: seeks half a frame early, like the render does)."""
     seek = ["-ss", f"{max(0.0, (a - 0.5) / fps):.6f}"] if a > 0 else []
-    p = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek, "-i", source, "-sws_flags", SWS, "-vf",
+    p = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", *seek, "-i", source, "-sws_flags", SWS, "-vf",
                           f"fps={fps:g},scale={W}:{H}:force_original_aspect_ratio=decrease:flags={flags},"
                           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,"
                           f"trim=end_frame={n},setpts=PTS-STARTPTS,"
@@ -50,7 +51,7 @@ class Writer:
         from pathlib import Path
         self.final = Path(path)
         self.tmp = self.final.with_suffix(".part.mkv")
-        self.p = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", pix_in, "-s", f"{W}x{H}",
+        self.p = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", pix_in, "-s", f"{W}x{H}",
                                    "-r", f"{fps:g}", "-i", "-", "-c:v", "ffv1", "-pix_fmt", pix_out, str(self.tmp)],
                                   stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 

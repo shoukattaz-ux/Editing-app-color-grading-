@@ -1,5 +1,6 @@
 """Blueprint Execution Engine: validate -> plan -> compile -> run (progress/pause/resume/cancel/retry)."""
 from __future__ import annotations
+from . import proc
 import os, shutil, signal, subprocess, tempfile, threading, time, uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -326,7 +327,7 @@ class Job:
         self.current = "encoding: " + (", ".join(o.id for o in self.plan.steps) or "no operations (re-encode)")
         with self._lock:
             if self._cancel.is_set(): return False
-            self._proc = subprocess.Popen(self.compiled.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
+            self._proc = proc.Popen(self.compiled.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
         err_lines: list[str] = []
         t_err = threading.Thread(target=lambda: err_lines.extend(self._proc.stderr), daemon=True); t_err.start()
         dur = max(self.compiled.out_duration, 0.001)
@@ -362,7 +363,7 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)
     try:
-        r = subprocess.run(c.args, capture_output=True, timeout=120)
+        r = proc.run(c.args, capture_output=True, timeout=120)
     finally:
         for f in c.work_files: _rm(f)
     if r.returncode != 0 or not r.stdout:

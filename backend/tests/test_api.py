@@ -1,4 +1,4 @@
-import json, time
+import json, os, time
 import pytest
 from fastapi.testclient import TestClient
 from evp.server import create_app
@@ -274,3 +274,18 @@ def test_probe_survives_non_ascii_metadata_under_a_legacy_text_encoding(tmp_path
     r = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, r'{os.path.dirname(os.path.dirname(__file__))}'); from evp.media import probe; print(probe(r'{v}').width)"],
                        capture_output=True, env=env)
     assert r.returncode == 0 and r.stdout.strip() == b"64", r.stderr.decode(errors="replace")[-400:]
+
+
+def test_child_processes_never_inherit_stdin(monkeypatch):
+    """Regression (Windows): an engine started by another program has no valid stdin handle, and every ffprobe/ffmpeg child that inherited it
+    failed with 'OSError: [Errno 9] Bad file descriptor'. The wrapper must always pass an explicit stdin unless the caller wants a pipe."""
+    import subprocess
+    from evp import proc
+    seen = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: seen.append(k))
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: seen.append(k))
+    proc.run(["x"], capture_output=True); proc.Popen(["x"], stdout=subprocess.PIPE); proc.Popen(["x"], stdin=subprocess.PIPE); proc.run(["x"], input=b"1")
+    assert seen[0]["stdin"] == subprocess.DEVNULL and seen[1]["stdin"] == subprocess.DEVNULL
+    assert seen[2]["stdin"] == subprocess.PIPE and "stdin" not in seen[3]
+    assert not any("subprocess.run(" in open(f, encoding="utf-8").read() or "subprocess.Popen(" in open(f, encoding="utf-8").read().replace("subprocess.Popen |", "")
+                   for f in __import__("glob").glob(os.path.join(os.path.dirname(proc.__file__), "**", "*.py"), recursive=True) if not f.endswith("proc.py"))

@@ -8,6 +8,7 @@
   rate-limited and de-duplicated so a failing loop cannot flood the bucket.
 """
 from __future__ import annotations
+from . import proc
 import datetime as _dt, hashlib, hmac, io, json, os, platform, re, threading, time, urllib.error, urllib.request, uuid, zipfile
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -147,7 +148,7 @@ class Reporter:
                 "details": json.loads(self._mask(json.dumps(details or {}, default=str)))}
         try:
             from .media import ffmpeg_bin; import subprocess
-            info["system"]["ffmpeg"] = subprocess.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5).stdout.splitlines()[0]
+            info["system"]["ffmpeg"] = proc.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5).stdout.splitlines()[0]
         except Exception: pass
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

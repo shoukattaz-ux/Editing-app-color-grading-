@@ -4,6 +4,7 @@ The matte is generated as a lossless greyscale video aligned frame-for-frame wit
 engine's base timeline (same fps + scale/pad), cached, and consumed by the FFmpeg graph.
 """
 from __future__ import annotations
+from .. import proc
 import hashlib, json, os, subprocess, threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,11 +117,11 @@ def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int
     first = max(0, start_frame - warmup)           # warm-up frames prime the recurrent state (better single-frame previews)
     total = start_frame + frames - first
     tmp = out.with_suffix(".part.mkv")
-    enc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{W}x{H}",
+    enc = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{W}x{H}",
                             "-r", f"{fps:g}", "-i", "-", "-c:v", "ffv1", "-pix_fmt", "gray", str(tmp)],
                            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     ftmp = fgr_out.with_suffix(".part.mkv") if fgr_out else None
-    fenc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
+    fenc = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                              "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(ftmp)],
                             stdin=subprocess.PIPE, stderr=subprocess.PIPE) if fgr_out else None
     keyer = None

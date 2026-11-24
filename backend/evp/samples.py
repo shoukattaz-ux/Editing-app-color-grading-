@@ -1,5 +1,6 @@
 """Synthetic test media (no binary fixtures committed)."""
 from __future__ import annotations
+from . import proc
 import subprocess
 from pathlib import Path
 from .media import ffmpeg_bin
@@ -15,13 +16,13 @@ def make_greenscreen(path: str | Path, seconds: float = 3, size="320x180", fps=3
     cmd = [ffmpeg_bin(), "-y", "-loglevel", "error", "-filter_complex", graph]
     if audio: cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}"]
     cmd += ["-map", "[v]"] + (["-map", "0:a", "-c:a", "aac"] if audio else []) + ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-t", str(seconds), str(path)]
-    subprocess.run(cmd, check=True)
+    proc.run(cmd, check=True)
     return str(path)
 
 
 def make_background(path: str | Path, size="320x180") -> str:
     """Colourful gradient image used as a replacement background."""
-    subprocess.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"gradients=s={size}:c0=0x203a6f:c1=0xe0307a:x0=0:y0=0:x1=320:y1=180:d=1",
+    proc.run([ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"gradients=s={size}:c0=0x203a6f:c1=0xe0307a:x0=0:y0=0:x1=320:y1=180:d=1",
                     "-frames:v", "1", str(path)], check=True)
     return str(path)
 

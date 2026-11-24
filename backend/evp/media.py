@@ -1,5 +1,6 @@
 """ffprobe wrapper and hardware detection."""
 from __future__ import annotations
+from . import proc
 import json, os, shutil, subprocess, functools
 from pathlib import Path
 from fractions import Fraction
@@ -33,7 +34,7 @@ def probe(path: str | Path) -> VideoInfo:
     if p.suffix.lower() not in VIDEO_EXT:
         raise MediaError(f"Unsupported container '{p.suffix}'. Supported: {', '.join(sorted(VIDEO_EXT))}")
     try:
-        r = subprocess.run([ffprobe_bin(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(p)],
+        r = proc.run([ffprobe_bin(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(p)],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     except subprocess.TimeoutExpired:
         raise MediaError("ffprobe timed out (corrupted file?)")
@@ -76,7 +77,7 @@ def probe(path: str | Path) -> VideoInfo:
 @functools.lru_cache(maxsize=1)
 def ffmpeg_filters() -> dict[str, str]:
     """name -> flags (e.g. 'TSC'); 'T' = supports timeline `enable`."""
-    out = subprocess.run([ffmpeg_bin(), "-hide_banner", "-filters"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    out = proc.run([ffmpeg_bin(), "-hide_banner", "-filters"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     res = {}
     for line in out.splitlines():
         parts = line.split()
@@ -91,7 +92,7 @@ def supports_timeline(name: str) -> bool:
 
 @functools.lru_cache(maxsize=1)
 def encoders() -> set[str]:
-    out = subprocess.run([ffmpeg_bin(), "-hide_banner", "-encoders"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    out = proc.run([ffmpeg_bin(), "-hide_banner", "-encoders"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     return {l.split()[1] for l in out.splitlines() if len(l.split()) > 2 and l.startswith(" V")}
 
 
@@ -101,7 +102,7 @@ def hardware_report() -> dict:
     for name in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "hevc_qsv", "h264_videotoolbox", "hevc_videotoolbox"):
         if name in encoders() and _try_encoder(name):
             hw.append(name)
-    return {"cpu_count": os.cpu_count(), "ffmpeg": subprocess.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.splitlines()[0],
+    return {"cpu_count": os.cpu_count(), "ffmpeg": proc.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.splitlines()[0],
             "encoders_available": sorted(e for e in encoders() if e in ("libx264", "libx265")),
             "hardware_encoders_working": hw,
             "ai_devices": _ai_devices()}
@@ -117,6 +118,6 @@ def _ai_devices() -> list[str]:
 
 @functools.lru_cache(maxsize=16)
 def _try_encoder(name: str) -> bool:
-    r = subprocess.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2", "-frames:v", "2",
+    r = proc.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2", "-frames:v", "2",
                         "-c:v", name, "-f", "null", "-"], capture_output=True, timeout=30)
     return r.returncode == 0

@@ -5,6 +5,7 @@ geometry (fit + pad exactly like the base chain), optionally blend with a Lanczo
 high-quality intermediate that replaces the base frames inside the operation's range.
 """
 from __future__ import annotations
+from .. import proc as _proc
 import hashlib, json, os, threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -218,7 +219,7 @@ def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fp
     need = max(fw / src_w, fh / src_h)
     pre = 0.5 if (p["quality"] == "fast" and need <= net_scale / 2) else 1.0
     tmp = out.with_suffix(".part.mkv")
-    enc = subprocess.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
+    enc = _proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                             "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(tmp)],   # stays RGB: no extra YUV round trip
                            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     n = 0
