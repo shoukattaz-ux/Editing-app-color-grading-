@@ -15,8 +15,9 @@ class ProjectError(RuntimeError):
 
 def _atomic_write(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    with open(tmp, "rb") as f: os.fsync(f.fileno())
+    # flush to disk through the SAME writable handle: Windows refuses fsync on a read-only handle ("Bad file descriptor")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, indent=2)); f.flush(); os.fsync(f.fileno())
     os.replace(tmp, path)
 
 

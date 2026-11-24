@@ -14,12 +14,20 @@ ffmpeg = ffdir / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
 ffprobe = ffdir / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
 
 
+WORK = None
+
+
 def fail(msg: str):
-    print("SELFTEST FAILED:", msg); sys.exit(1)
+    print("SELFTEST FAILED:", msg)
+    if WORK:                                    # the engine keeps the full traceback of any unexpected error
+        log = Path(WORK) / "data" / "engine-errors.log"
+        if log.is_file(): print("---- engine-errors.log ----\n" + log.read_text(encoding="utf-8", errors="replace")[-3000:])
+    sys.exit(1)
 
 
 def main():
-    work = Path(tempfile.mkdtemp(prefix="evp-selftest-"))
+    global WORK
+    work = WORK = Path(tempfile.mkdtemp(prefix="evp-selftest-"))
     video = work / "clip.mp4"
     subprocess.run([str(ffmpeg), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x3c8c3c:s=320x180:r=25:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                     "-metadata", "title=Привет 😀 café — 测试", "-metadata", "comment=☃ snowman", str(video)], check=True)
@@ -49,6 +57,15 @@ def main():
         png = call("POST", "/api/preview/frame", {"blueprint": bp, "t": 0.4, "original": False, "width": None})
         if not png.startswith(b"\x89PNG"): fail("preview frame is not a PNG")
         print("preview frame OK:", len(png), "bytes")
+        job = json.loads(call("POST", "/api/render", {"blueprint": bp, "preset": "export", "filename": "selftest"}))["job"]
+        for _ in range(240):                                           # a real export through the frozen engine and the bundled FFmpeg
+            time.sleep(0.5)
+            j = json.loads(call("GET", f"/api/jobs/{job['id']}"))
+            if j["state"] in ("done", "failed", "cancelled"): break
+        if j["state"] != "done": fail(f"export {j['state']}: {j.get('error')} | {' '.join(j.get('log', [])[-4:])[:600]}")
+        out = Path(proj["path"]) / j["output"]
+        if not out.is_file() or out.stat().st_size < 1000: fail(f"export file missing or empty: {out}")
+        print("export OK:", out.name, out.stat().st_size, "bytes")
     finally:
         p.kill()
     print("SELFTEST PASSED")

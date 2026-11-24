@@ -289,3 +289,18 @@ def test_child_processes_never_inherit_stdin(monkeypatch):
     assert seen[2]["stdin"] == subprocess.PIPE and "stdin" not in seen[3]
     assert not any("subprocess.run(" in open(f, encoding="utf-8").read() or "subprocess.Popen(" in open(f, encoding="utf-8").read().replace("subprocess.Popen |", "")
                    for f in __import__("glob").glob(os.path.join(os.path.dirname(proc.__file__), "**", "*.py"), recursive=True) if not f.endswith("proc.py"))
+
+
+def test_project_saving_never_fsyncs_a_read_only_handle(tmp_path, monkeypatch):
+    """Regression (Windows): os.fsync on a file opened for reading raises 'Bad file descriptor' there, which broke creating ANY project.
+    Emulate that rule on every platform: fsync must only ever see writable descriptors."""
+    import errno, fcntl, os as _os
+    from evp.project import Project
+    real = _os.fsync
+    def strict(fd):
+        if fcntl.fcntl(fd, fcntl.F_GETFL) & _os.O_ACCMODE == _os.O_RDONLY: raise OSError(errno.EBADF, "Bad file descriptor")
+        return real(fd)
+    monkeypatch.setattr(_os, "fsync", strict)
+    p = Project.create(tmp_path, "Windows Rules")
+    p.update(source=str(tmp_path / "x.mp4"))
+    assert (p.root / "project.json").is_file()
