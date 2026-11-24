@@ -64,6 +64,7 @@ class RVM:
             so = ort.SessionOptions(); so.intra_op_num_threads = threads or os.cpu_count() or 4
             self.sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
         self.provider = self.sess.get_providers()[0]
+        device.note_session(self.sess)
         self.reset()
 
     def reset(self):

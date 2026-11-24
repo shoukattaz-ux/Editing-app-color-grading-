@@ -352,6 +352,7 @@ def _pc(monkeypatch, providers, adapters):
     monkeypatch.setattr(device, "adapters", lambda: adapters)
     monkeypatch.delenv("EVP_AI_DEVICE", raising=False)
     monkeypatch.setitem(device._CFG, "device", "auto")
+    monkeypatch.setitem(device._ACTUAL, "provider", None)          # earlier tests create CPU sessions; start every scenario clean
     return device
 
 
@@ -396,3 +397,19 @@ def test_ai_device_setting_is_validated_persisted_and_served(tmp_path, monkeypat
 def test_windows_requirements_use_directml():
     reqs = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "requirements.txt")).read()
     assert 'onnxruntime-directml>=1.17; sys_platform == "win32"' in reqs and 'onnxruntime>=1.17; sys_platform != "win32"' in reqs
+
+
+def test_ai_device_reports_when_the_graphics_card_silently_fell_back(monkeypatch):
+    """DirectML may refuse a card (driver, no DX12) and ONNX Runtime then quietly uses the CPU: the UI must say so, not claim the card."""
+    d = _pc(monkeypatch, ["DmlExecutionProvider", "CPUExecutionProvider"], USER_PC)
+    class Sess:
+        def __init__(self, p): self.p = p
+        def get_providers(self): return [self.p, "CPUExecutionProvider"]
+    d._ACTUAL["provider"] = None
+    assert d.describe()["fell_back"] is False and d.describe()["running_on"] == "Radeon RX 580 Series"
+    d.note_session(Sess("CPUExecutionProvider"))
+    r = d.describe()
+    assert r["fell_back"] is True and r["running_on"] == "the processor" and r["wanted"] == "Radeon RX 580 Series"
+    d.note_session(Sess("DmlExecutionProvider"))
+    assert d.describe()["fell_back"] is False
+    d._ACTUAL["provider"] = None

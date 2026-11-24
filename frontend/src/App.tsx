@@ -293,6 +293,7 @@ function AiDeviceBox({ api }: { api: Api }) {
       <select value={d.choice} disabled={busy} onChange={e => choose(e.target.value)} aria-label="AI device" style={{ width: "100%" }}>
         {d.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+      {d.fell_back && <div className="issue warning">The graphics card ({d.wanted}) could not be used - DirectML refused it - so the processor was used instead. Pick another device in the list, or update the graphics driver.</div>}
       {err && <div className="issue error">{err}</div>}
     </div>);
 }

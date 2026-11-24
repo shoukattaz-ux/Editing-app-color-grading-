@@ -12,6 +12,12 @@ from pathlib import Path
 _CFG: dict = {"device": "auto"}          # "auto" | "cpu" | adapter index as a string
 _LOCK = threading.Lock()
 _CFG_FILE: Path | None = None
+_ACTUAL: dict = {"provider": None}        # what the most recent session really got (the GPU provider can refuse and silently fall back)
+
+
+def note_session(sess) -> None:
+    try: _ACTUAL["provider"] = sess.get_providers()[0].replace("ExecutionProvider", "")
+    except Exception: pass
 
 
 # ---------------------------------------------------------------- Windows adapters (DXGI)
@@ -85,6 +91,7 @@ def set_choice(choice: str) -> None:
     if choice not in ("auto", "cpu") and not choice.isdigit(): raise ValueError("device must be 'auto', 'cpu' or an adapter number")
     with _LOCK:
         _CFG["device"] = choice
+        _ACTUAL["provider"] = None
         if _CFG_FILE:
             try: _CFG_FILE.parent.mkdir(parents=True, exist_ok=True); _CFG_FILE.write_text(json.dumps(_CFG), encoding="utf-8")
             except OSError: pass
@@ -143,7 +150,10 @@ def describe() -> dict:
     if first == "Dml":
         idx = provider_chain()[0][1]["device_id"]
         used = next((a["name"] for a in ads if a["index"] == idx), f"adapter {idx}")
-    return {"choice": get_choice(), "running_on": used or first, "provider": first,
+    actual = _ACTUAL["provider"]
+    fell_back = bool(actual) and first != "CPU" and actual == "CPU"          # wanted a GPU, the last session ended up on the processor
+    return {"choice": get_choice(), "running_on": ("the processor" if fell_back else (used or first)), "provider": "CPU" if fell_back else first,
+            "wanted": used or first, "actual": actual, "fell_back": fell_back,
             "options": [{"value": "auto", "label": "Automatic (the strongest graphics card)"}]
                        + [{"value": str(a["index"]), "label": f"{a['name']} ({a['vram_mb']} MB)" + (" - software" if a["software"] else "")} for a in ads]
                        + [{"value": "cpu", "label": "Processor only (slowest, always works)"}]}

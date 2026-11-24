@@ -131,9 +131,11 @@ def make_session(model_path: str, threads: int | None = None):
     import onnxruntime as ort
     from . import device
     try:
-        return ort.InferenceSession(str(model_path), device.session_options(threads), providers=device.provider_chain())
+        sess = ort.InferenceSession(str(model_path), device.session_options(threads), providers=device.provider_chain())
     except Exception:
-        return make_session_cpu(model_path, threads)
+        sess = make_session_cpu(model_path, threads)
+    device.note_session(sess)
+    return sess
 
 
 def make_session_cpu(model_path: str, threads: int | None = None):

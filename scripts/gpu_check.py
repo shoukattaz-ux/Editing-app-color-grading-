@@ -3,7 +3,7 @@
     python scripts/gpu_check.py        (needs internet the first time: downloads the 14 MB matting model and the 5 MB upscaler weights)
 
 Prints the graphics adapters, the provider chain, then runs the real matting network and the real upscaling network on the selected device
-and on the CPU and compares the results. Exits non-zero if they disagree or the device fails.
+and on the CPU and compares the results. Exits non-zero if they disagree, or (with --require-gpu) if no graphics card could be used.
 """
 import os, sys, time
 from pathlib import Path
@@ -36,6 +36,9 @@ def main() -> int:
         a2, _ = m(img, 0.5)                                     # second frame uses the recurrent state
         results[choice] = (a2, m.provider, time.time() - t)
         print(f"matting on {choice:5s}: provider={m.provider} {results[choice][2]:.1f}s alpha mean={a2.mean():.3f}")
+    on_gpu = results["auto"][1] != "CPUExecutionProvider"
+    print("RESULT: the AI ran on the graphics card" if on_gpu else
+          "RESULT: NO usable graphics card here - DirectML refused it and the run fell back to the processor, so GPU execution was NOT tested")
     d = float(np.abs(results["auto"][0] - results["cpu"][0]).mean())
     print(f"matting difference GPU vs CPU: mean |alpha| diff = {d:.4f}")
     if d > 0.05: print("FAIL: matting differs too much"); return 1
@@ -49,7 +52,10 @@ def main() -> int:
     du = float(np.abs(outs["auto"] - outs["cpu"]).mean())
     print(f"upscale difference GPU vs CPU: mean abs diff = {du:.4f} (0..1 scale)")
     if du > 0.02: print("FAIL: upscaling differs too much"); return 1
-    print("GPU CHECK PASSED")
+    if not on_gpu:
+        print("CHECK FINISHED (processor fallback works; GPU not tested)")
+        return 2 if "--require-gpu" in sys.argv else 0
+    print("GPU CHECK PASSED (graphics card and processor agree)")
     return 0
 
 
