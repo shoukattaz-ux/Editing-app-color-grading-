@@ -245,3 +245,18 @@ def test_report_api_never_returns_the_secret_and_job_failures_report_automatical
         assert rep["kind"] == "render_failed" and "filter graph exploded" in rep["message"] and str(tmp_path) not in z.read("report.json").decode()
         assert "blueprint.json" in z.namelist()
     finally: fake.close()
+
+
+def test_quick_project_creates_a_uniquely_named_project_in_the_default_folder(tmp_path, media, monkeypatch):
+    monkeypatch.setenv("EVP_PROJECTS_DIR", str(tmp_path / "EVP Projects"))
+    c = TestClient(create_app("tok", str(tmp_path / "data")))
+    assert c.get("/api/defaults", headers=H).json()["projects_dir"] == str(tmp_path / "EVP Projects")
+    a = c.post("/api/project/quick", headers=H, json={"source": media["video"]})
+    assert a.status_code == 200, a.text
+    pa = a.json()
+    assert pa["video"] and pa["source"]["path"] == media["video"] and (tmp_path / "EVP Projects").is_dir()
+    b = c.post("/api/project/quick", headers=H, json={"source": media["video"]}).json()          # same video again: no clash
+    assert b["name"] != pa["name"] and b["path"] != pa["path"]
+    e = c.post("/api/project/quick", headers=H, json={"name": "../../evil"}).json()               # names cannot escape the folder
+    assert str(tmp_path / "EVP Projects") in e["path"]
+    assert c.post("/api/project/quick", headers=H, json={"source": "/nonexistent.mp4"}).status_code >= 400

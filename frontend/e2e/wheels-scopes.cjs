@@ -29,15 +29,18 @@ const pngChunks = (buf) => { const n = []; let i = 8; while (i + 8 <= buf.length
   // a black-to-white ramp: it contains every tone, so "lift affects the shadows, not the highlights" can be measured
   const video = path.join(work, "ramp.mp4");
   execFileSync(process.env.EVP_FFMPEG || "ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "nullsrc=s=320x180:r=25:d=3,format=gbrp,geq=r='X*255/W':g='X*255/W':b='X*255/W'", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "12", video]);
+  process.env.EVP_PROJECTS_DIR = path.join(work, "proj");            // where one-click projects go
   const be = await startBackend(), web = await serveDist();
   const base = `http://127.0.0.1:${be.port}`, H = { "x-evp-token": be.token, "content-type": "application/json" };
   const browser = await chromium.launch(), page = await browser.newPage({ viewport: { width: 1500, height: 940 } });
   const errs = []; page.on("pageerror", e => errs.push(e.message)); page.on("console", m => { if (m.type() === "error") errs.push(m.text()); });
   try {
     await page.goto(`http://127.0.0.1:${web.address().port}/?port=${be.port}&token=${be.token}`);
-    fs.mkdirSync(path.join(work, "proj"));
-    await page.fill('input[placeholder="/path/to/Projects"]', path.join(work, "proj")); await page.fill('input[placeholder="/path/to/video.mp4"]', video);
-    await page.click("text=Create project"); await page.waitForSelector(".timeline");
+    // start screen: ONE step from a video to the editor (no folder, no name to fill in)
+    check(await page.locator(".drop").count() === 1 && await page.locator("text=Drop a video here").count() === 1, "the start screen offers a drop zone");
+    await page.click(".drop"); await page.fill('input[placeholder="Full path"]', video); await page.keyboard.press("Enter");
+    await page.waitForSelector(".timeline");
+    check(fs.readdirSync(path.join(work, "proj")).some(n => n.endsWith(".evproj")), "the project was created in the default projects folder");
     await page.click("button[aria-label=Color]"); await page.click("text=Blank grade"); await page.waitForSelector(".wheel");
     const op = async () => { await page.waitForTimeout(1500); return (await (await fetch(`${base}/api/project`, { headers: H })).json()).blueprint.operations[0]; };
 

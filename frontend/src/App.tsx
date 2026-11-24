@@ -42,6 +42,7 @@ function Editor({ api }: { api: Api }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => { if (window.evp?.isElectron) document.body.classList.add("electron"); }, []);
   const [pathDlg, setPathDlg] = useState<{ title: string; kind: string; resolve: (p: string | null) => void } | null>(null);
   const [saved, setSaved] = useState<Blueprint | null>(null);
   const [layout, setLayout] = useState({ left: 320, right: 330, bottom: 260 });
@@ -54,7 +55,15 @@ function Editor({ api }: { api: Api }) {
     const id = ++toastId.current; setToasts(t => [...t, { id, msg, kind }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), kind === "err" ? 7000 : 3000);
   }, []);
   const edit = useCallback((fn: (b: Blueprint) => Blueprint, key?: string) => setHist(h => m.commit(h, fn(h.present), key)), []);
-  const askPath = useCallback((title: string, kind: string) => new Promise<string | null>(res => setPathDlg({ title, kind, resolve: res })), []);
+  const askPath = useCallback((title: string, kind: string) => {
+    const b = window.evp;
+    if (b?.pickFile && b?.pickFolder) {                      // desktop app: the operating system's own dialog, straight away
+      const filters = kind === "video" ? [{ name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v"] }]
+        : kind === "image" ? [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }] : undefined;
+      return (kind === "any" && /folder/i.test(title) ? b.pickFolder(title) : b.pickFile({ title, filters })) as Promise<string | null>;
+    }
+    return new Promise<string | null>(res => setPathDlg({ title, kind, resolve: res }));      // browser / development: type a path
+  }, []);
 
   const load = useCallback((p: ProjectState) => {
     setProject(p); setHist(m.reset(p.blueprint)); setSaved(p.blueprint); setSelRaw(null); setSelClipRaw(null); setT(0); setProxy(null); setReport(null);
@@ -260,6 +269,17 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
     </div>);
 }
 
+function AboutBox() {
+  const [info, setInfo] = useState<{ version: string; packaged: boolean; logDir: string } | null>(null);
+  useEffect(() => { window.evp?.app?.info().then(setInfo).catch(() => {}); }, []);
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <h3>About</h3>
+      <p className="muted">EVP Editor {info?.version ?? ""}{info && !info.packaged ? " (development)" : ""}. Updates come from the project's GitHub releases; nothing is downloaded or installed without asking you.</p>
+      <div className="btn-row"><Btn label="Check for updates" onClick={() => window.evp?.app?.checkUpdates()} /><Btn icon="folder" label="Open logs folder" onClick={() => window.evp?.app?.openLogs()} /></div>
+    </div>);
+}
+
 function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void; toast: Ctx["toast"] }) {
   const [cfg, setCfg] = useState<ReportConfig | null>(null);
   const [endpoint, setEndpoint] = useState(""); const [bucket, setBucket] = useState("evp-reports");
@@ -291,6 +311,7 @@ function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Settings">
+        {window.evp?.app && <AboutBox />}
         <h3>Problem reports</h3>
         <p className="muted">When a render fails, the app can upload a small diagnostic file (error, log tail, versions, your blueprint with file names only) to <b>your own</b> Cloudflare R2 bucket. It never contains video, audio or frames, and home-folder names are masked. Your keys are stored only on this computer (owner-only file) and are never sent anywhere except to your R2 endpoint.</p>
         <div className="grid2">
@@ -314,26 +335,60 @@ function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void
 
 function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: ProjectState) => void; toast: Ctx["toast"]; askPath: Ctx["askPath"] }) {
   const [recent, setRecent] = useState<{ path: string; name: string }[]>([]);
+  const [defs, setDefs] = useState<{ projects_dir: string } | null>(null);
+  const [over, setOver] = useState(false); const [busy, setBusy] = useState(false);
+  const [adv, setAdv] = useState(false);
   const [name, setName] = useState("My Project"); const [parent, setParent] = useState(""); const [source, setSource] = useState("");
-  useEffect(() => { api.recent().then(setRecent).catch(() => {}); }, [api]);
-  const go = async (f: () => Promise<ProjectState>) => { try { onOpen(await f()); } catch (e: any) { toast(e.message, "err"); } };
+  useEffect(() => { api.recent().then(setRecent).catch(() => {}); api.defaults().then(setDefs).catch(() => {}); }, [api]);
+  const go = async (f: () => Promise<ProjectState>) => { setBusy(true); try { onOpen(await f()); } catch (e: any) { toast(e.message, "err"); } setBusy(false); };
+  const withVideo = async () => { const p = await askPath("Choose your video (MP4, MOV, MKV, AVI, WebM)", "video"); if (p) go(() => api.quickProject(p)); };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setOver(false);
+    const f = e.dataTransfer.files?.[0]; if (!f) return;
+    const path = window.evp?.pathFor ? window.evp.pathFor(f) : (f as any).path;
+    if (!path) { toast("Drag and drop is not available here: click the box to choose the file", "err"); return; }
+    go(() => api.quickProject(path));
+  };
+  const short = (p: string) => p.length > 58 ? p.slice(0, 22) + " … " + p.slice(-30) : p;
   return (
-    <div className="welcome">
-      <div className="panel">
-        <h1><Icon n="film" size={28} /> EVP <small>AI Blueprint Video Editor</small></h1>
-        <p className="muted">Import a video, paste the editing blueprint produced by your AI, and the engine executes it. Everything stays editable.</p>
-        <h3>New project</h3>
-        <label className="field"><span className="fl">name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
-        <label className="field"><span className="fl">save in folder</span><div className="slider-row"><input value={parent} onChange={e => setParent(e.target.value)} placeholder="Choose a folder…" /><Btn label="Browse" onClick={async () => { const p = await askPath("Folder for the project", "any"); if (p) setParent(p); }} /></div></label>
-        <label className="field"><span className="fl">original video (optional now)</span><div className="slider-row"><input value={source} onChange={e => setSource(e.target.value)} placeholder="Choose a video file…" /><Btn label="Browse" onClick={async () => { const p = await askPath("Original video", "video"); if (p) setSource(p); }} /></div></label>
-        <Btn kind="primary" icon="plus" label="Create project" disabled={!name.trim() || !parent.trim()} onClick={() => go(() => api.newProject(parent.trim(), name.trim(), source.trim() || undefined))} />
+    <div className="welcome2">
+      <div className="dragbar" />
+      <div className="hero">
+        <span className="mark"><Icon n="film" size={26} /></span>
+        <div><h1>EVP Editor</h1><p>AI blueprint video editor: key, replace backgrounds, grade, enhance. Everything stays editable.</p></div>
       </div>
-      <div className="panel">
-        <h3>Recent projects</h3>
-        {recent.length === 0 && <p className="muted">None yet.</p>}
-        {recent.map(r => <button className="item" key={r.path} onClick={() => go(() => api.openProject(r.path))}><Icon n="folder" size={14} /> {r.name} <em>{r.path}</em></button>)}
-        <Btn icon="folder" label="Open project folder…" onClick={async () => { const p = await askPath("Open a .evproj folder", "any"); if (p) go(() => api.openProject(p)); }} />
+      <div className="cols">
+        <section className="wcard start">
+          <h3>Start</h3>
+          <div className={"drop" + (over ? " over" : "")} role="button" tabIndex={0} aria-label="Choose a video"
+            onClick={() => !busy && withVideo()} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") withVideo(); }}
+            onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}>
+            <Icon n="export" size={34} />
+            <b>{busy ? "Creating your project…" : "Drop a video here"}</b>
+            <span>{busy ? "one moment" : "or click to choose a file"}</span>
+            <em>MP4 · MOV · MKV · AVI · WebM</em>
+          </div>
+          <div className="btn-row">
+            <Btn icon="plus" label="Empty project" disabled={busy} onClick={() => go(() => api.quickProject())} title="Start without a video; add one later" />
+            <Btn icon="folder" label="Open project…" disabled={busy} onClick={async () => { const p = await askPath("Open a .evproj folder", "any"); if (p) go(() => api.openProject(p)); }} />
+            <span className="spacer" />
+            <button className="link" onClick={() => setAdv(a => !a)}>{adv ? "Hide" : "Name and folder…"}</button>
+          </div>
+          {adv && <div className="adv">
+            <label className="field"><span className="fl">project name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
+            <label className="field"><span className="fl">save in folder (default: {defs?.projects_dir ?? "…"})</span><div className="slider-row"><input value={parent} onChange={e => setParent(e.target.value)} placeholder="Default folder" /><Btn label="Browse" onClick={async () => { const p = await askPath("Choose the projects folder", "any"); if (p) setParent(p); }} /></div></label>
+            <label className="field"><span className="fl">video (optional)</span><div className="slider-row"><input value={source} onChange={e => setSource(e.target.value)} placeholder="Choose a video file…" /><Btn label="Browse" onClick={async () => { const p = await askPath("Choose your video (MP4, MOV, MKV, AVI, WebM)", "video"); if (p) setSource(p); }} /></div></label>
+            <Btn kind="primary" icon="plus" label="Create project" disabled={!name.trim() || busy}
+              onClick={() => go(() => parent.trim() ? api.newProject(parent.trim(), name.trim(), source.trim() || undefined) : api.quickProject(source.trim() || undefined, name.trim()))} />
+          </div>}
+        </section>
+        <section className="wcard recent">
+          <h3>Recent projects</h3>
+          {recent.length === 0 && <p className="muted">Nothing yet. Your projects will appear here.</p>}
+          <div className="recent-list">{recent.map(r => <button className="item" key={r.path} onClick={() => go(() => api.openProject(r.path))}><Icon n="folder" size={15} /><span><b>{r.name}</b><em>{short(r.path)}</em></span></button>)}</div>
+        </section>
       </div>
+      <footer className="foot">{defs ? `New projects are saved in ${defs.projects_dir}` : ""}</footer>
     </div>);
 }
 

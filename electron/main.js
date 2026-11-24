@@ -1,7 +1,7 @@
 // Electron main process: starts the local engine, then opens the UI.
 // Security: contextIsolation on, nodeIntegration off, strict CSP, no navigation/new windows, backend bound to 127.0.0.1 with a
 // per-launch secret token. In the installed app the engine is a self-contained executable (no Python needed) and FFmpeg is bundled.
-const { app, BrowserWindow, Menu, ipcMain, dialog, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, dialog, session, shell, nativeTheme } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -155,7 +155,9 @@ async function createWindow() {
   const st = loadState();
   win = new BrowserWindow({
     width: st.width, height: st.height, x: st.x, y: st.y, minWidth: 1100, minHeight: 680, show: false,
-    backgroundColor: "#0e1014", title: "EVP Editor",
+    backgroundColor: "#0e1014", title: "EVP Editor", autoHideMenuBar: true,
+    // dark, seamless title bar: the page draws it, the system only overlays the minimise / maximise / close buttons
+    titleBarStyle: "hidden", titleBarOverlay: { color: "#14171d", symbolColor: "#e6e9ef", height: 48 },
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: false },
   });
   if (st.maximized) win.maximize();
@@ -169,6 +171,9 @@ async function createWindow() {
 }
 
 ipcMain.on("backend-info", (e) => { e.returnValue = info; });
+ipcMain.handle("app-info", () => ({ version: app.getVersion(), packaged: app.isPackaged, logDir: logDir() }));
+ipcMain.handle("check-updates", () => checkForUpdates(true));
+ipcMain.handle("open-logs", () => shell.openPath(logDir()));
 ipcMain.handle("pick-file", async (_e, opts) => {
   const r = await dialog.showOpenDialog(win, { title: opts?.title, properties: ["openFile"], filters: opts?.filters });
   return r.canceled ? null : r.filePaths[0];
@@ -178,6 +183,7 @@ ipcMain.handle("pick-folder", async (_e, title) => {
   return r.canceled ? null : r.filePaths[0];
 });
 
+nativeTheme.themeSource = "dark";
 app.whenReady().then(async () => {
   // strict CSP: only our own files and the local engine
   session.defaultSession.webRequest.onHeadersReceived((d, cb) => cb({ responseHeaders: { ...d.responseHeaders,

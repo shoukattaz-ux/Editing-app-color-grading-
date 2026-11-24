@@ -5,6 +5,8 @@ export interface Bridge {
   pickFile?: (opts: { title: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   pickFolder?: (title: string) => Promise<string | null>;
   isElectron?: boolean;
+  pathFor?: (f: File) => string;
+  app?: { info: () => Promise<{ version: string; packaged: boolean; logDir: string }>; checkUpdates: () => Promise<void>; openLogs: () => Promise<void> };
 }
 declare global { interface Window { evp?: Bridge } }
 
@@ -40,6 +42,8 @@ export class Api {
   sourceUrl() { return `${this.base}/api/media/source?token=${this.token}`; }
   schema(): Promise<Schema> { return this.req("GET", "/api/schema"); }
   system(): Promise<any> { return this.req("GET", "/api/system"); }
+  defaults(): Promise<{ projects_dir: string }> { return this.req("GET", "/api/defaults"); }
+  quickProject(source?: string, name?: string): Promise<ProjectState> { return this.req("POST", "/api/project/quick", { source: source || null, name: name || null }); }
   recent(): Promise<{ path: string; name: string }[]> { return this.req("GET", "/api/project/recent"); }
   newProject(parent: string, name: string, source?: string): Promise<ProjectState> { return this.req("POST", "/api/project/new", { parent, name, source: source || null }); }
   openProject(path: string): Promise<ProjectState> { return this.req("POST", "/api/project/open", { path }); }

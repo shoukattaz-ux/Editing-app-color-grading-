@@ -114,6 +114,34 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         st.recent.add(str(st.project.root), b.name)
         return _project_json()
 
+    class QuickProject(BaseModel):
+        source: str | None = None
+        name: str | None = None
+
+    def _projects_dir() -> Path:
+        d = os.environ.get("EVP_PROJECTS_DIR")
+        if d: return Path(d)
+        docs = Path.home() / "Documents"
+        return (docs if docs.is_dir() else Path.home()) / "EVP Projects"
+
+    @app.get("/api/defaults", dependencies=[api()])
+    def defaults(): return {"projects_dir": str(_projects_dir())}
+
+    @app.post("/api/project/quick", dependencies=[api()])
+    def quick_project(b: QuickProject):
+        """one step: a project in the default projects folder, named after the video (made unique), source attached"""
+        import re
+        base = (b.name or (Path(b.source).stem if b.source else "My Project")).strip()
+        base = re.sub(r"[^\w .-]+", " ", base).strip(" .") or "My Project"
+        parent = _projects_dir()
+        name, n = base, 1
+        while (parent / (name + ".evproj")).exists() and n < 500:
+            n += 1; name = f"{base} {n}"
+        st.project = Project.create(parent, name)
+        if b.source: _set_source(b.source)
+        st.recent.add(str(st.project.root), name)
+        return _project_json()
+
     class PathBody(BaseModel):
         path: str
 
