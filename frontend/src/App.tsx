@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Api, ApiError, JobState, ProjectState, Validation, connection } from "./api";
+import { Api, ApiError, JobState, ProjectState, ReportConfig, Validation, connection } from "./api";
 import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
@@ -41,6 +41,7 @@ function Editor({ api }: { api: Api }) {
   const [proxy, setProxy] = useState<{ bp: Blueprint; path: string } | null>(null);
   const [job, setJob] = useState<JobState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [pathDlg, setPathDlg] = useState<{ title: string; kind: string; resolve: (p: string | null) => void } | null>(null);
   const [saved, setSaved] = useState<Blueprint | null>(null);
   const [layout, setLayout] = useState({ left: 320, right: 330, bottom: 260 });
@@ -164,6 +165,7 @@ function Editor({ api }: { api: Api }) {
         <Btn icon="bolt" label="Execute Blueprint" kind="primary" onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
         <Btn icon="eye" label="Render preview" onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Render the 640px proxy preview" />
         <Btn icon="export" label="Export" onClick={() => setExportOpen(true)} disabled={!video} />
+        <Btn icon="gear" onClick={() => setSettingsOpen(true)} title="Settings: problem reports" />
       </header>
 
       <nav className="rail" aria-label="Panels">
@@ -194,6 +196,7 @@ function Editor({ api }: { api: Api }) {
         {job && <JobBar job={job} api={api} onUpdate={setJob} compact />}
         <span className="spacer" /><span>{hist.past.length} undo step(s)</span>
       </footer>
+      {settingsOpen && <SettingsDialog api={api} onClose={() => setSettingsOpen(false)} toast={toast} />}
       {exportOpen && <ExportDialog api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
       <Toasts toasts={toasts} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} />
     </div>
@@ -253,6 +256,58 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
           {exportJob.state === "done" && <div className="issue ok"><Icon n="check" size={14} /> Saved to {exportJob.output}</div>}
           <Btn label={log ? "Hide log" : "Show render log"} onClick={() => setLog(l => !l)} />{log && <pre className="log">{exportJob.log.join("\n")}</pre>}</>}
         <div className="btn-row end"><Btn label="Close" onClick={onClose} disabled={running} /><Btn icon="export" kind="primary" label="Start export" onClick={start} disabled={running} /></div>
+      </div>
+    </div>);
+}
+
+function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void; toast: Ctx["toast"] }) {
+  const [cfg, setCfg] = useState<ReportConfig | null>(null);
+  const [endpoint, setEndpoint] = useState(""); const [bucket, setBucket] = useState("evp-reports");
+  const [keyId, setKeyId] = useState(""); const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState("");
+  const [note, setNote] = useState("");
+  const load = useCallback(() => api.reportConfig().then(c => { setCfg(c); setEndpoint(e => e || c.endpoint); setBucket(b => c.bucket || b); }).catch(() => {}), [api]);
+  useEffect(() => { load(); }, [load]);
+  const save = async (extra: Record<string, any> = {}) => {
+    setBusy(true);
+    try {
+      const c = await api.saveReportConfig({ endpoint: endpoint || undefined, bucket: bucket || undefined, access_key_id: keyId || undefined, secret_access_key: secret || undefined, ...extra });
+      setCfg(c); setKeyId(""); setSecret(""); setMsg("Saved.");
+    } catch (e: any) { setMsg(e instanceof ApiError ? e.message : String(e)); }
+    setBusy(false);
+  };
+  const test = async () => {
+    setBusy(true); setMsg("Sending a test report…");
+    try { const r = await api.reportTest(); setMsg(r.ok ? "Test report delivered." : `Could not deliver: ${r.error ?? "unknown error"}${r.queued ? " (kept to retry later)" : ""}`); await load(); }
+    catch (e: any) { setMsg(String(e)); }
+    setBusy(false);
+  };
+  const send = async () => {
+    setBusy(true);
+    try { const r = await api.reportSend(note); setMsg(r.ok ? "Report sent. Thank you." : `Could not send: ${r.error}`); if (r.ok) setNote(""); await load(); }
+    catch (e: any) { setMsg(String(e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Settings">
+        <h3>Problem reports</h3>
+        <p className="muted">When a render fails, the app can upload a small diagnostic file (error, log tail, versions, your blueprint with file names only) to <b>your own</b> Cloudflare R2 bucket. It never contains video, audio or frames, and home-folder names are masked. Your keys are stored only on this computer (owner-only file) and are never sent anywhere except to your R2 endpoint.</p>
+        <div className="grid2">
+          <label className="field"><span className="fl">R2 endpoint (https://&lt;account&gt;.r2.cloudflarestorage.com)</span><input value={endpoint} onChange={e => setEndpoint(e.target.value)} placeholder="https://…r2.cloudflarestorage.com" /></label>
+          <label className="field"><span className="fl">bucket name</span><input value={bucket} onChange={e => setBucket(e.target.value)} /></label>
+          <label className="field"><span className="fl">Access Key ID {cfg?.access_key_id_masked ? `(saved ${cfg.access_key_id_masked})` : ""}</span><input value={keyId} onChange={e => setKeyId(e.target.value)} autoComplete="off" placeholder={cfg?.access_key_id_masked ? "leave empty to keep" : ""} /></label>
+          <label className="field"><span className="fl">Secret Access Key {cfg?.has_secret ? "(saved)" : ""}</span><input type="password" value={secret} onChange={e => setSecret(e.target.value)} autoComplete="new-password" placeholder={cfg?.has_secret ? "leave empty to keep" : ""} /></label>
+        </div>
+        <label className="check"><input type="checkbox" checked={cfg?.auto_send ?? true} onChange={e => save({ auto_send: e.target.checked })} /> Send a report automatically when a render fails (at most 6 per hour, never the same error twice)</label>
+        <div className="btn-row"><Btn label="Save" kind="primary" onClick={() => save()} disabled={busy} /><Btn label="Send test report" onClick={test} disabled={busy || !cfg?.configured} /></div>
+        <h3 style={{ marginTop: 16 }}>Report a problem now</h3>
+        <textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="What went wrong? (optional)" style={{ width: "100%" }} />
+        <div className="btn-row"><Btn label="Send report" onClick={send} disabled={busy || !cfg?.configured} /></div>
+        {msg && <div className="issue">{msg}</div>}
+        {cfg && !cfg.configured && <p className="muted">Not configured: reports stay on this computer until you add the endpoint, bucket and keys above.</p>}
+        {!!cfg?.pending && <p className="muted">{cfg.pending} report(s) waiting to be delivered (no connection earlier); they are retried automatically.</p>}
+        <div className="btn-row end"><Btn label="Close" onClick={onClose} /></div>
       </div>
     </div>);
 }

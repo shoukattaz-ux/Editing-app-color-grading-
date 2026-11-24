@@ -1,5 +1,5 @@
 """Local HTTP API (127.0.0.1 only, per-launch secret token). Thin layer over the engine."""
-import hashlib, json, os, secrets, sys, tempfile, argparse
+import hashlib, json, os, secrets, sys, tempfile, argparse, threading
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from .blueprint import VideoInfo
 from .compiler import RenderOptions
 from .engine import prepare, render_frame, Job, JobManager
 from .media import probe, hardware_report, MediaError
+from .reporter import Reporter
 from .project import Project, ProjectError, RecentProjects
 from .registry import json_schema
 from .security import PathPolicy, safe_output_path, PathError
@@ -26,6 +27,7 @@ class State:
         self.video: VideoInfo | None = None
         self.jobs = JobManager()
         self.recent = RecentProjects(data_dir / "recent.json")
+        self.reporter = Reporter(data_dir, __version__, allow_local=bool(os.environ.get("EVP_REPORT_ALLOW_LOCAL")))
 
     @property
     def source(self) -> str | None:
@@ -67,6 +69,22 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
 
     @app.exception_handler(PathError)
     async def _pa(_, e): return Response(json.dumps({"detail": str(e)}), 400, media_type="application/json")
+
+    def _failure_report(job: Job) -> None:
+        bp = st.project.data.get("blueprint") if st.project else None
+        st.reporter.auto("render_failed", job.error or "render failed", {"job_kind": job.kind, "current": job.current, "fallback_used": job.fallback_used},
+                         bp, "\n".join(job.log))
+    Job.failure_hook = _failure_report
+
+    @app.on_event("startup")
+    def _flush_outbox():
+        threading.Thread(target=st.reporter.flush_outbox, daemon=True).start()
+
+    @app.exception_handler(Exception)
+    async def _unexpected(request: Request, exc: Exception):
+        import traceback
+        st.reporter.auto("server_error", f"{type(exc).__name__}: {exc}", {"path": request.url.path}, None, "".join(traceback.format_exception(exc))[-8000:])
+        return Response(json.dumps({"detail": "internal error"}), status_code=500, media_type="application/json")
 
     @app.get("/api/health")
     def health(): return {"ok": True, "version": __version__}
@@ -271,6 +289,38 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             except ValueError as e: raise HTTPException(409, str(e))
         else: raise HTTPException(404, "unknown action")
         return j.to_json()
+
+    # ---------------- problem reports (Cloudflare R2)
+    class ReportCfg(BaseModel):
+        endpoint: str | None = None
+        bucket: str | None = None
+        access_key_id: str | None = None
+        secret_access_key: str | None = None
+        enabled: bool | None = None
+        auto_send: bool | None = None
+
+    @app.get("/api/report/config", dependencies=[api()])
+    def report_cfg(): return st.reporter.public_config()
+
+    @app.put("/api/report/config", dependencies=[api()])
+    def report_cfg_put(b: ReportCfg):
+        try: st.reporter.save_config(b.endpoint, b.bucket, b.access_key_id, b.secret_access_key, b.enabled, b.auto_send)
+        except ValueError as e: raise HTTPException(422, str(e))
+        return st.reporter.public_config()
+
+    @app.post("/api/report/test", dependencies=[api()])
+    def report_test(): return st.reporter.send("test", "Test report from Settings", {"note": "connection test"})
+
+    class ReportSend(BaseModel):
+        message: str = ""
+        include_blueprint: bool = True
+
+    @app.post("/api/report/send", dependencies=[api()])
+    def report_send(b: ReportSend):
+        bp = st.project.data.get("blueprint") if (st.project and b.include_blueprint) else None
+        jobs = list(st.jobs.jobs.values())[-1:]
+        log = "\n".join(jobs[0].log) if jobs else ""
+        return st.reporter.send("user_report", b.message or "(no message)", {"last_job_state": jobs[0].state if jobs else None}, bp, log)
 
     # ---------------- media (range requests supported by FileResponse)
     @app.get("/api/media/source", dependencies=[api()])

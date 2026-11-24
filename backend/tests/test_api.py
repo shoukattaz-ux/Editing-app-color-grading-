@@ -138,3 +138,110 @@ def test_corrupt_source_rejected(client, tmp_path):
     client.post("/api/project/new", headers=H, json={"parent": str(tmp_path), "name": "Z"})
     r = client.post("/api/project/source", headers=H, json={"path": str(bad)})
     assert r.status_code == 400 and "orrupt" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------- problem reports (Cloudflare R2, S3 API)
+import http.server, threading as _th, zipfile as _zip, io as _io
+
+
+class _FakeR2:
+    """local stand-in for the S3 endpoint: records every PUT"""
+    def __init__(self, status=200):
+        self.puts, outer = [], self
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_PUT(self):
+                body = self.rfile.read(int(self.headers["content-length"]))
+                outer.puts.append((self.path, dict(self.headers), body)); self.send_response(status); self.end_headers()
+            def log_message(self, *a): pass
+        self.srv = http.server.HTTPServer(("127.0.0.1", 0), H); self.url = f"http://127.0.0.1:{self.srv.server_port}"
+        _th.Thread(target=self.srv.serve_forever, daemon=True).start()
+    def close(self): self.srv.shutdown()
+
+
+def test_sigv4_matches_the_published_aws_test_vector():
+    import datetime as dt
+    from evp.reporter import sigv4_headers
+    h = sigv4_headers("GET", "examplebucket.s3.amazonaws.com", "/test.txt", {"range": "bytes=0-9", "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+                      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                      region="us-east-1", now=dt.datetime(2013, 5, 24, tzinfo=dt.timezone.utc))
+    assert h["authorization"].endswith("Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41")
+
+
+def test_report_upload_content_masking_and_secret_handling(tmp_path, monkeypatch):
+    from evp.reporter import Reporter
+    monkeypatch.setenv("HOME", str(tmp_path))
+    fake = _FakeR2()
+    try:
+        r = Reporter(tmp_path / "data", "9.9", allow_local=True)
+        assert not r.configured() and not r.send("test", "x")["ok"]
+        r.save_config(fake.url, "evp-reports", "AKIDEXAMPLE0000", "SECRETSECRETSECRET", True, True)
+        assert (tmp_path / "data" / "report.json").stat().st_mode & 0o077 == 0                        # owner-only file
+        pub = r.public_config()
+        assert pub["has_secret"] and "SECRETSECRETSECRET" not in json.dumps(pub) and pub["access_key_id_masked"] == "…0000"
+        bp = {"project": {"source_video": f"{tmp_path}/secret folder/clip.mp4"}, "assets": [{"id": "a", "type": "image", "path": f"{tmp_path}/pics/bg.png"}]}
+        res = r.send("render_failed", f"ffmpeg failed reading {tmp_path}/secret folder/clip.mp4", {"x": 1}, bp, f"error in {tmp_path}/x")
+        assert res["ok"], res
+        path, headers, body = fake.puts[0]
+        assert path.startswith("/evp-reports/reports/") and path.endswith(".zip")
+        auth = headers["Authorization"]
+        assert auth.startswith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE0000/") and "SECRETSECRETSECRET" not in json.dumps(headers)
+        z = _zip.ZipFile(_io.BytesIO(body)); names = set(z.namelist())
+        assert {"report.json", "blueprint.json", "log.txt"} <= names
+        everything = " ".join(z.read(n).decode() for n in names)
+        assert str(tmp_path) not in everything and "SECRETSECRETSECRET" not in everything       # home folder masked, no secret
+        assert "clip.mp4" in z.read("blueprint.json").decode() and "secret folder" not in z.read("blueprint.json").decode()   # paths reduced to file names
+        assert not any(n.endswith((".mp4", ".png", ".mkv")) for n in names)                         # never media
+    finally: fake.close()
+
+
+def test_report_failure_is_queued_and_retried_and_auto_reports_are_rate_limited(tmp_path):
+    from evp.reporter import Reporter
+    bad = _FakeR2(status=403)
+    r = Reporter(tmp_path, "1", allow_local=True); r.save_config(bad.url, "bkt-1", "AKID", "SECRET", True, True)
+    res = r.send("test", "boom")
+    assert not res["ok"] and res["queued"] and r.public_config()["pending"] == 1 and "SECRET" not in json.dumps(res)
+    bad.close()
+    good = _FakeR2(); r.save_config(good.url, "bkt-1", None, None, None, None)
+    try:
+        assert r.flush_outbox() == 1 and r.public_config()["pending"] == 0 and len(good.puts) == 1
+        sent = [r.auto("render_failed", f"unique failure {chr(65 + i)}") for i in range(10)]
+        assert sum(sent) == 6                                                                       # 6 per hour at most
+        assert not r.auto("render_failed", "unique failure A")                                       # and never the same one twice
+        r.save_config(None, None, None, None, None, False)
+        assert not r.auto("render_failed", "another one")                                            # auto_send off = silent
+    finally: good.close()
+
+
+def test_report_endpoint_must_be_an_r2_address():
+    from evp.reporter import validate_endpoint
+    assert validate_endpoint("https://94cd5cc82406d3f30d1eb8b8c245d661.r2.cloudflarestorage.com/") .endswith(".r2.cloudflarestorage.com")
+    for bad in ("http://abc.r2.cloudflarestorage.com", "https://evil.example.com", "https://r2.cloudflarestorage.com.evil.com", "ftp://x"):
+        with pytest.raises(ValueError): validate_endpoint(bad)
+
+
+def test_report_api_never_returns_the_secret_and_job_failures_report_automatically(tmp_path, media, monkeypatch):
+    fake = _FakeR2()
+    monkeypatch.setenv("EVP_REPORT_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("HOME", str(tmp_path))                      # paths under the home folder are what gets masked
+    c = TestClient(create_app("tok", str(tmp_path / "data")))
+    try:
+        r = c.put("/api/report/config", headers=H, json={"endpoint": fake.url, "bucket": "evp-reports", "access_key_id": "AKID1234", "secret_access_key": "TOPSECRET"})
+        assert r.status_code == 200 and "TOPSECRET" not in r.text and r.json()["configured"]
+        assert "TOPSECRET" not in c.get("/api/report/config", headers=H).text
+        assert c.put("/api/report/config", headers=H, json={"endpoint": "https://evil.example.com"}).status_code == 422
+        assert c.post("/api/report/test", headers=H).json()["ok"] and len(fake.puts) == 1
+        # a real failing render sends a report on its own
+        c.post("/api/project/new", headers=H, json={"parent": str(tmp_path), "name": "P", "source": media["video"]})
+        import evp.engine as eng
+        def boom(*a, **k): raise RuntimeError(f"filter graph exploded at {tmp_path}/secret")
+        monkeypatch.setattr(eng, "compile_plan", boom)
+        job = c.post("/api/render", headers=H, json={"blueprint": bp(), "filename": "x"}).json()["job"]
+        assert wait(c, job["id"])["state"] == "failed"
+        t = time.time()
+        while len(fake.puts) < 2 and time.time() - t < 10: time.sleep(0.1)
+        assert len(fake.puts) == 2, "no automatic report arrived"
+        z = _zip.ZipFile(_io.BytesIO(fake.puts[1][2]))
+        rep = json.loads(z.read("report.json"))
+        assert rep["kind"] == "render_failed" and "filter graph exploded" in rep["message"] and str(tmp_path) not in z.read("report.json").decode()
+        assert "blueprint.json" in z.namelist()
+    finally: fake.close()

@@ -23,6 +23,8 @@ export interface VideoInfo { duration: number; fps: number; width: number; heigh
 export interface ProjectState { path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean }
 export interface JobState { id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }
 
+export interface ReportConfig { endpoint: string; bucket: string; access_key_id_masked: string; has_secret: boolean; enabled: boolean; auto_send: boolean; configured: boolean; pending: number; last: { ok?: boolean; error?: string; when?: number } }
+
 export class Api {
   constructor(public base: string, public token: string) {}
   private async req(method: string, path: string, body?: unknown, raw = false): Promise<any> {
@@ -55,6 +57,10 @@ export class Api {
   /** width null = full output resolution (used by the 1:1 loupe) */
   frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width }, true); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
+  reportConfig(): Promise<ReportConfig> { return this.req("GET", "/api/report/config"); }
+  saveReportConfig(c: Partial<{ endpoint: string; bucket: string; access_key_id: string; secret_access_key: string; enabled: boolean; auto_send: boolean }>): Promise<ReportConfig> { return this.req("PUT", "/api/report/config", c); }
+  reportTest(): Promise<{ ok: boolean; error?: string; key?: string; queued?: boolean }> { return this.req("POST", "/api/report/test"); }
+  reportSend(message: string): Promise<{ ok: boolean; error?: string; key?: string }> { return this.req("POST", "/api/report/send", { message }); }
   job(id: string): Promise<JobState> { return this.req("GET", `/api/jobs/${id}`); }
   jobAction(id: string, a: "pause" | "resume" | "cancel" | "retry"): Promise<JobState> { return this.req("POST", `/api/jobs/${id}/${a}`); }
 }

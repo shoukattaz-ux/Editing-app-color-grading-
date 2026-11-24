@@ -196,6 +196,7 @@ def estimate_bytes(plan: Plan) -> int:
 
 class Job:
     """One render. States: queued running paused done failed cancelled."""
+    failure_hook: "Callable[[Job], None] | None" = None      # set by the server: automatic problem report
 
     def __init__(self, plan: Plan, source: str, out_path: str, opts: RenderOptions, work_dir: str, kind="render"):
         self.id = uuid.uuid4().hex[:12]
@@ -315,6 +316,9 @@ class Job:
             self._log(f"ERROR: {e}")
         finally:
             for f in (self.compiled.work_files if self.compiled else []): _rm(f)
+            if self.state == "failed" and Job.failure_hook:
+                try: Job.failure_hook(self)
+                except Exception: pass                                  # reporting must never break a job
 
     def _attempt(self, tmp_out: str, opts: RenderOptions) -> bool:
         self.compiled = compile_plan(self.plan, self.source, tmp_out, opts, self.work_dir)
