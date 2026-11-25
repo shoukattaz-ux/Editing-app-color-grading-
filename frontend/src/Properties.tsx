@@ -139,6 +139,24 @@ function MaskTools({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** Hair detail: the AI model refines a band around the edge; the screen key stays in charge elsewhere */
+function HairDetail({ op, edit, note }: { op: Op; edit: Edit; note?: { used: number; skipped: number } }) {
+  const v = (op.parameters?.hair_detail as number | undefined) ?? 0;
+  const w = (op.parameters?.hair_width as number | undefined) ?? 16;
+  const set = (k: string, x: number) => edit(b => m.setParam(b, op.id, k, x), `p:${op.id}:${k}`);
+  return (
+    <section className="hairdetail">
+      <div className="master-head"><h4>Hair detail</h4><span className="muted small">{v > 0 ? `${Math.round(v * 100)}%` : "off"}</span></div>
+      <p className="muted small">Fine hair is where keys fail: strands lost against a shadowed screen, green-tinted hair that turns see-through. Hair detail runs the AI matting model as well and lets it <b>restore what the key lost</b>, only in a band around the subject's edge. It can only add: your key's crisp strands are never softened, the AI's wider halo over pure screen never comes in, and a frame where the AI does not find the same person uses the plain key. On clean footage the result is almost identical, so it is insurance for difficult hair. Downloads a 15 MB model on first use and is slower (the network runs on every frame; a graphics card helps).</p>
+      <div className="master-row"><input type="range" min={0} max={100} value={Math.round(v * 100)} onChange={e => set("hair_detail", +e.target.value / 100)} onDoubleClick={() => set("hair_detail", 0)} aria-label="Hair detail strength" />
+        <Btn label={v > 0 ? "Off" : "Turn on"} kind={v > 0 ? undefined : "primary"} onClick={() => set("hair_detail", v > 0 ? 0 : 0.7)} /></div>
+      {v > 0 && <label className="field"><span className="fl">band width <em>px at 1080p</em></span><input type="range" min={2} max={60} value={w} onChange={e => set("hair_width", +e.target.value)} aria-label="Hair band width" /></label>}
+      {v > 0 && note && note.used > 0 && <div className="issue ok"><Icon n="check" size={14} /> The AI refined the hair on {note.used} checked frame(s){note.skipped ? `; ${note.skipped} used the plain key (the AI did not find the same person)` : ""}.</div>}
+      {v > 0 && note && note.used === 0 && <div className="issue warning"><Icon n="warn" size={14} /> On the checked frames the AI did not find the same person as the key, so the plain key was used. Hair detail needs a clearly visible person.</div>}
+      {v > 0 && !note && <p className="muted small">It is checked on the next preview frame.</p>}
+    </section>);
+}
+
 /** Camera match: make the subject look as if the same camera shot it and the background */
 function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
   const v = (op.parameters?.camera_match as number | undefined) ?? 0;
@@ -241,7 +259,8 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes }: {
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes }: {
+  hairNotes?: Record<string, { used: number; skipped: number }>;
   cameraNotes?: Record<string, CameraNote>;
   keyDoctor?: (opId: string) => Promise<any>;
   importAsset?: () => Promise<string | null>; plateNotes?: Record<string, { used: number; rejected: number }>;
@@ -281,6 +300,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "studio_look" && <CameraMatch op={op} edit={edit} note={cameraNotes?.[op.id]} />}
       {(op.type === "background_removal" || op.type === "chroma_key") && <KeyDoctor op={op} bp={bp} schema={schema} edit={edit} setT={setT} run={keyDoctor} dur={dur} />}
+      {op.type === "background_removal" && op.parameters?.mode === "screen" && <HairDetail op={op} edit={edit} note={hairNotes?.[op.id]} />}
       {op.type === "background_removal" && op.parameters?.mode === "screen" && <CleanPlateTools op={op} edit={edit} importAsset={importAsset} note={plateNotes?.[op.id]} />}
       {spec?.parameters.amount && <MasterAmount op={op} spec={spec.parameters.amount} edit={edit} />}
       {op.type === "color_grading" && <section><h4>Colour wheels</h4><ColorWheels op={op} edit={edit} /></section>}

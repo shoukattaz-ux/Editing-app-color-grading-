@@ -47,12 +47,15 @@ export class Api {
     if (raw) {
       const n = r.headers.get("x-evp-plate"); if (n && this.onPlate) { try { this.onPlate(JSON.parse(n)); } catch { /* ignore */ } }
       const c = r.headers.get("x-evp-camera"); if (c && this.onCamera) { try { this.onCamera(JSON.parse(c)); } catch { /* ignore */ } }
+      const h = r.headers.get("x-evp-hair"); if (h && this.onHair) { try { this.onHair(JSON.parse(h)); } catch { /* ignore */ } }
     }
     return raw ? r.blob() : r.json();
   }
   /** clean plate use per keying operation, reported by the engine with every preview frame: { opId: { used, rejected } } */
   /** camera match measurements per studio look, reported with every preview frame */
   onCamera?: (n: Record<string, CameraNote>) => void;
+  /** hair detail use per keying operation: { opId: { used, skipped } } */
+  onHair?: (n: Record<string, { used: number; skipped: number }>) => void;
   onPlate?: (n: Record<string, { used: number; rejected: number }>) => void;
   mediaUrl(path: string) { return `${this.base}/api/media/project?path=${encodeURIComponent(path)}&token=${this.token}`; }
   sourceUrl() { return `${this.base}/api/media/source?token=${this.token}`; }

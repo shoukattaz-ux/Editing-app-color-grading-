@@ -484,6 +484,20 @@
                       "maximum": 10.0,
                       "default": 0.0
                     },
+                    "hair_detail": {
+                      "description": "[screen] HAIR DETAIL: also run the AI matting model and let it RESTORE what the key lost in a band around the subject's edge (dark or green-tinted strands, dropouts). It can only add: the key's crisp strands are never softened, the AI's wider halo over pure screen never comes in, and a frame where the AI does not find the same person uses the plain key. On clean footage the result is almost identical to the plain key. 0 = off. Downloads a 15 MB model on first use and is slower (it runs the network on every frame).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "hair_width": {
+                      "description": "[screen, hair_detail] How far from the edge (outside, and a little inside) the AI may restore strands. Wider catches stray strands further out; narrower trusts the key more.",
+                      "type": "number",
+                      "minimum": 2.0,
+                      "maximum": 60.0,
+                      "default": 16.0
+                    },
                     "clean_plate_asset_id": {
                       "description": "[screen] CLEAN PLATE: a recording (or picture) of the EMPTY screen with the same camera, framing and lighting. The keyer then knows the screen pixel by pixel (wrinkles, folds, hot spots, shadow bands) instead of guessing, which gives much cleaner edges. Only the slow brightness drift is corrected; if it does not fit a frame (camera moved) that frame uses the normal estimate.",
                       "type": "string"

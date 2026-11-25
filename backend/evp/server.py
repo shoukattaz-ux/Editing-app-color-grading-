@@ -54,7 +54,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
     app = FastAPI(title="EVP backend", version=__version__)
     app.state.evp = st
     # The UI is served from file:// or a dev server; every route except /health requires the per-launch secret token.
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges", "x-evp-plate", "x-evp-camera"])
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges", "x-evp-plate", "x-evp-camera", "x-evp-hair"])
 
     def auth(request: Request):
         t = request.headers.get("x-evp-token") or request.query_params.get("token")
@@ -290,7 +290,8 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             raise HTTPException(500, str(e))
         notes = {k: ref.plate for k, ref in prep.plan.mattes.items() if getattr(ref, "plate", None)}      # clean plate use per key: {used, rejected}
         cams = {k: v["camera"] for k, v in prep.plan.look_auto.items() if isinstance(v, dict) and v.get("camera")}   # camera match measurements per studio look
-        hdr = {**({"x-evp-plate": json.dumps(notes)} if notes else {}), **({"x-evp-camera": json.dumps(cams)} if cams else {})}
+        hairs = {k: ref.hair for k, ref in prep.plan.mattes.items() if getattr(ref, "hair", None)}                  # hair detail use per key: {used, skipped}
+        hdr = {**({"x-evp-plate": json.dumps(notes)} if notes else {}), **({"x-evp-camera": json.dumps(cams)} if cams else {}), **({"x-evp-hair": json.dumps(hairs)} if hairs else {})}
         return Response(png, media_type="image/png", headers=hdr or None)
 
     class RenderReq(BaseModel):

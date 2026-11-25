@@ -51,6 +51,7 @@ function Editor({ api }: { api: Api }) {
   const [pathDlg, setPathDlg] = useState<{ title: string; kind: string; resolve: (p: string | null) => void } | null>(null);
   const [saved, setSaved] = useState<Blueprint | null>(null);
   const restoreView = useRef(false);
+  const [hairNotes, setHairNotes] = useState<Record<string, { used: number; skipped: number }>>({});
   const [cameraNotes, setCameraNotes] = useState<Record<string, any>>({});
   const [plateNotes, setPlateNotes] = useState<Record<string, { used: number; rejected: number }>>({});
   const onServer = useRef(false);                  // an auto-save file with unsaved edits exists on disk
@@ -60,7 +61,7 @@ function Editor({ api }: { api: Api }) {
   const [playing, setPlaying] = useState(false);
   const toastId = useRef(0);
 
-  useEffect(() => { api.onPlate = n => setPlateNotes(old => ({ ...old, ...n })); api.onCamera = n => setCameraNotes(old => ({ ...old, ...n })); return () => { api.onPlate = undefined; api.onCamera = undefined; }; }, [api]);
+  useEffect(() => { api.onPlate = n => setPlateNotes(old => ({ ...old, ...n })); api.onCamera = n => setCameraNotes(old => ({ ...old, ...n })); api.onHair = n => setHairNotes(old => ({ ...old, ...n })); return () => { api.onPlate = undefined; api.onCamera = undefined; api.onHair = undefined; }; }, [api]);
   useEffect(() => { api.schema().then(setSchema).catch(e => setFatal(e.message)); }, [api]);
   const toast = useCallback((msg: string, kind: "ok" | "err" = "ok") => {
     const id = ++toastId.current; setToasts(t => [...t, { id, msg, kind }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), kind === "err" ? 7000 : 3000);
@@ -296,7 +297,7 @@ function Editor({ api }: { api: Api }) {
           stale={stale} onUpdateProxy={() => { lastAuto.current = null; updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />
-      <aside className="side right"><Properties cameraNotes={cameraNotes} keyDoctor={(id: string) => api.keyDoctor(bp, id)} importAsset={() => importAssetFile(ctx, "Import the clean plate (a video or picture of the EMPTY green screen)", "any")} plateNotes={plateNotes} bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
+      <aside className="side right"><Properties hairNotes={hairNotes} cameraNotes={cameraNotes} keyDoctor={(id: string) => api.keyDoctor(bp, id)} importAsset={() => importAssetFile(ctx, "Import the clean plate (a video or picture of the EMPTY green screen)", "any")} plateNotes={plateNotes} bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
           onCut={cutHere} onDeleteClip={() => removeClip()} onReapply={() => updateProxy()} /></aside>
 
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />

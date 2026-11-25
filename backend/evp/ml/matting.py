@@ -29,6 +29,7 @@ class MatteRef:
     frames: int
     screen: str | None = None   # "green" | "blue" for mode 'screen' (so the compiler despills the right colour)
     plate: dict | None = None   # clean plate use: {"used": frames the plate fitted, "rejected": frames it did not fit} (None = no plate)
+    hair: dict | None = None    # hair detail use: {"used": frames the AI refined, "skipped": frames where the AI did not find the same person} (None = off)
 
 
 class Cancelled(Exception):
@@ -120,6 +121,8 @@ def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, fra
         if plate:
             from .cleanplate import plate_identity
             d += plate_identity(plate) + [p.get("clean_plate_strength", 1.0)]
+        if p.get("hair_detail", 0.0) > 0:
+            d += ["hair1", p["hair_detail"], p["hair_width"], p["model"], p["detail"]]
     return hashlib.sha1(json.dumps(d).encode()).hexdigest()[:20]
 
 
@@ -140,7 +143,7 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
     side = out.with_suffix(".json")
     if out.is_file() and (fgr_out is None or fgr_out.is_file()):
         sd = json.loads(side.read_text(encoding="utf-8")) if side.is_file() else {}
-        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames, sd.get("screen"), sd.get("plate"))
+        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames, sd.get("screen"), sd.get("plate"), sd.get("hair"))
     out.parent.mkdir(parents=True, exist_ok=True)
     p = op.params
     ds = min(1.0, DETAIL_TARGET[p["detail"]] / max(W, H))
@@ -155,6 +158,7 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
                              "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(ftmp)],
                             stdin=subprocess.PIPE, stderr=subprocess.PIPE) if fgr_out else None
     keyer = keyer2 = None
+    hair = 0.0; hair_used = hair_seen = 0
     if p.get("mode") == "screen":
         from .screenkey import ScreenKeyer
         pl = None
@@ -163,6 +167,8 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
             pl = load_plate(plate, W, H)
         ps = float(p.get("clean_plate_strength", 1.0))
         keyer = ScreenKeyer(p, pl if ps > 0 else None)
+        hair = float(p.get("hair_detail", 0.0))
+        if hair > 0: model = _model()                    # hair detail: the AI model refines a band around the edge
         keyer2 = ScreenKeyer(p, None) if (pl is not None and 0.0 < ps < 1.0) else None      # partial strength: mix the plate key with the plain key
     else:
         model = _model()
@@ -173,6 +179,11 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
                 raise Cancelled()
             if keyer is not None:
                 a, fg = keyer(rgb)
+                if hair > 0:
+                    from .hair import blend_hair
+                    a_ai, fg_ai = model(rgb, ds)
+                    a, fg, used = blend_hair(a, fg, a_ai, fg_ai, hair, float(p["hair_width"]), keyer.c if p.get("spill_suppression", True) else None)
+                    hair_used += 1 if used else 0; hair_seen += 1
                 if keyer2 is not None:
                     a2, fg2 = keyer2(rgb)
                     a = (ps * a + (1.0 - ps) * a2).astype(np.float32)
@@ -198,9 +209,10 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
         if fenc: fsutil.replace(ftmp, fgr_out)
         scr = keyer.screen_name if keyer is not None else None
         pinfo = {"used": keyer.plate_frames, "rejected": keyer.plate_rejected} if (keyer is not None and keyer.plate is not None) else None
-        if scr: side.write_text(json.dumps({"screen": scr, **({"plate": pinfo} if pinfo else {})}), encoding="utf-8")
+        hinfo = {"used": hair_used, "skipped": hair_seen - hair_used} if hair > 0 else None
+        if scr: side.write_text(json.dumps({"screen": scr, **({"plate": pinfo} if pinfo else {}), **({"hair": hinfo} if hinfo else {})}), encoding="utf-8")
         fsutil.replace(tmp, out)
-        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr, pinfo)
+        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr, pinfo, hinfo)
     except BaseException:
         if ftmp: fsutil.unlink(ftmp)
         for pr in (enc, fenc):

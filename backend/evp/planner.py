@@ -43,7 +43,7 @@ class Plan:
         return [{"order": i + 1, "id": o.id, "type": o.type, "start": o.start, "end": o.end,
                  "stage": OPERATIONS[o.type].stage,
                  "alpha_source": self.alpha_source.get(o.id), "auto": self.look_auto.get(o.id),
-                 "plate": getattr(self.mattes.get(o.id), "plate", None)} for i, o in enumerate(self.steps)]
+                 "plate": getattr(self.mattes.get(o.id), "plate", None), "hair": getattr(self.mattes.get(o.id), "hair", None)} for i, o in enumerate(self.steps)]
 
 
 def _overlap(a: Operation, b: Operation) -> bool:

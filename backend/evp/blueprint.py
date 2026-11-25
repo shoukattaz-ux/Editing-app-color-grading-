@@ -510,11 +510,13 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
                     rep.err("UNKNOWN_ASSET", f"Parameter '{pn}' references unknown asset '{params[pn]}'", oid, f"{p}.parameters.{pn}"); continue
                 if a.type not in ps.asset_types:
                     rep.err("ASSET_TYPE_MISMATCH", f"Asset '{a.id}' is a {a.type}; '{pn}' needs {'/'.join(ps.asset_types)}", oid, f"{p}.parameters.{pn}")
-        if otype == "background_removal" and params["mode"] == "ai":
+        hair_on = otype == "background_removal" and params["mode"] == "screen" and params.get("hair_detail", 0.0) > 0
+        if otype == "background_removal" and (params["mode"] == "ai" or hair_on):
             from .ml.models import runtime_available, is_installed, MODELS
             ok, why = runtime_available()
             if not ok:
-                rep.err("MODEL_RUNTIME_MISSING", f"AI background removal unavailable: {why}", oid, f"{p}.parameters.mode"); continue
+                rep.err("MODEL_RUNTIME_MISSING", ("Hair detail needs the AI matting runtime: " if hair_on else "AI background removal unavailable: ") + why, oid,
+                        f"{p}.parameters.{'hair_detail' if hair_on else 'mode'}"); continue
             if not is_installed(params["model"]):
                 m = MODELS[params["model"]]
                 rep.warn("MODEL_DOWNLOAD", f"Model '{m.name}' ({m.size // 1_000_000} MB, {m.license}) will be downloaded on first use", oid)
