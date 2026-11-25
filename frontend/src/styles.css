@@ -145,3 +145,9 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .gpupop{right:0;left:auto;min-width:300px;max-width:380px;padding:10px 12px;white-space:normal}
 .gpupop p{margin:6px 0;font-size:12px;line-height:1.45}
 .gpubar{height:6px;border-radius:3px;background:#ffffff1a;margin-top:6px}.gpubar span{display:block;height:100%;border-radius:3px;background:#22c55e;transition:width .4s}
+
+.chip-top{position:absolute;top:10px;right:10px;z-index:3;display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border-radius:999px;background:#0e1014cc;border:1px solid #ffffff22;font-size:12px;backdrop-filter:blur(4px)}
+.mini-spin{width:12px;height:12px;border-radius:50%;border:2px solid #ffffff44;border-top-color:#3b82f6;animation:spin .8s linear infinite}
+.autobtn{height:26px;padding:0 10px;border-radius:6px;border:1px solid #ffffff22;background:transparent;color:inherit;font-size:12px;cursor:pointer;opacity:.7}
+.autobtn.on{opacity:1;border-color:#3b82f6;background:#3b82f622}
+@keyframes spin{to{transform:rotate(360deg)}}

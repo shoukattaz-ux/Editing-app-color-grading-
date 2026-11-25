@@ -145,13 +145,28 @@ function Editor({ api }: { api: Api }) {
     while (ACTIVE.includes(cur.state)) { await new Promise(r => setTimeout(r, 300)); try { cur = await api.job(cur.id); setJob(cur); } catch { break; } }
     onDone(cur);
   }, [api]);
-  const updateProxy = useCallback(async (target: Blueprint = bp) => {
+  const updateProxy = useCallback(async (target: Blueprint = bp, quiet = false) => {
     try {
       const r = await api.render(target, "proxy");
-      if (r.cached) { setProxy({ bp: target, path: r.output }); setMode("edited"); return; }
-      await pollJob(r.job!, j => { if (j.state === "done") { setProxy({ bp: target, path: r.output }); setMode("edited"); toast("Preview ready"); } else if (j.state === "failed") toast("Preview failed: " + j.error, "err"); });
+      if (r.cached) { setProxy({ bp: target, path: r.output }); if (!quiet) setMode("edited"); return; }
+      await pollJob(r.job!, j => { if (j.state === "done") { setProxy({ bp: target, path: r.output }); if (!quiet) { setMode("edited"); toast("Preview ready"); } } else if (j.state === "failed") toast("Preview failed: " + j.error, "err"); });
     } catch (e: any) { toast(e.message, "err"); }
   }, [api, bp, pollJob, toast]);
+
+  // The picture in the preview already follows every slider live (a real frame from the same engine as the export). The preview VIDEO
+  // (for playback) is re-rendered by itself a moment after you stop editing, so there is no button to press.
+  const [autoPreview, setAutoPreviewRaw] = useState(() => { try { return localStorage.getItem("evp.autoPreview") !== "0"; } catch { return true; } });
+  const setAutoPreview = (v: boolean) => { setAutoPreviewRaw(v); try { localStorage.setItem("evp.autoPreview", v ? "1" : "0"); } catch { /* ignore */ } };
+  const lastAuto = useRef<Blueprint | null>(null);
+  useEffect(() => {
+    if (!project || !project.video || !autoPreview || mode !== "edited") return;
+    if (proxy && proxy.bp === bp) return;                                  // already up to date
+    if (!report?.ok || tl.duration > 90) return;                           // invalid edits: nothing to render; very long videos: use the button
+    if (job && job.kind === "proxy" && ACTIVE.includes(job.state)) return; // one at a time; re-checked when it finishes
+    if (lastAuto.current === bp) return;                                   // never retry the same failed edit in a loop
+    const h = setTimeout(() => { lastAuto.current = bp; updateProxy(bp, true); }, 1200);
+    return () => clearTimeout(h);
+  }, [bp, proxy, report, mode, autoPreview, job?.state, project?.path, tl.duration]);
   useEffect(() => {          // reopened on the edited preview: show it again (cached previews come back instantly)
     if (project && restoreView.current) { restoreView.current = false; updateProxy(project.blueprint); }
   }, [project?.path, project?.version]);
@@ -234,7 +249,7 @@ function Editor({ api }: { api: Api }) {
             <Btn label="Save now" kind="primary" onClick={save} />
             <Btn label="Back to last saved version" onClick={async () => { try { load(await api.revert()); toast("Went back to the last saved version"); } catch (e: any) { toast(e.message, "err"); } }} /></div>)}
         <Preview playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
-          stale={stale} onUpdateProxy={() => updateProxy()} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
+          stale={stale} onUpdateProxy={() => { lastAuto.current = null; updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />
       <aside className="side right"><Properties bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}

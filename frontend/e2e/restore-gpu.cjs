@@ -34,7 +34,13 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
   const chip = await page.locator(".gpuchip").innerText();
   check(/^GPU/.test(chip), "a GPU indicator is always visible in the toolbar", chip);
   check(await page.locator(".gpuchip").getAttribute("title") !== null && (await page.locator(".gpuchip").getAttribute("title")).length > 20, "it explains itself on hover");
+  let renders = 0; page.on("request", r => { if (r.method() === "POST" && r.url().endsWith("/api/render")) renders++; });
+  await page.click('button[role=tab]:has-text("Edited")');                           // live preview, never a button to press
   await page.click("button[aria-label=Color]"); await page.click("text=Blank grade"); await page.waitForSelector(".wheel");
+  check(await page.locator(".banner").count() === 0, "no blocking 'Update preview video' banner over the picture");
+  await page.waitForSelector("video.media", { timeout: 30000 });
+  await page.waitForFunction(() => !document.querySelector(".chip-top"), null, { timeout: 30000 });
+  check(renders >= 1, "the preview video was re-rendered by itself after the edit (no click)", `${renders} render request(s)`);
   await page.waitForTimeout(1500);                                                    // auto-save debounce, no Save click
   check(/Auto-saved/.test(await page.locator(".autosave").innerText()), "the toolbar says the work is auto-saved", await page.locator(".autosave").innerText());
   const saved = JSON.parse(fs.readFileSync(fs.readdirSync(path.join(work, "proj")).map(n => path.join(work, "proj", n, "project.json"))[0], "utf8"));

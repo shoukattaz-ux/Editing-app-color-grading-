@@ -29,7 +29,8 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   return { url, err, busy };
 }
 
-export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying }: {
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto }: {
+  auto: boolean; setAuto: (v: boolean) => void;
   playing: boolean; setPlaying: (v: boolean | ((p: boolean) => boolean)) => void;
   api: Api; bp: Blueprint; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; mode: Mode; setMode: (m: Mode) => void;
   proxyUrl: string | null; stale: boolean; onUpdateProxy: () => void; proxyBusy: boolean; videoRef: React.RefObject<HTMLVideoElement>;
@@ -82,7 +83,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   if (!video) return <div className="preview"><Empty icon="film" title="No video imported">Import a source video from the Media tab to start.</Empty></div>;
 
   const badge = mode === "compare" && loupe > 0 ? `Before/After · full-resolution frames at ${loupe * 100}%` : mode === "original" ? "Original · source quality" : playable ? "Edited · 640px proxy preview (final render is full quality)"
-    : mode === "compare" ? "Compare · 960px live frames" : "Edited · live frame 960px — update the preview to play";
+    : mode === "compare" ? "Compare · 960px live frames" : "Edited · live frame 960px — playback after the preview video updates";
   return (
     <div className="preview">
       <div className="stage" ref={wrap}>
@@ -99,9 +100,9 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
             {edited.err && <div className="err-banner">{edited.err}</div>}
           </div>)}
         {(edited.busy || orig.busy || proxyBusy) && <div className="spin" title="Rendering" />}
-        {mode === "edited" && !playable && (
-          <div className="banner"><Icon n="warn" size={14} /> {proxyUrl ? "Preview video is out of date with your edits." : "No preview video yet."}
-            <Btn label="Update preview video" icon="bolt" kind="primary" onClick={onUpdateProxy} disabled={proxyBusy} /></div>)}
+        {mode === "edited" && !playable && (          // small, in the corner: never covers the picture, which is already live
+          <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>
+            : <>{auto ? "Preview video updates automatically" : "Preview video out of date"}<Btn label="Update now" icon="bolt" onClick={onUpdateProxy} disabled={proxyBusy} /></>}</div>)}
       </div>
       <div className="transport">
         <div className="seg" role="tablist" aria-label="Preview mode">
@@ -117,6 +118,8 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
           <select className="loupe-sel" value={loupe} onChange={e => setLoupe(+e.target.value)} aria-label="Zoom loupe" title="Pixel-level before/after at full output resolution">
             <option value={0}>Wipe</option><option value={1}>1:1 zoom</option><option value={2}>200%</option><option value={4}>400%</option>
           </select>)}
+        <button className={"autobtn" + (auto ? " on" : "")} onClick={() => setAuto(!auto)} aria-pressed={auto}
+          title="Auto: re-render the preview video by itself shortly after you stop editing (videos up to 90 s). The picture itself always follows your sliders live.">Auto</button>
         <span className="badge">{badge}</span>
         <Btn icon="full" title="Full screen" onClick={() => wrap.current?.requestFullscreen?.()} />
       </div>
