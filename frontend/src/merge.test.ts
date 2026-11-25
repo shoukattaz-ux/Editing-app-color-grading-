@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeBlueprint } from "./merge";
+import { mergeBlueprint, applyStrength } from "./merge";
 import type { Blueprint, Op, Schema } from "./model";
 
 const op = (id: string, type: string, extra: Partial<Op> = {}): Op => ({ id, type, start: 0, parameters: {}, ...extra });
@@ -59,5 +59,20 @@ describe("mergeBlueprint", () => {
     const before = JSON.stringify(existing), inc = bp([op("key", "chroma_key")]), incBefore = JSON.stringify(inc);
     mergeBlueprint(existing, inc, schema, OPT, 9);
     expect(JSON.stringify(existing)).toBe(before); expect(JSON.stringify(inc)).toBe(incBefore);
+  });
+});
+
+
+describe("applyStrength", () => {
+  const sch = { operations: { color_grading: { parameters: { amount: { type: "number", default: 1, minimum: 0, maximum: 1.5 } } }, background_removal: { parameters: { amount: { type: "number", default: 1, minimum: 0, maximum: 1 } } }, video_enhancement: { parameters: {} } } } as unknown as Schema;
+  it("scales the master Amount of every effect that has one, inside its limits, and leaves the others alone", () => {
+    const src = bp([op("g", "color_grading", { parameters: { contrast: 1.3 } }), op("k", "background_removal"), op("e", "video_enhancement", { parameters: { sharpen: 1 } }), op("g2", "color_grading", { parameters: { amount: 0.8 } })]);
+    const r = applyStrength(src, sch, 0.6);
+    expect(r.operations.map(o => o.parameters?.amount)).toEqual([0.6, 0.6, undefined, 0.48]);
+    expect(r.operations[0].parameters!.contrast).toBe(1.3);                                  // the fine-tuning values are untouched
+    expect(applyStrength(src, sch, 1.5).operations[1].parameters!.amount).toBe(1);           // a key never goes above 100 %
+    expect(applyStrength(src, sch, 1.5).operations[0].parameters!.amount).toBe(1.5);
+    expect(applyStrength(src, sch, 1)).toBe(src);
+    expect(src.operations[0].parameters!.amount).toBeUndefined();                            // input not modified
   });
 });

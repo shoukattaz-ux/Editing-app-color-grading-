@@ -12,6 +12,7 @@ Timeline track: **effects** · provides an alpha layer for `background_replaceme
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
+| `amount` | number | `1.0` | 0.0 … 1.0 x | Master amount: how much of the removal applies. 1.0 = fully removed, 0 = the original footage (the removal is mixed out), in between = a cross-fade between the two. For a transparent export it is the matte strength. |
 | `key_color` | color | `#00ff00` |  | Colour to remove: '#rrggbb', 'green' or 'blue'. |
 | `similarity` ◆ | number | `0.12` | 0.01 … 1.0 | How close a pixel must be to the key colour to become transparent. |
 | `blend` ◆ | number | `0.08` | 0.0 … 1.0 | Soft transition between keyed and kept pixels. |
@@ -31,6 +32,7 @@ Timeline track: **effects** · provides an alpha layer for `background_replaceme
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
+| `amount` | number | `1.0` | 0.0 … 1.0 x | Master amount: how much of the removal applies. 1.0 = fully removed, 0 = the original footage (the removal is mixed out), in between = a cross-fade between the two. For a transparent export it is the matte strength. |
 | `mode` | enum | `chroma` | chroma, ai, screen | 'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key. |
 | `auto_screen` | boolean | `True` |  | [screen] Find the screen colour automatically (and follow it over time). Off = use key_color. |
 | `fill_holes` | boolean | `False` |  | [screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands. |
@@ -90,6 +92,7 @@ Timeline track: **effects**
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
+| `amount` | number | `1.0` | 0.0 … 1.5 x | Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values. |
 | `preset` | enum | `none` | none, cinematic_teal_orange, warm_film, cool_blue, bleach_bypass, faded_matte, high_contrast_bw | Starting look; individual controls are applied on top. |
 | `exposure` ◆ | number | `0.0` | -3.0 … 3.0 EV | Exposure compensation in stops. |
 | `contrast` ◆ | number | `1.0` | 0.0 … 3.0 | 1.0 = unchanged. |
@@ -124,6 +127,7 @@ Timeline track: **effects**
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
+| `amount` | number | `1.0` | 0.0 … 1.5 x | Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values. |
 | `preset` | enum | `studio_warm` | none, studio_warm, studio_cool, cinematic, clean_bright | Starting look. Controls you set override it; 'none' starts from nothing. |
 | `ambient_match` | number |  | 0.0 … 1.0 | [needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene. |
 | `light_wrap` | number |  | 0.0 … 1.0 | [needs background_replacement] Background light spilling over the subject's edges - removes the 'cut-out' look. |

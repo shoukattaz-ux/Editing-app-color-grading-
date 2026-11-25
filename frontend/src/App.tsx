@@ -7,7 +7,7 @@ import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
 import { Timeline } from "./Timeline";
 import { GpuChip } from "./Gpu";
-import { mergeBlueprint, ExecOptions } from "./merge";
+import { mergeBlueprint, applyStrength, ExecOptions } from "./merge";
 import { Properties } from "./Properties";
 import { Sidebar, TABS, Tab, Ctx } from "./Sidebar";
 import { Btn, Empty, Icon, fmtEta, resolutionOptions } from "./ui";
@@ -188,6 +188,7 @@ function Editor({ api }: { api: Api }) {
     if (project && restoreView.current) { restoreView.current = false; updateProxy(project.blueprint); }
   }, [project?.path, project?.version]);
   const executeBlueprint = useCallback(async (nb: Blueprint, o: ExecOptions = { how: "add", applyOutput: false, clip: null }) => {
+    nb = applyStrength(nb, schema, o.strength ?? 1);               // "Strength" slider of the Blueprint tab: the master Amount of every pasted effect
     let next = nb, msg = "Blueprint applied — rendering preview…";
     if (o.how === "add") {
       // ADD: the pasted blueprint is merged into the timeline; nothing that is already there is removed or replaced

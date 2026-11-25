@@ -279,6 +279,13 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "amount": {
+                      "description": "Master amount: how much of the removal applies. 1.0 = fully removed, 0 = the original footage (the removal is mixed out), in between = a cross-fade between the two. For a transparent export it is the matte strength.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 1.0
+                    },
                     "key_color": {
                       "description": "Colour to remove: '#rrggbb', 'green' or 'blue'.",
                       "type": "string",
@@ -353,6 +360,13 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "amount": {
+                      "description": "Master amount: how much of the removal applies. 1.0 = fully removed, 0 = the original footage (the removal is mixed out), in between = a cross-fade between the two. For a transparent export it is the matte strength.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 1.0
+                    },
                     "mode": {
                       "description": "'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key.",
                       "type": "string",
@@ -655,6 +669,13 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "amount": {
+                      "description": "Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.5,
+                      "default": 1.0
+                    },
                     "preset": {
                       "description": "Starting look; individual controls are applied on top.",
                       "type": "string",
@@ -844,6 +865,13 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "amount": {
+                      "description": "Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.5,
+                      "default": 1.0
+                    },
                     "preset": {
                       "description": "Starting look. Controls you set override it; 'none' starts from nothing.",
                       "type": "string",

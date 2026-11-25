@@ -182,3 +182,13 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .muted.small{font-size:11px;margin:6px 2px}
 .tl-lane.dropok{outline:2px dashed #3b82f6;outline-offset:-2px;background:#3b82f61a}
 .mfilter input{background:#0e1014;color:inherit;border:1px solid #ffffff22;border-radius:6px;padding:5px 8px;font-size:12px}
+
+.master{border:1px solid #3b82f655;background:#3b82f614;border-radius:10px;padding:10px 12px;margin:12px 0}
+.master-head{display:flex;align-items:center;justify-content:space-between}.master-head h4{margin:0}
+.master-row{display:flex;align-items:center;gap:10px;margin:8px 0 4px}.master-row input[type=range]{flex:1;height:22px;accent-color:#3b82f6}
+.master-row input.over{accent-color:#f59e0b}
+.master .pct{display:inline-flex;align-items:center;gap:3px;font-size:13px}.master .pct input{width:56px;text-align:right}
+.master .small{font-size:11px;line-height:1.4;margin:4px 0 0}
+
+.exec-opts .strength{flex-direction:column;gap:4px;margin-top:4px;padding-top:8px;border-top:1px solid #ffffff1a}
+.strength-row{display:flex;align-items:center;gap:8px}.strength-row input{flex:1;accent-color:#3b82f6}.strength-row b{min-width:40px;text-align:right}

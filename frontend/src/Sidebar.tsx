@@ -62,11 +62,12 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
   const [how, setHow] = useState<"add" | "replace">("add");
   const [applyOutput, setApplyOutput] = useState(false);
   const [scope, setScope] = useState<"all" | "clip">("all");
+  const [strength, setStrength] = useState(100);
   const laid = ctx.layout.clips.find(c => c.id === ctx.selClip);
   const canClip = !!laid && ctx.layout.clips.length > 1;
   const run = async () => {
     const r = await check();
-    if (r?.v.ok) await ctx.executeBlueprint(r.bp, { how, applyOutput, clip: how === "add" && scope === "clip" && laid && canClip ? { tStart: laid.tStart, tEnd: laid.tEnd } : null });
+    if (r?.v.ok) await ctx.executeBlueprint(r.bp, { how, applyOutput, strength: strength / 100, clip: how === "add" && scope === "clip" && laid && canClip ? { tStart: laid.tStart, tEnd: laid.tEnd } : null });
     else if (r) ctx.toast("Blueprint has errors — nothing was executed", "err");
   };
   return (<>
@@ -92,6 +93,9 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
         {!canClip && <span className="muted sub">Cut the footage and select a clip on the timeline to apply a blueprint to just that clip.</span>}
         <label className="sub"><input type="checkbox" checked={applyOutput} onChange={e => setApplyOutput(e.target.checked)} /> also use the blueprint's output settings (codec, quality, size)</label>
       </>}
+      <label className="strength">Strength of the pasted effects
+        <span className="strength-row"><input type="range" min={0} max={150} value={strength} onChange={e => setStrength(+e.target.value)} onDoubleClick={() => setStrength(100)} aria-label="Strength of the pasted effects" /><b>{strength}%</b></span>
+        <span className="muted">Looks too strong? Lower it: every pasted effect that has a Master amount is applied at this strength (you can change each one later in its Properties).</span></label>
     </fieldset>
     <div className="btn-row">
       <Btn icon="check" label="Validate" onClick={check} disabled={!text.trim()} />

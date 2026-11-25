@@ -88,6 +88,10 @@ _KEY_PARAMS = {
     "edge_feather": Param(N, 0.0, 0.0, 20.0, unit="px", desc="Gaussian softening of the matte edge."),
 }
 
+# Master amount (Inspector 'Amount' slider): one control that fades the whole effect between the original footage and the full effect
+_AMOUNT_FX = Param(N, 1.0, 0.0, 1.5, unit="x", desc="Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values.")
+_AMOUNT_KEY = Param(N, 1.0, 0.0, 1.0, unit="x", desc="Master amount: how much of the removal applies. 1.0 = fully removed, 0 = the original footage (the removal is mixed out), in between = a cross-fade between the two. For a transparent export it is the matte strength.")
+
 _COLOR_PARAMS = {
     "preset": Param(E, "none", enum=("none", "cinematic_teal_orange", "warm_film", "cool_blue", "bleach_bypass", "faded_matte", "high_contrast_bw"),
                     desc="Starting look; individual controls are applied on top."),
@@ -129,12 +133,13 @@ def _reg(spec: OpSpec):
 
 _reg(OpSpec("chroma_key", "Chroma Key", "Keying", STAGE_KEY, "effects",
             "Key out a solid colour (green/blue screen) and composite on a background colour or the next replacement.",
-            {**_KEY_PARAMS, "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this key.")},
+            {"amount": _AMOUNT_KEY, **_KEY_PARAMS, "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this key.")},
             provides_alpha=True))
 _reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "effects",
             "Remove the background. 'ai' works on ordinary footage (no green screen) using the Robust Video Matting model; "
             "'chroma' keys a green/blue screen.",
-            {"mode": Param(E, "chroma", enum=("chroma", "ai", "screen"), desc="'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key."),
+            {"amount": _AMOUNT_KEY,
+             "mode": Param(E, "chroma", enum=("chroma", "ai", "screen"), desc="'screen' = professional green/blue-screen key (hair-level partial transparency, automatic screen colour, uneven lighting, clean edges; no model); 'ai' = person matting without green screen (downloads a 15 MB model on first use); 'chroma' = simple colour key."),
              "auto_screen": Param(B, True, desc="[screen] Find the screen colour automatically (and follow it over time). Off = use key_color."),
              "fill_holes": Param(B, False, desc="[screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands."),
              "edge_shrink": Param(N, 0.0, 0.0, 5.0, unit="px", desc="[screen] Pull the matte edge inward to remove a remaining fringe."),
@@ -171,12 +176,13 @@ _reg(OpSpec("background_replacement", "Background Replacement", "Compositing", S
              "shadow_dx": Param(N, 0.03, -0.3, 0.3, desc="Shadow offset sideways, fraction of frame width (opposite the key light)."),
              "shadow_dy": Param(N, 0.02, -0.3, 0.3, desc="Shadow offset downward, fraction of frame height.")}))
 _reg(OpSpec("color_grading", "Color Grading", "Color", STAGE_GRADE, "effects",
-            "Exposure, contrast, tone, white balance, saturation, LGG, RGB curves, LUT, presets.", _COLOR_PARAMS))
+            "Exposure, contrast, tone, white balance, saturation, LGG, RGB curves, LUT, presets.", {"amount": _AMOUNT_FX, **_COLOR_PARAMS}))
 _reg(OpSpec("studio_look", "Studio Look", "Color", STAGE_LOOK, "effects",
             "One-step 'real studio' finish. With a background_replacement it first integrates the subject into the new scene (the background's colour falls on the subject, "
             "its light wraps around the edges, slight depth of field), then grades the whole composite (S-curve, split-tone, highlight glow, vignette, local contrast, film grain). "
             "Without a replacement only the global grade runs. Pick a preset; any control you set overrides it.",
-            {"preset": Param(E, "studio_warm", enum=PRESET_NAMES, desc="Starting look. Controls you set override it; 'none' starts from nothing."),
+            {"amount": _AMOUNT_FX,
+             "preset": Param(E, "studio_warm", enum=PRESET_NAMES, desc="Starting look. Controls you set override it; 'none' starts from nothing."),
              "ambient_match": Param(N, None, 0.0, 1.0, desc="[needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene."),
              "light_wrap": Param(N, None, 0.0, 1.0, desc="[needs background_replacement] Background light spilling over the subject's edges - removes the 'cut-out' look."),
              "wrap_width": Param(N, None, 1.0, 60.0, unit="px at 1080p", desc="[needs background_replacement] How far the light wrap reaches into the subject."),
@@ -289,6 +295,10 @@ _REASONS: dict[tuple[str, str], str] = {
     ("color_grading", "texture"): "the unsharp filter has no per-frame control",
     ("color_grading", "clarity"): "the unsharp filter has no per-frame control",
     ("color_grading", "dehaze"): "it is built from curves and eq values that are fixed per render in this version",
+    ("color_grading", "amount"): "the master amount is a mix of the whole effect with the original; it is not animatable in this version",
+    ("studio_look", "amount"): "the master amount is a mix of the whole effect with the original; it is not animatable in this version",
+    ("background_removal", "amount"): "the master amount is a mix of the whole effect with the original; it is not animatable in this version",
+    ("chroma_key", "amount"): "the master amount is a mix of the whole effect with the original; it is not animatable in this version",
     ("color_grading", "lut_intensity"): "per-frame LUT blending is not frame-exact in FFmpeg",
 }
 for _t, _names in _ANIMATABLE.items():

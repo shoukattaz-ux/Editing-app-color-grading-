@@ -215,6 +215,20 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         proc = build(work)
         return g.add([keep, proc], f"overlay=enable='{en}':shortest=1:format=yuv444,format=yuv444p")
 
+    def mix(graded: str, original: str, amt: float) -> str:
+        """original + (graded - original) * amt   (amt 0 = original, 1 = the effect, > 1 = pushed further). Planes are 8-bit 4:4:4, the mix is affine so it is the same in YUV as in RGB."""
+        return g.add([graded, original], f"blend=all_expr='clip(B+(A-B)*{amt:.5f}\\,0\\,255)'")      # first input = A = top layer
+
+    def amount_block(cur: str, op: Operation, build: Callable[[str], str]) -> str:
+        """the master Amount of an effect: mixes the finished effect with the untouched footage (inside the effect's time range only)"""
+        amt = float(op.params.get("amount", 1.0))
+        if abs(amt - 1.0) < 1e-6: return ranged_block(cur, op, build)
+        if amt <= 0.0005: return cur                              # 0 % = the original, exactly
+        def mixed(src: str) -> str:
+            keep, work = g.split(src)
+            return mix(build(work), keep, amt)
+        return ranged_block(cur, op, mixed)
+
     def apply_ranged(cur: str, filters: list[str], op: Operation, pre: list[str] | None = None) -> str:
         """pre = filters (sendcmd) that must run in the same chain, in front, without a time range of their own"""
         pre = pre or []
@@ -420,6 +434,10 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         rng = r or k
         L = plan.look_for.get(r.id) if r and not plan.measuring else None
         look = resolve_look(L.params, plan.look_auto.get(L.id)) if L else None
+        if look is not None:                                       # the look's master Amount also scales how strongly the subject is integrated into the scene
+            la = max(0.0, float(L.params.get("amount", 1.0)))
+            if la != 1.0:
+                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow")}}
         rp = r.params if r else {}
         moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
         sp = rp if (r and rp["shadow"] > 0) else (look if look and look.get("shadow", 0) > 0 else None)      # a look's measured shadow applies only if the background has none of its own
@@ -434,7 +452,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if look: bgs, fg = integrate(bgs, fg, look)
             if sh: bgs = g.add([bgs, sh], "overlay=shortest=1:format=auto,format=rgba")
             return g.add([bgs, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
-        return ranged_block(cur, rng, build)
+        amt = min(1.0, float(k.params.get("amount", 1.0)))
+        if amt >= 0.9995: return ranged_block(cur, rng, build)
+        if amt <= 0.0005: return cur                                 # master Amount 0 %: the removal is mixed out completely, the original footage stays
+        def mixed(src: str) -> str:
+            keep, work = g.split(src)
+            return mix(build(work), keep, amt)
+        return ranged_block(cur, rng, mixed)
 
     pre_cmd: list[list[str]] = [[]]          # sendcmd filter(s) produced by the last grade_filters() call
 
@@ -494,6 +518,9 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if op.id in plan.consumed_keyers: continue
             if alpha_out and op.id == plan.transparent_key:
                 keyed = make_keyed(cur, op)                                   # rgba: subject colour + matte
+                amt = min(1.0, float(p.get("amount", 1.0)))
+                if amt < 0.9995:                                              # master Amount of a transparent export: 0 % = nothing removed (fully opaque)
+                    keyed = g.add([keyed], f"lutrgb=a='clip(val*{amt:.5f}+maxval*{1 - amt:.5f}\\,0\\,maxval)',format=rgba")
                 kc, ka = splitn(keyed, 2)
                 cur = g.add([kc], cs.rgb_to_yuv())                            # carry on with the subject's colour (grading etc. still apply)
                 alpha_stream.append(g.add([ka], "alphaextract"))
@@ -507,17 +534,24 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if lut_id and p["lut_intensity"] >= 1:
                 main.append(f"lut3d=file='{esc_path(bp.assets[lut_id].resolved)}'")
                 lut_id = None
-            cur = apply_ranged(cur, main, op, pre_cmd[0])
-            if lut_id:   # partial-strength LUT: blend graded vs LUT'd
-                lut_path, k = esc_path(bp.assets[lut_id].resolved), p["lut_intensity"]
-                def build(src: str) -> str:
-                    a, b = g.split(src)
-                    return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={k:.3f}")  # first input is the "top" layer
-                cur = ranged_block(cur, op, build)
+            pre = pre_cmd[0]
+            lut_k = p["lut_intensity"]
+            lut_path = esc_path(bp.assets[lut_id].resolved) if lut_id else None
+            def lut_partial(src: str) -> str:     # partial-strength LUT: blend graded vs LUT'd
+                a, b = g.split(src)
+                return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={lut_k:.3f}")  # first input is the "top" layer
+            if abs(float(p.get("amount", 1.0)) - 1.0) > 1e-6:
+                def whole(src: str) -> str:
+                    s_ = g.add([src], ",".join([*pre, *cs.wrap_rgb(main)])) if main else src
+                    return lut_partial(s_) if lut_id else s_
+                cur = amount_block(cur, op, whole)
+            else:
+                cur = apply_ranged(cur, main, op, pre)
+                if lut_id: cur = ranged_block(cur, op, lut_partial)
         elif t == "studio_look":
             if plan.measuring: continue
             L = resolve_look(p, plan.look_auto.get(op.id))
-            cur = ranged_block(cur, op, lambda s_: look_block(s_, L, plan.look_curves.get(op.id)))
+            cur = amount_block(cur, op, lambda s_: look_block(s_, L, plan.look_curves.get(op.id)))
         elif t in ("face_tone_correction", "face_relighting"):
             ref = plan.face_controls.get(op.id)
             if ref is None:

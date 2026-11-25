@@ -7,7 +7,7 @@ export interface MergeOptions {
   clip?: { tStart: number; tEnd: number } | null;
 }
 /** how the Blueprint tab applies what was pasted */
-export interface ExecOptions { how: "add" | "replace"; applyOutput: boolean; clip: MergeOptions["clip"] }
+export interface ExecOptions { how: "add" | "replace"; applyOutput: boolean; clip: MergeOptions["clip"]; /** master strength for every pasted effect that has an Amount (1 = as written) */ strength?: number }
 export interface MergeResult { bp: Blueprint; added: string[]; notes: string[] }
 
 const rangeOf = (o: Op, duration: number): [number, number] => [typeof o.start === "number" ? o.start : 0, typeof o.end === "number" ? o.end : duration];
@@ -82,4 +82,17 @@ export function mergeBlueprint(existing: Blueprint, incoming: Blueprint, schema:
   const bp: Blueprint = { ...existing, operations: [...existing.operations, ...ops], assets,
     ...(opts.applyOutput && incoming.output ? { output: { ...(existing.output ?? {}), ...incoming.output } } : {}) };
   return { bp, added: ops.map(o => o.id), notes };
+}
+
+
+/** set the master Amount of every effect that has one: new amount = written amount (default 1) x strength, kept inside the effect's own limits */
+export function applyStrength(bp: Blueprint, schema: Schema | null, strength: number): Blueprint {
+  if (!schema || Math.abs(strength - 1) < 1e-9) return bp;
+  return { ...bp, operations: bp.operations.map(o => {
+    const ps = schema.operations[o.type]?.parameters.amount;
+    if (!ps) return o;
+    const cur = typeof o.parameters?.amount === "number" ? o.parameters.amount : (ps.default ?? 1);
+    const next = Math.min(ps.maximum ?? 1.5, Math.max(ps.minimum ?? 0, +(cur * strength).toFixed(3)));
+    return { ...o, parameters: { ...(o.parameters ?? {}), amount: next } };
+  }) };
 }

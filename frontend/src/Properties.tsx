@@ -117,6 +117,25 @@ function ClipPanel({ bp, video, layout, id, edit, t, onCut, onDeleteClip, onSele
     </div>);
 }
 
+/** Master amount: ONE slider that fades the whole effect between the original footage (0 %) and the full effect (100 %), and pushes it further (up to 150 % where the effect allows it). The sliders below keep their own values. */
+function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit }) {
+  const max = Math.round((spec.maximum ?? 1.5) * 100);
+  const v = Math.round(((op.parameters?.amount as number | undefined) ?? spec.default ?? 1) * 100);
+  const set = (pct: number) => { const c = Math.min(max, Math.max(0, Math.round(pct))); edit(b => m.setParam(b, op.id, "amount", c / 100), `p:${op.id}:amount`); };
+  const key = op.type === "background_removal" || op.type === "chroma_key";
+  return (
+    <section className="master" aria-label="Master amount">
+      <div className="master-head"><h4>Master amount</h4>
+        <button className="link" disabled={v === 100} onClick={() => set(100)} title="Back to 100 %">Reset</button></div>
+      <div className="master-row">
+        <input type="range" min={0} max={max} step={1} value={v} onChange={e => set(+e.target.value)} onDoubleClick={() => set(100)}
+          className={v > 100 ? "over" : ""} aria-label="Master amount" style={{ ["--p100" as any]: `${(100 / max) * 100}%` }} />
+        <span className="pct"><input type="number" min={0} max={max} value={v} onChange={e => { const n = parseFloat(e.target.value); if (!isNaN(n)) set(n); }} aria-label="Master amount in percent" />%</span>
+      </div>
+      <p className="muted small">{key ? "0 % = the original footage (nothing removed) · 100 % = fully removed. In between cross-fades the two." : max > 100 ? "0 % = the original footage · 100 % = the effect as set below · up to 150 % pushes it further." : "0 % = the original footage · 100 % = the effect as set below."} Double-click the slider to reset. The sliders below are your fine-tuning: they keep their values.</p>
+    </section>);
+}
+
 export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip }: {
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
   onReapply: () => void; onSelect: (id: string | null) => void; onSelectClip: (id: string | null) => void; onCut: () => void; onDeleteClip: () => void;
@@ -151,10 +170,11 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
           <label className="field"><span className="fl">end <em>s</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+end.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, op.start, Math.max(s, op.start + 1 / fps)), "time:" + op.id); }} /></label>
         </div>
       </section>
+      {spec?.parameters.amount && <MasterAmount op={op} spec={spec.parameters.amount} edit={edit} />}
       {op.type === "color_grading" && <section><h4>Colour wheels</h4><ColorWheels op={op} edit={edit} /></section>}
       <section>
-        <h4>Parameters</h4>
-        {spec ? Object.entries(spec.parameters).filter(([k]) => !(op.type === "color_grading" && (k === "lift" || k === "gamma_rgb" || k === "gain"))).map(([k, ps]) => (
+        <h4>{spec?.parameters.amount ? "Fine-tune" : "Parameters"}</h4>
+        {spec ? Object.entries(spec.parameters).filter(([k]) => k !== "amount" && !(op.type === "color_grading" && (k === "lift" || k === "gamma_rgb" || k === "gain"))).map(([k, ps]) => (
           <ParamField key={k} name={k} spec={ps} op={op} bp={bp} t={t} fps={fps} opLen={Math.max(1 / fps, end - op.start)} edit={edit} setT={setT} />))
           : <p className="muted">Unknown operation type — see Blueprint errors.</p>}
       </section>
