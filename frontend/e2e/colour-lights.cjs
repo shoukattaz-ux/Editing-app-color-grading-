@@ -44,6 +44,20 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     await page.locator('input[aria-label="Light B colour"]').evaluate(el => { const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; s.call(el, "#ff2200"); el.dispatchEvent(new Event("input", { bubbles: true })); });
     await page.waitForTimeout(800);
     check((await bpNow()).operations.find(o => o.type === "studio_look").parameters.colour_light_color_b === "#ff2200", "a light's colour can be changed");
+    await page.click('.colourlights button:has-text("Follow the subject")'); await page.waitForTimeout(700);
+    check((await bpNow()).operations.find(o => o.type === "studio_look").parameters.colour_light_place === "follow", "Follow the subject is stored");
+    check(await page.locator("svg.zone-overlay").count() === 0, "no zone rectangle unless My own spot is chosen");
+    await page.click('.colourlights button:has-text("My own spot")'); await page.waitForSelector("svg.zone-overlay rect[aria-label='Light zone']"); await page.waitForTimeout(800);
+    check((await bpNow()).operations.find(o => o.type === "studio_look").parameters.colour_light_place === "zone", "My own spot is stored");
+    const zr = page.locator("svg.zone-overlay rect[aria-label='Light zone']"); const bb = await zr.boundingBox();
+    await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await page.mouse.down(); await page.mouse.move(bb.x + bb.width / 2 + 60, bb.y + bb.height / 2 + 10, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(700);
+    let lp = (await bpNow()).operations.find(o => o.type === "studio_look").parameters;
+    check(lp.colour_light_zone_x0 > 0.25 + 0.02 && Math.abs((lp.colour_light_zone_x1 - lp.colour_light_zone_x0) - 0.5) < 0.01, "dragging the rectangle moves the zone without resizing it", JSON.stringify([lp.colour_light_zone_x0, lp.colour_light_zone_x1]));
+    const hs = await page.locator("svg.zone-overlay rect[style*='nwse-resize']").first().boundingBox();
+    await page.mouse.move(hs.x + 5, hs.y + 5); await page.mouse.down(); await page.mouse.move(hs.x + 45, hs.y + 35, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(700);
+    const lp2 = (await bpNow()).operations.find(o => o.type === "studio_look").parameters;
+    check(lp2.colour_light_zone_x0 > lp.colour_light_zone_x0 + 0.02 && lp2.colour_light_zone_y0 > (lp.colour_light_zone_y0 ?? 0.1) + 0.02 && lp2.colour_light_zone_x1 === lp.colour_light_zone_x1, "dragging a handle resizes it", JSON.stringify(lp2));
+    await page.click('.colourlights button:has-text("Fixed")'); await page.waitForTimeout(700);
     const stats = await page.evaluate(async ([base, token, bp]) => {
       const f = async (b) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: b, t: 1, width: 640 }) });
         const bmp = await createImageBitmap(await r.blob()); const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height; const x = c.getContext("2d"); x.drawImage(bmp, 0, 0);

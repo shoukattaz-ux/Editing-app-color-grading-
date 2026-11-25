@@ -63,6 +63,9 @@ def resolve(params: dict, auto: dict | None = None) -> dict:
     base["colour_light_color_b"] = params.get("colour_light_color_b") or "#b01cff"
     base["colour_light_side_b"] = params.get("colour_light_side_b") or "right"
     base["colour_light_reach"] = float(params.get("colour_light_reach") if params.get("colour_light_reach") is not None else 0.5)
+    base["colour_light_place"] = params.get("colour_light_place") or "fixed"
+    for _k, _d in (("x0", 0.25), ("y0", 0.1), ("x1", 0.75), ("y1", 0.9), ("soft", 0.3)):
+        base[f"colour_light_zone_{_k}"] = float(params.get(f"colour_light_zone_{_k}") if params.get(f"colour_light_zone_{_k}") is not None else _d)
     base["colour_light_edge"] = float(params.get("colour_light_edge") if params.get("colour_light_edge") is not None else 0.6)
     return base
 

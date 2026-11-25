@@ -143,26 +143,54 @@ def ensure_floor(plan: Plan, source: str, cache_dir: str) -> None:
         plan.floor[r.id] = res
 
 
-def ensure_light_box(plan: Plan, source: str, cache_dir: str) -> None:
-    """colour lights: where is the subject? Its matte bounds on the middle frame, mapped through subject_scale / x / y, so a light from the left really starts at the subject's left edge."""
-    import hashlib, json as _json, io
+def _subject_bounds(plan: Plan, r, source: str, cache_dir: str, t: float) -> dict | None:
+    """the placed subject's matte bounds at time t as final-frame fractions {x0,x1,y0,y1}, or None when there is no subject"""
+    import io
     import numpy as np
     from PIL import Image
+    a = np.asarray(Image.open(io.BytesIO(render_frame(plan, source, t, 360, cache_dir, _measuring=True, view="alpha"))).convert("L")).astype(np.float32) / 255.0
+    h, w = a.shape
+    cols, rows = np.where((a > 0.5).mean(0) > 0.004)[0], np.where((a > 0.5).mean(1) > 0.004)[0]
+    if len(cols) == 0 or len(rows) == 0: return None
+    s, dx, dy = float(r.params.get("subject_scale", 1.0)), float(r.params.get("subject_x", 0.0)), float(r.params.get("subject_y", 0.0))
+    left, top = (1.0 - s) / 2.0 + dx, ((1.0 - s) if r.params.get("subject_anchor", "bottom") == "bottom" else (1.0 - s) / 2.0) + dy
+    return {"x0": round(left + cols.min() / w * s, 4), "x1": round(left + (cols.max() + 1) / w * s, 4), "y0": round(top + rows.min() / h * s, 4), "y1": round(top + (rows.max() + 1) / h * s, 4)}
+
+
+def smooth_track(track: list[list[float]]) -> list[list[float]]:
+    """[[t, x0, x1, y0, y1], ...] -> the same with each coordinate averaged with its neighbours (a steady light, not a jittery one)"""
+    out = []
+    for n, row in enumerate(track):
+        a, b = track[max(0, n - 1)], track[min(len(track) - 1, n + 1)]
+        out.append([row[0]] + [round(0.25 * a[i] + 0.5 * row[i] + 0.25 * b[i], 4) for i in range(1, 5)])
+    return out
+
+
+def ensure_light_box(plan: Plan, source: str, cache_dir: str) -> None:
+    """colour lights: where is the subject? fixed = its matte bounds on the middle frame; follow = its bounds at up to 24 moments through the clip (the light then travels with it).
+    Placed through subject_scale / x / y, so a light from the left really starts at the subject's left edge. zone = nothing to measure (your own rectangle)."""
+    import hashlib, json as _json
     plan.light_box = {}
-    for r in [o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) and plan.look_for[o.id].params.get("colour_light", 0) > 0]:
+    for r in [o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) and plan.look_for[o.id].params.get("colour_light", 0) > 0 and plan.look_for[o.id].params.get("colour_light_place", "fixed") != "zone"]:
+        place = plan.look_for[r.id].params.get("colour_light_place", "fixed")
+        fps = plan.blueprint.output.fps
         sig = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o.type in ("chroma_key", "background_removal", "matte_mask")]
-        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, r.id, r.start_frame, r.end_frame, repr(sorted((k, v) for k, v in r.params.items() if k.startswith("subject_"))), sig, plan.edl, "box1"], default=str).encode()).hexdigest()[:24]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, r.id, r.start_frame, r.end_frame, repr(sorted((k, v) for k, v in r.params.items() if k.startswith("subject_"))), sig, plan.edl, "box2", place], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "floor" / f"box_{key}.json"
         if f.is_file():
             plan.light_box[r.id] = _json.loads(f.read_text(encoding="utf-8")); continue
-        t = ((r.start_frame + r.end_frame) // 2) / plan.blueprint.output.fps
-        a = np.asarray(Image.open(io.BytesIO(render_frame(plan, source, t, 360, cache_dir, _measuring=True, view="alpha"))).convert("L")).astype(np.float32) / 255.0
-        h, w = a.shape
-        cols, rows = np.where((a > 0.5).mean(0) > 0.004)[0], np.where((a > 0.5).mean(1) > 0.004)[0]
-        if len(cols) == 0 or len(rows) == 0: continue
-        s, dx, dy = float(r.params.get("subject_scale", 1.0)), float(r.params.get("subject_x", 0.0)), float(r.params.get("subject_y", 0.0))
-        left, top = (1.0 - s) / 2.0 + dx, ((1.0 - s) if r.params.get("subject_anchor", "bottom") == "bottom" else (1.0 - s) / 2.0) + dy
-        res = {"x0": round(left + cols.min() / w * s, 4), "x1": round(left + (cols.max() + 1) / w * s, 4), "y0": round(top + rows.min() / h * s, 4), "y1": round(top + (rows.max() + 1) / h * s, 4)}
+        dur = (r.end_frame - r.start_frame) / fps
+        if place == "follow" and dur > 0.6:
+            n = int(min(24, max(3, round(dur / 0.25) + 1)))
+            ts = [r.start_frame / fps + (dur - 1.0 / fps) * i / (n - 1) for i in range(n)]
+            rows = [(t, _subject_bounds(plan, r, source, cache_dir, t)) for t in ts]
+            rows = [[round(t, 4), b["x0"], b["x1"], b["y0"], b["y1"]] for t, b in rows if b]
+            if not rows: continue
+            res = {"track": smooth_track(rows)} if len(rows) >= 2 else dict(zip(("x0", "x1", "y0", "y1"), rows[0][1:]))
+        else:
+            b = _subject_bounds(plan, r, source, cache_dir, ((r.start_frame + r.end_frame) // 2) / fps)
+            if not b: continue
+            res = b
         f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res), encoding="utf-8")
         plan.light_box[r.id] = res
 

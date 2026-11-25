@@ -198,6 +198,12 @@ Timeline track: **effects**
 | `colour_light_color_b` | color | `#b01cff` |  | [colour_light] Colour of light B (default magenta-purple). |
 | `colour_light_side_b` | enum | `right` | left, right, top, bottom, off | [colour_light] Which side light B comes from (off = unused). |
 | `colour_light_reach` | number | `0.5` | 0.0 … 1.0 | [colour_light] How far each light reaches across the subject (0 = only the near edge, 1 = across the whole subject, where the two colours mix). |
+| `colour_light_place` | enum | `fixed` | fixed, follow, zone | [colour_light] Where the lights sit. fixed (default) = the zone is placed from the subject's size and position on the MIDDLE frame and stays put in the picture (a stage light); follow = the zone follows the subject through the clip (measured at up to 24 moments (about every quarter second) and smoothly interpolated), so the light stays on the subject wherever it goes; zone = the lights are confined to a rectangle YOU place (colour_light_zone_*) and nothing outside it is lit. |
+| `colour_light_zone_x0` | number | `0.25` | 0.0 … 1.0 | [colour_light, place=zone] Left edge of your zone, as a fraction of the frame width. |
+| `colour_light_zone_y0` | number | `0.1` | 0.0 … 1.0 | [colour_light, place=zone] Top edge of your zone, as a fraction of the frame height. |
+| `colour_light_zone_x1` | number | `0.75` | 0.0 … 1.0 | [colour_light, place=zone] Right edge of your zone (fraction of the frame width; must be larger than colour_light_zone_x0). |
+| `colour_light_zone_y1` | number | `0.9` | 0.0 … 1.0 | [colour_light, place=zone] Bottom edge of your zone (fraction of the frame height; must be larger than colour_light_zone_y0). |
+| `colour_light_zone_soft` | number | `0.3` | 0.0 … 1.0 | [colour_light, place=zone] How softly the light fades out at the zone's edges (0 = a hard edge). |
 | `colour_light_edge` | number | `0.6` | 0.0 … 1.0 | [colour_light] Extra glow along the subject's outline on the side facing each light (rim light on jaw, cheek and hair). 0 = none. |
 | `light_pattern_asset_id` | asset |  |  | [light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples. |
 | `fringe` | number | `0.0` | 0.0 … 4.0 px at 1080p | Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture. |

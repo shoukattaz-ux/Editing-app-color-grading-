@@ -3,7 +3,7 @@ import type { Api, VideoInfo } from "./api";
 import type { Blueprint } from "./model";
 import * as m from "./model";
 import { Btn, Empty, Icon } from "./ui";
-import { MaskOverlay, useFitRect } from "./MaskOverlay";
+import { MaskOverlay, ZoneOverlay, useFitRect } from "./MaskOverlay";
 import type { Op } from "./model";
 
 export type Mode = "original" | "edited" | "compare";
@@ -31,7 +31,8 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   return { url, err, busy };
 }
 
-export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks }: {
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks, zone }: {
+  zone?: { x0: number; y0: number; x1: number; y1: number; colour: string; onChange: (patch: Record<string, any>) => void } | null;
   masks?: { ops: Op[]; selected: string | null; onChange: (id: string, patch: Record<string, any>) => void; onSelect: (id: string) => void };
   auto: boolean; setAuto: (v: boolean) => void;
   playing: boolean; setPlaying: (v: boolean | ((p: boolean) => boolean)) => void;
@@ -112,6 +113,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
             {edited.err && <div className="err-banner">{edited.err}</div>}
           </div>)}
         {(edited.busy || orig.busy || view.busy || proxyBusy) && <div className="spin" title="Rendering" />}
+        {zone && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <ZoneOverlay rect={fit} zone={zone} onChange={zone.onChange} />}
         {masks && masks.ops.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <MaskOverlay rect={fit} masks={masks.ops} selected={masks.selected} onChange={masks.onChange} onSelect={masks.onSelect} />}
         {mode === "edited" && !playable && !qcOn && (          // small, in the corner: never covers the picture, which is already live
           <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>

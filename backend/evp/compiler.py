@@ -533,12 +533,32 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         blurred = g.add([a2], f"gblur=sigma={max(1.0, (0.006 + 0.02 * float(L.get('colour_light_reach', 0.5))) * W):.2f}")
         ring = g.add([a1, blurred], "blend=all_expr='clip((A-B)*3\\,0\\,255)':shortest=1")        # inner band along the outline
         w4, h4 = max(2, W // 4), max(2, H // 4)
+        place = L.get("colour_light_place", "fixed")
+        inside = ""
+        def num_(v): return f"{float(v):.4f}"
+        if place == "zone":                                                            # the user's rectangle; the light is confined to it
+            zx0, zy0 = float(L.get("colour_light_zone_x0", 0.25)), float(L.get("colour_light_zone_y0", 0.1))
+            zx1, zy1 = max(zx0 + 0.02, float(L.get("colour_light_zone_x1", 0.75))), max(zy0 + 0.02, float(L.get("colour_light_zone_y1", 0.9)))
+            bx = {"x0": num_(zx0), "x1": num_(zx1), "y0": num_(zy0), "y1": num_(zy1)}
+            fx, fy = max(0.002, float(L.get("colour_light_zone_soft", 0.3)) * 0.5 * (zx1 - zx0)), max(0.002, float(L.get("colour_light_zone_soft", 0.3)) * 0.5 * (zy1 - zy0))
+            inside = f"*clip((X/W-{zx0:.4f})/{fx:.4f},0,1)*clip(({zx1:.4f}-X/W)/{fx:.4f},0,1)*clip((Y/H-{zy0:.4f})/{fy:.4f},0,1)*clip(({zy1:.4f}-Y/H)/{fy:.4f},0,1)"
+        elif box and box.get("track"):                                                 # follow: piecewise-linear in time through the measured moments
+            tr = box["track"]
+            def pw(i: int) -> str:
+                e = num_(tr[-1][i])
+                for j in range(len(tr) - 2, -1, -1):
+                    t0, t1 = tr[j][0], tr[j + 1][0]
+                    e = f"if(lt(T,{t1:.4f}),{tr[j][i]:.4f}+({tr[j + 1][i] - tr[j][i]:.4f})*clip((T-{t0:.4f})/{max(1e-3, t1 - t0):.4f},0,1),{e})"
+                return f"({e})"
+            bx = {"x0": pw(1), "x1": pw(2), "y0": pw(3), "y1": pw(4)}
+        else:
+            b = box or {"x0": 0.0, "x1": 1.0, "y0": 0.0, "y1": 1.0}                    # the subject's bounds (measured on the middle frame), else the whole frame
+            bx = {k_: num_(v) for k_, v in b.items() if k_ in ("x0", "x1", "y0", "y1")}
         layers = []
         for side, c in lights:
-            b = box or {"x0": 0.0, "x1": 1.0, "y0": 0.0, "y1": 1.0}                   # the subject's bounds (measured), else the whole frame
-            bw, bh = max(0.05, b["x1"] - b["x0"]), max(0.05, b["y1"] - b["y0"])
-            d = {"left": f"((X/W-{b['x0']:.4f})/{bw:.4f})", "right": f"(({b['x1']:.4f}-X/W)/{bw:.4f})", "top": f"((Y/H-{b['y0']:.4f})/{bh:.4f})", "bottom": f"(({b['y1']:.4f}-Y/H)/{bh:.4f})"}[side]
-            expr = f"255*pow(clip(1-max(0,{d})/{reach:.4f},0,1),1.6)".replace(",", "\\,")
+            bw, bh = f"max(0.05,{bx['x1']}-{bx['x0']})", f"max(0.05,{bx['y1']}-{bx['y0']})"
+            d = {"left": f"((X/W-{bx['x0']})/{bw})", "right": f"(({bx['x1']}-X/W)/{bw})", "top": f"((Y/H-{bx['y0']})/{bh})", "bottom": f"(({bx['y1']}-Y/H)/{bh})"}[side]
+            expr = f"255*pow(clip(1-max(0,{d})/{reach:.4f},0,1),1.6){inside}".replace(",", "\\,")
             w = g.add([], f"nullsrc=s={w4}x{h4}:r={fps:g},format=gray" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",geq=lum='{expr}',scale={W}:{H}:flags=bicubic,format=gray")
             w_a, w_b = splitn(w, 2)
             layers.append((w_a, w_b, c))

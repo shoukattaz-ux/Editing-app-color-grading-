@@ -240,6 +240,7 @@ function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
   const set = (k: string, v: number | string | undefined) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
   const preset = (o: Record<string, number | string>) => edit(b => Object.entries(o).reduce((acc, [k, v]) => m.setParam(acc, op.id, k, v), b), `p:${op.id}:colourpreset`);
   const on = num("colour_light", 0) > 0;
+  const place = str("colour_light_place", "fixed");
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const sides = ["left", "right", "top", "bottom", "off"] as const;
   const light = (id: "a" | "b", title: string, dc: string, ds: string) => (
@@ -263,6 +264,15 @@ function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
       {on && <>
         {light("a", "Light A", "#19b8ff", "left")}
         {light("b", "Light B", "#b01cff", "right")}
+        <div className="btn-row" role="group" aria-label="Where the lights sit">
+          {([["fixed", "Fixed (subject, middle frame)"], ["follow", "Follow the subject"], ["zone", "My own spot"]] as const).map(([k, l]) =>
+            <Btn key={k} label={l} kind={place === k ? "primary" : undefined} onClick={() => set("colour_light_place", k)}
+              title={k === "fixed" ? "A stage light: placed from the subject on the middle frame, stays put in the picture" : k === "follow" ? "The lights travel with the subject (measured about every quarter second)" : "Drag a rectangle on the picture: only inside it is lit"} />)}
+        </div>
+        {place === "zone" && <><p className="muted small">Drag the dashed rectangle on the preview to move it; drag its white handles to resize it. Only inside it is lit, and the subject is lit only where it is inside.</p>
+          {sl("colour_light_zone_soft", "Soft edge of the spot", 0.3)}</>}
+        {place === "follow" && <p className="muted small">The lights follow the subject through the clip: its position is measured about every quarter second and smoothed. Fast, sudden moves can lag a little between measurements.</p>}
+        {place === "fixed" && <p className="muted small">Placed from where the subject is on the <b>middle</b> frame and then fixed in the picture, like a stage light. If the subject starts somewhere else, use <b>Follow the subject</b> or <b>My own spot</b>.</p>}
         {sl("colour_light_reach", "How far it reaches", 0.5)}
         {sl("colour_light_edge", "Edge glow", 0.6)}
         <p className="muted small">Where the two lights meet in the middle they mix. The studio look's Master amount scales this too.</p></>}

@@ -293,7 +293,12 @@ function Editor({ api }: { api: Api }) {
           <div className="recovery"><Icon n="check" /> Restored your work exactly as you left it{project.restored_at ? ` (${new Date(project.restored_at * 1000).toLocaleString()})` : ""}. It was auto-saved but not yet saved as a version.
             <Btn label="Save now" kind="primary" onClick={save} />
             <Btn label="Back to last saved version" onClick={async () => { try { load(await api.revert()); toast("Went back to the last saved version"); } catch (e: any) { toast(e.message, "err"); } }} /></div>)}
-        <Preview masks={{ ops: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? bp.operations.filter(o => o.type === "matte_mask" && o.enabled !== false) : [], selected: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? sel : null,
+        <Preview zone={(() => { const o = bp.operations.find(x => x.id === sel); const q = o?.parameters ?? {};
+            if (!o || o.type !== "studio_look" || !(typeof q.colour_light === "number" && q.colour_light > 0) || q.colour_light_place !== "zone") return null;
+            const n = (k: string, d: number) => (typeof q[k] === "number" ? q[k] : d);
+            return { x0: n("colour_light_zone_x0", 0.25), y0: n("colour_light_zone_y0", 0.1), x1: n("colour_light_zone_x1", 0.75), y1: n("colour_light_zone_y1", 0.9), colour: typeof q.colour_light_color_a === "string" ? q.colour_light_color_a : "#19b8ff",
+              onChange: (patch: Record<string, any>) => edit(b => Object.entries(patch).reduce((acc, [k, v]) => m.setParam(acc, o.id, k, v), b), `zone:${o.id}`) }; })()}
+          masks={{ ops: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? bp.operations.filter(o => o.type === "matte_mask" && o.enabled !== false) : [], selected: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? sel : null,
             onChange: (id, patch) => edit(b => Object.entries(patch).reduce((acc, [k, v]) => m.setParam(acc, id, k, v), b), `mask:${id}`), onSelect: setSel }} playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
           stale={stale} onUpdateProxy={() => { lastAuto.current = null; updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>

@@ -88,3 +88,38 @@ export function MaskOverlay({ rect, masks, selected, onChange, onSelect }: {
           onPointerDown={e => begin(e, "pt", i)} onDoubleClick={e => { e.stopPropagation(); onChange(sel.id, { polygon: (sel.parameters?.polygon ?? []).filter((_: number[], j: number) => j !== i) }); }} />)}
     </svg>);
 }
+
+/** Colour lights, "My own spot": drag the rectangle to move it, drag its handles to resize it. The lights are confined to it. */
+export function ZoneOverlay({ rect, zone, onChange }: {
+  rect: { left: number; top: number; width: number; height: number };
+  zone: { x0: number; y0: number; x1: number; y1: number; colour: string };
+  onChange: (patch: P) => void;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const drag = useRef<{ kind: string; x0: number; y0: number; start: typeof zone } | null>(null);
+  if (!rect.width) return null;
+  const toN = (e: React.PointerEvent) => { const b = svg.current!.getBoundingClientRect(); return { x: clamp((e.clientX - b.left) / b.width), y: clamp((e.clientY - b.top) / b.height) }; };
+  const begin = (e: React.PointerEvent, kind: string) => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture(e.pointerId); const n = toN(e); drag.current = { kind, x0: n.x, y0: n.y, start: { ...zone } }; };
+  const move = (e: React.PointerEvent) => {
+    const d = drag.current; if (!d) return; const n = toN(e), s = d.start;
+    if (d.kind === "move") {
+      const w = s.x1 - s.x0, h = s.y1 - s.y0, x0 = clamp(s.x0 + n.x - d.x0, 0, 1 - w), y0 = clamp(s.y0 + n.y - d.y0, 0, 1 - h);
+      onChange({ colour_light_zone_x0: r4(x0), colour_light_zone_y0: r4(y0), colour_light_zone_x1: r4(x0 + w), colour_light_zone_y1: r4(y0 + h) });
+    } else {
+      let x0 = s.x0, y0 = s.y0, x1 = s.x1, y1 = s.y1;
+      if (d.kind.includes("w")) x0 = clamp(n.x, 0, x1 - 0.03); if (d.kind.includes("e")) x1 = clamp(n.x, x0 + 0.03, 1);
+      if (d.kind.includes("n")) y0 = clamp(n.y, 0, y1 - 0.03); if (d.kind.includes("s")) y1 = clamp(n.y, y0 + 0.03, 1);
+      onChange({ colour_light_zone_x0: r4(x0), colour_light_zone_y0: r4(y0), colour_light_zone_x1: r4(x1), colour_light_zone_y1: r4(y1) });
+    }
+  };
+  const end = () => { drag.current = null; };
+  const W = rect.width, H = rect.height, mx = (zone.x0 + zone.x1) / 2, my = (zone.y0 + zone.y1) / 2;
+  const handles: [string, number, number, string][] = [["hnw", zone.x0, zone.y0, "nwse-resize"], ["hn", mx, zone.y0, "ns-resize"], ["hne", zone.x1, zone.y0, "nesw-resize"], ["he", zone.x1, my, "ew-resize"],
+    ["hse", zone.x1, zone.y1, "nwse-resize"], ["hs", mx, zone.y1, "ns-resize"], ["hsw", zone.x0, zone.y1, "nesw-resize"], ["hw", zone.x0, my, "ew-resize"]];
+  return (
+    <svg ref={svg} className="mask-overlay zone-overlay" width={W} height={H} style={{ left: rect.left, top: rect.top }} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+      <rect x={zone.x0 * W} y={zone.y0 * H} width={(zone.x1 - zone.x0) * W} height={(zone.y1 - zone.y0) * H} fill={zone.colour} fillOpacity={0.12} stroke={zone.colour} strokeWidth={2} strokeDasharray="6 4"
+        style={{ cursor: "move", pointerEvents: "all" }} onPointerDown={e => begin(e, "move")} aria-label="Light zone" />
+      {handles.map(([k, x, y, c]) => <rect key={k} x={x * W - 5} y={y * H - 5} width={10} height={10} fill="#fff" stroke={zone.colour} strokeWidth={2} style={{ cursor: c, pointerEvents: "all" }} onPointerDown={e => begin(e, k)} />)}
+    </svg>);
+}
