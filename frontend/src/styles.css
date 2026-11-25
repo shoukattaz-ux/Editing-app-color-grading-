@@ -151,3 +151,10 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .autobtn{height:26px;padding:0 10px;border-radius:6px;border:1px solid #ffffff22;background:transparent;color:inherit;font-size:12px;cursor:pointer;opacity:.7}
 .autobtn.on{opacity:1;border-color:#3b82f6;background:#3b82f622}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+.undo-group{display:inline-flex;border:1px solid #ffffff22;border-radius:8px;overflow:hidden;background:#ffffff0a}
+.undo-group .ur{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border:0;background:transparent;color:inherit;font-size:12.5px;cursor:pointer}
+.undo-group .ur+.ur{border-left:1px solid #ffffff22}
+.undo-group .ur:hover:not(:disabled){background:#3b82f633}
+.undo-group .ur:disabled{opacity:.38;cursor:default}
+.undo-group .ur em{font-style:normal;font-size:10.5px;min-width:18px;text-align:center;padding:1px 5px;border-radius:999px;background:#ffffff1f}

@@ -13,7 +13,8 @@ const CAT_COLOR: Record<string, string> = { Keying: "#2fb57a", Compositing: "#7a
 /** distinct keyframe times (relative to the effect's start) across all its animated parameters */
 const kfTimes = (op: Op): number[] => [...new Set(Object.values(op.keyframes ?? {}).flatMap(k => k.map(x => +x.time.toFixed(4))))].sort((a, b) => a - b);
 
-export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selClip, setSelClip, edit, issues, zoom, setZoom, sourceName, onCut, onDeleteClip }: {
+export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selClip, setSelClip, edit, issues, zoom, setZoom, sourceName, onCut, onDeleteClip, history }: {
+  history: { canUndo: boolean; canRedo: boolean; undoCount: number; redoCount: number; undoLabel: string; redoLabel: string; onUndo: () => void; onRedo: () => void };
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; sel: string | null; setSel: (id: string | null) => void;
   selClip: string | null; setSelClip: (id: string | null) => void;
   edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void; issues: Issue[]; zoom: number; setZoom: (z: number) => void; sourceName: string;
@@ -80,6 +81,15 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
     <div className="timeline">
       <div className="tl-bar">
         <span className="tl-title"><Icon n="layers" /> Timeline</span>
+        <div className="undo-group" role="group" aria-label="Undo and redo">
+          <button className="ur" onClick={history.onUndo} disabled={!history.canUndo} aria-label="Undo"
+            title={history.canUndo ? `Undo: ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"}>
+            <Icon n="undo" size={15} /><span>Undo</span>{history.undoCount > 0 && <em>{history.undoCount}</em>}</button>
+          <button className="ur" onClick={history.onRedo} disabled={!history.canRedo} aria-label="Redo"
+            title={history.canRedo ? `Redo: ${history.redoLabel} (Ctrl+Y)` : "Nothing to redo"}>
+            <Icon n="redo" size={15} /><span>Redo</span>{history.redoCount > 0 && <em>{history.redoCount}</em>}</button>
+        </div>
+        <span className="sep" />
         <Btn icon="scissors" label="Cut" title="Cut the footage at the playhead (C)" disabled={!video} onClick={onCut} />
         <Btn icon="trash" label="Delete clip" kind="danger" title="Delete the selected clip; later footage and effects move earlier (Del)" disabled={!selClip || layout.clips.length < 2} onClick={onDeleteClip} />
         <span className="sep" />

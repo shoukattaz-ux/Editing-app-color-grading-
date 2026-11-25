@@ -385,3 +385,34 @@ function remapKeyframes(o: Op, map: (abs: number) => number | null, newStart: nu
   }
   return out;
 }
+
+
+/** a short human description of what changed between two versions of the blueprint ("Delete Studio Look"), for the Undo / Redo tooltips and toasts */
+export function describeChange(a: Blueprint, b: Blueprint, titleOf: (type: string) => string = t => t): string {
+  const ao = new Map(a.operations.map(o => [o.id, o])), bo = new Map(b.operations.map(o => [o.id, o]));
+  const added = b.operations.filter(o => !ao.has(o.id)), removed = a.operations.filter(o => !bo.has(o.id));
+  const name = (o: Op) => titleOf(o.type);
+  const nClips = (x: Blueprint) => (x.clips ?? []).length;
+  if (added.length && removed.length && added.length === removed.length && added.length > 1) return "Apply blueprint";
+  if (added.length === 1 && !removed.length) return `Add ${name(added[0])}`;
+  if (removed.length === 1 && !added.length) return `Delete ${name(removed[0])}`;
+  if (added.length > 1 && !removed.length) return `Add ${added.length} effects`;
+  if (removed.length > 1 && !added.length) return `Delete ${removed.length} effects`;
+  if (added.length || removed.length) return "Change effects";
+  const ca = JSON.stringify(a.clips ?? null), cb = JSON.stringify(b.clips ?? null);
+  if (ca !== cb) return nClips(b) > nClips(a) ? "Cut footage" : nClips(b) < nClips(a) ? "Delete clip" : "Trim or move clip";
+  const changed = b.operations.filter(o => JSON.stringify(o) !== JSON.stringify(ao.get(o.id)));
+  if (changed.length === 1) {
+    const o = changed[0], p = ao.get(o.id)!;
+    if (o.start !== p.start || o.end !== p.end) return `Move or trim ${name(o)}`;
+    if (JSON.stringify(o.keyframes ?? null) !== JSON.stringify(p.keyframes ?? null)) return `Animate ${name(o)}`;
+    if ((o.enabled ?? true) !== (p.enabled ?? true)) return `${(o.enabled ?? true) ? "Enable" : "Disable"} ${name(o)}`;
+    const keys = Object.keys({ ...(p.parameters ?? {}), ...(o.parameters ?? {}) }).filter(k => JSON.stringify(p.parameters?.[k]) !== JSON.stringify(o.parameters?.[k]));
+    if (keys.length === 1) return `Change ${keys[0].replace(/_/g, " ")} (${name(o)})`;
+    return `Edit ${name(o)}`;
+  }
+  if (changed.length > 1) return `Edit ${changed.length} effects`;
+  if (JSON.stringify(a.assets) !== JSON.stringify(b.assets)) return "Change assets";
+  if (JSON.stringify(a.output ?? null) !== JSON.stringify(b.output ?? null)) return "Change output settings";
+  return "Change";
+}

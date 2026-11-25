@@ -180,12 +180,14 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
     class BP(BaseModel):
         blueprint: dict[str, Any]
         ui: dict[str, Any] | None = None
+        clean: bool = False          # the editor is back at the saved state (e.g. after Undo): drop the auto-save so it is not restored later
 
     @app.put("/api/project/blueprint", dependencies=[api()])
     def put_blueprint(b: BP):
         p = st.need_project()
         p.update(blueprint=b.blueprint, ui=b.ui)
-        p.autosave()
+        if b.clean: p.discard_autosave()
+        else: p.autosave()
         if b.ui is not None: p.write_ui(b.ui)
         st.recent.touch_if_stale(str(p.root), p.data["name"])
         return {"ok": True}

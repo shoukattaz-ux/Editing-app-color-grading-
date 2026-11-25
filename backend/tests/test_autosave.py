@@ -94,3 +94,14 @@ def test_full_session_over_the_api_kill_and_reopen(tmp_path, media):
     assert c3.get("/api/project/recent", headers=H).json()[0]["unsaved"] is False
     st4 = TestClient(create_app("tok", d)).post("/api/project/open", headers=H, json={"path": rec[0]["path"]}).json()
     assert st4["restored"] is False and st4["blueprint"]["operations"] == OPS
+
+
+def test_undo_back_to_saved_state_drops_the_autosave(client, tmp_path, media):
+    pj = client.post("/api/project/new", headers=H, json={"parent": str(tmp_path), "name": "U", "source": media["video"]}).json()
+    client.put("/api/project/blueprint", headers=H, json={"blueprint": bp(ops=OPS)})
+    assert (tmp_path / "U.evproj" / "autosave.json").is_file()
+    client.put("/api/project/blueprint", headers=H, json={"blueprint": pj["blueprint"], "clean": True})      # the user pressed Undo back to the saved state
+    assert not (tmp_path / "U.evproj" / "autosave.json").exists()
+    c2 = TestClient(create_app("tok", str(tmp_path / "data")))
+    st = c2.post("/api/project/open", headers=H, json={"path": pj["path"]}).json()
+    assert st["restored"] is False and st["blueprint"]["operations"] == []                              # the undone edit does not come back

@@ -49,6 +49,7 @@ function Editor({ api }: { api: Api }) {
   const [pathDlg, setPathDlg] = useState<{ title: string; kind: string; resolve: (p: string | null) => void } | null>(null);
   const [saved, setSaved] = useState<Blueprint | null>(null);
   const restoreView = useRef(false);
+  const onServer = useRef(false);                  // an auto-save file with unsaved edits exists on disk
   const [autoAt, setAutoAt] = useState<number | null>(null);
   const [layout, setLayout] = useState({ left: 320, right: 330, bottom: 260 });
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -60,6 +61,16 @@ function Editor({ api }: { api: Api }) {
     const id = ++toastId.current; setToasts(t => [...t, { id, msg, kind }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), kind === "err" ? 7000 : 3000);
   }, []);
   const edit = useCallback((fn: (b: Blueprint) => Blueprint, key?: string) => setHist(h => m.commit(h, fn(h.present), key)), []);
+  // undo / redo: one place for the buttons above the timeline, the toolbar and Ctrl+Z / Ctrl+Y; says what it undid
+  const histRef = useRef(hist); histRef.current = hist;
+  const schemaRef = useRef(schema); schemaRef.current = schema;
+  const titleOf = useCallback((t: string) => schemaRef.current?.operations[t]?.title ?? t, []);
+  const labelNext = (h: m.History<Blueprint>, dir: "undo" | "redo") => {
+    const to = dir === "undo" ? h.past[h.past.length - 1] : h.future[0];
+    return to ? m.describeChange(dir === "undo" ? to : h.present, dir === "undo" ? h.present : to, titleOf) : "";
+  };
+  const doUndo = useCallback(() => { const h = histRef.current; if (!h.past.length) return; const l = labelNext(h, "undo"); setHist(m.undo); toast(`Undid: ${l}`); }, [toast, titleOf]);
+  const doRedo = useCallback(() => { const h = histRef.current; if (!h.future.length) return; const l = labelNext(h, "redo"); setHist(m.redo); toast(`Redid: ${l}`); }, [toast, titleOf]);
   const askPath = useCallback((title: string, kind: string) => {
     const b = window.evp;
     if (b?.pickFile && b?.pickFolder) {                      // desktop app: the operating system's own dialog, straight away
@@ -80,6 +91,7 @@ function Editor({ api }: { api: Api }) {
     if (ui.layout && typeof ui.layout.left === "number") setLayout(l => ({ ...l, ...ui.layout }));
     setMode("original"); setTab((ui.tab as Tab) || (p.video ? "blueprint" : "media"));
     restoreView.current = ui.mode === "edited" && !!p.video;
+    onServer.current = !!p.restored;
     if (p.restored) toast("Restored your work exactly as you left it", "ok");
   }, [toast]);
 
@@ -107,7 +119,10 @@ function Editor({ api }: { api: Api }) {
     if (!project) return;
     if (first.current) { first.current = false; }
     const h1 = setTimeout(() => api.validate(bp).then(setReport).catch(() => {}), 400);
-    const h2 = setTimeout(() => { if (bp !== saved) api.putBlueprint(bp, uiState).then(() => setAutoAt(Date.now())).catch(() => {}); }, 350);      // auto-save: nothing waits for the Save button
+    const h2 = setTimeout(() => {
+      if (bp !== saved) api.putBlueprint(bp, uiState).then(() => { onServer.current = true; setAutoAt(Date.now()); }).catch(() => {});
+      else if (onServer.current) api.putBlueprint(bp, uiState, true).then(() => { onServer.current = false; }).catch(() => {});   // undone back to the saved state: forget the auto-save
+    }, 350);      // auto-save: nothing waits for the Save button
     return () => { clearTimeout(h1); clearTimeout(h2); };
   }, [bp, project?.path]);
 
@@ -135,7 +150,7 @@ function Editor({ api }: { api: Api }) {
   const dirty = project && bp !== saved;
   const save = useCallback(async () => {
     if (!project) return;
-    try { const r = await api.save(bp); setSaved(bp); setProject(p => p && { ...p, version: r.version, restored: false }); toast(`Saved (version ${r.version})`); } catch (e: any) { toast(e.message, "err"); }
+    try { const r = await api.save(bp); onServer.current = false; setSaved(bp); setProject(p => p && { ...p, version: r.version, restored: false }); toast(`Saved (version ${r.version})`); } catch (e: any) { toast(e.message, "err"); }
   }, [api, bp, project, toast]);
 
   // ---- proxy render / execute
@@ -182,8 +197,8 @@ function Editor({ api }: { api: Api }) {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName; if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); setHist(e.shiftKey ? m.redo : m.undo); }
-      else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); setHist(m.redo); }
+      if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
+      else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); doRedo(); }
       else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
       else if (e.key === " ") { e.preventDefault(); (window as any).__evpToggle?.(); }
       else if (e.key === "ArrowLeft") (window as any).__evpStep?.(-1);
@@ -193,8 +208,7 @@ function Editor({ api }: { api: Api }) {
       else if ((e.key === "Delete" || e.key === "Backspace") && selClip) { removeClip(); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
-  }, [save, sel, selClip, edit, cutHere, removeClip]);
-  useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } }; window.addEventListener("beforeunload", f); return () => window.removeEventListener("beforeunload", f); }, [dirty]);
+  }, [save, sel, selClip, edit, cutHere, removeClip, doUndo, doRedo]);
 
   if (fatal) return <Fatal title="Backend error">{fatal}</Fatal>;
   if (!schema) return <Fatal title="Starting…">Connecting to the processing engine.</Fatal>;
@@ -227,8 +241,8 @@ function Editor({ api }: { api: Api }) {
           </div>}
         </span>
         <Btn icon="save" label="Save" onClick={save} title="Save (Ctrl+S)" />
-        <Btn icon="undo" onClick={() => setHist(m.undo)} disabled={!hist.past.length} title="Undo (Ctrl+Z)" />
-        <Btn icon="redo" onClick={() => setHist(m.redo)} disabled={!hist.future.length} title="Redo (Ctrl+Shift+Z)" />
+        <Btn icon="undo" onClick={doUndo} disabled={!hist.past.length} title="Undo (Ctrl+Z)" />
+        <Btn icon="redo" onClick={doRedo} disabled={!hist.future.length} title="Redo (Ctrl+Y)" />
         <span className="spacer" />
         <Btn icon="bolt" label="Execute Blueprint" kind="primary" onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
         <Btn icon="eye" label="Render preview" onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Render the 640px proxy preview" />
@@ -257,7 +271,7 @@ function Editor({ api }: { api: Api }) {
 
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />
       <div style={{ gridColumn: "1 / -1" }}>
-        <Timeline bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
+        <Timeline history={{ canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, undoCount: hist.past.length, redoCount: hist.future.length, undoLabel: labelNext(hist, "undo"), redoLabel: labelNext(hist, "redo"), onUndo: doUndo, onRedo: doRedo }} bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
           onCut={cutHere} onDeleteClip={() => removeClip()} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
       </div>
       <footer className="status" style={{ gridColumn: "1 / -1" }}>

@@ -41,6 +41,15 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
   await page.waitForSelector("video.media", { timeout: 30000 });
   await page.waitForFunction(() => !document.querySelector(".chip-top"), null, { timeout: 30000 });
   check(renders >= 1, "the preview video was re-rendered by itself after the edit (no click)", `${renders} render request(s)`);
+  // undo / redo right above the timeline: step back and forward through the edit, with a description of each step
+  const apiOps = async () => (await (await fetch(`http://127.0.0.1:${be.port}/api/project`, { headers: { "x-evp-token": be.token } })).json()).blueprint.operations.length;
+  check(await page.locator(".tl-bar .undo-group button[aria-label=Undo]").isEnabled() && !(await page.locator(".tl-bar .undo-group button[aria-label=Redo]").isEnabled()), "Undo / Redo sit in the timeline bar: undo is available, redo is not yet");
+  check(/Undo: Add Color Grading/.test(await page.locator("button[aria-label=Undo]").first().getAttribute("title")), "the Undo tooltip names the step it will undo", await page.locator("button[aria-label=Undo]").first().getAttribute("title"));
+  await page.click(".tl-bar button[aria-label=Undo]"); await page.waitForTimeout(900);
+  check(await apiOps() === 0 && await page.locator("text=Undid: Add Color Grading").count() === 1, "Undo removes the effect and says what it undid");
+  check(await page.locator(".tl-bar button[aria-label=Redo]").isEnabled(), "Redo is now available");
+  await page.click(".tl-bar button[aria-label=Redo]"); await page.waitForTimeout(900);
+  check(await apiOps() === 1, "Redo brings it back");
   await page.waitForTimeout(1500);                                                    // auto-save debounce, no Save click
   check(/Auto-saved/.test(await page.locator(".autosave").innerText()), "the toolbar says the work is auto-saved", await page.locator(".autosave").innerText());
   const saved = JSON.parse(fs.readFileSync(fs.readdirSync(path.join(work, "proj")).map(n => path.join(work, "proj", n, "project.json"))[0], "utf8"));

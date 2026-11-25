@@ -318,3 +318,21 @@ describe("keyframes when effects are retimed, split, duplicated or rippled", () 
     expect(r.end).toBe(16); expect(r.keyframes!.e.map(k => k.time)).toEqual([0, 4, 6]);
   });
 });
+
+
+describe("describeChange", () => {
+  const op = (id: string, type: string, extra: Partial<m.Op> = {}): m.Op => ({ id, type, start: 0, parameters: {}, ...extra });
+  const bp = (ops: m.Op[], clips?: m.Clip[]): m.Blueprint => ({ blueprint_version: "1.0", assets: [], operations: ops, ...(clips ? { clips } : {}) });
+  const title = (t: string) => ({ color_grading: "Color Grading", studio_look: "Studio Look" } as Record<string, string>)[t] ?? t;
+  it("names what an undo step did", () => {
+    const a = bp([op("g", "color_grading")]);
+    expect(m.describeChange(bp([]), a, title)).toBe("Add Color Grading");
+    expect(m.describeChange(a, bp([]), title)).toBe("Delete Color Grading");
+    expect(m.describeChange(a, bp([op("g", "color_grading", { parameters: { contrast: 1.2 } })]), title)).toBe("Change contrast (Color Grading)");
+    expect(m.describeChange(a, bp([op("g", "color_grading", { start: 1 })]), title)).toBe("Move or trim Color Grading");
+    expect(m.describeChange(a, bp([op("g", "color_grading", { enabled: false })]), title)).toBe("Disable Color Grading");
+    expect(m.describeChange(bp([], [{ id: "a", start: 0, end: 5 }]), bp([], [{ id: "a", start: 0, end: 2 }, { id: "b", start: 2, end: 5 }]), title)).toBe("Cut footage");
+    expect(m.describeChange(bp([], [{ id: "a", start: 0, end: 2 }, { id: "b", start: 2, end: 5 }]), bp([], [{ id: "a", start: 0, end: 2 }]), title)).toBe("Delete clip");
+    expect(m.describeChange(a, a, title)).toBe("Change");
+  });
+});

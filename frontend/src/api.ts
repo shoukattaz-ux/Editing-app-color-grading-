@@ -50,7 +50,7 @@ export class Api {
   newProject(parent: string, name: string, source?: string): Promise<ProjectState> { return this.req("POST", "/api/project/new", { parent, name, source: source || null }); }
   openProject(path: string): Promise<ProjectState> { return this.req("POST", "/api/project/open", { path }); }
   setSource(path: string): Promise<ProjectState> { return this.req("POST", "/api/project/source", { path }); }
-  putBlueprint(blueprint: Blueprint, ui?: any) { return this.req("PUT", "/api/project/blueprint", { blueprint, ui }); }
+  putBlueprint(blueprint: Blueprint, ui?: any, clean = false) { return this.req("PUT", "/api/project/blueprint", { blueprint, ui, clean }); }
   save(blueprint: Blueprint, ui?: any): Promise<{ version: number }> { return this.req("POST", "/api/project/save", { blueprint, ui }); }
   saveAs(parent: string, name: string): Promise<ProjectState> { return this.req("POST", "/api/project/save_as", { parent, name }); }
   recover(): Promise<ProjectState> { return this.req("POST", "/api/project/recover"); }
