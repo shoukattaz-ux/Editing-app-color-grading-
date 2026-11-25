@@ -19,6 +19,9 @@ CONTROLS = tuple(NEUTRAL)
 
 
 AUTO_KEYS = CONTROLS + ("subject_exposure", "shadow", "shadow_blur", "shadow_dx", "shadow_dy")
+# camera match: make the subject and the background look like one camera shot them (softness, grain, black level); `fringe` is a pure look control
+CAMERA_KEYS = ("match_softness", "subject_grain", "background_grain", "match_blacks")
+GRAIN_STD_PER_UNIT = 4.6        # grain amount 1.0 = the `noise` filter at strength 14 = a luma noise of ~4.6 levels (measured)
 NUMERIC_AUTO = tuple(k for k in AUTO_KEYS if k not in ("shadow_tint", "highlight_tint"))
 
 
@@ -35,6 +38,13 @@ def resolve(params: dict, auto: dict | None = None) -> dict:
                 base[k] = base.get(k, 0.0) + a * (v - base.get(k, 0.0))
             elif k in AUTO_KEYS: base[k] = v
     base.update({k: params[k] for k in AUTO_KEYS if params.get(k) is not None})
+    # camera match: measured values x strength, then whatever the blueprint set explicitly
+    cm = float(params.get("camera_match") or 0.0)
+    cam = (auto or {}).get("camera") if cm > 0 else None
+    for k in CAMERA_KEYS:
+        base[k] = round(cm * float(cam[k]), 4) if cam else 0.0
+        if params.get(k) is not None: base[k] = float(params[k])
+    base["fringe"] = float(params.get("fringe") or 0.0)
     return base
 
 
@@ -75,6 +85,63 @@ def _luma(rgb):
 
 def _hex(c) -> str:
     return "#%02x%02x%02x" % tuple(int(round(min(255, max(0, v)))) for v in c)
+
+
+def analyze_camera(comp_rgb, subject_mask) -> dict | None:
+    """Compare how the camera 'saw' the subject and the background, on the finished composite (no look applied yet).
+
+    softness  <- the 90th-percentile edge gradient of each side (a sharper subject than background looks pasted on; a softer one looks out of focus)
+    grain     <- noise of each side, measured on flat areas from the residual after a small blur (robust median); the cleaner side gets the difference
+    blacks    <- the 1st-percentile brightness of each side (a milky background next to crushed subject blacks, or the other way round)
+    Returns the settings that would make the subject match (in the units of the controls) plus `measured` numbers for the user, or None
+    when there is no subject / no background to compare."""
+    import numpy as np, cv2
+    h, w = comp_rgb.shape[:2]
+    m = (subject_mask.astype(np.uint8))
+    if m.mean() < 0.02: return None
+    subj = cv2.erode(m, np.ones((11, 11), np.uint8)).astype(bool)
+    bg = ~cv2.dilate(m, np.ones((25, 25), np.uint8)).astype(bool)
+    if subj.sum() < 800 or bg.sum() < 800: return None
+    L = _luma(comp_rgb).astype(np.float32)
+    grad = np.hypot(cv2.Sobel(L, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(L, cv2.CV_32F, 0, 1, ksize=3))
+    res = L - cv2.GaussianBlur(L, (0, 0), 1.2)
+
+    def noise(region):
+        flat = region & (grad < np.percentile(grad[region], 50))
+        return float(1.4826 * np.median(np.abs(res[flat]))) if flat.sum() > 300 else 0.0
+    # edge softness: how wide are the strong edges? width = (brightness step) / (steepest slope) = 2.5 x the sigma of the blur that made the edge.
+    # Measured on the SUBJECT'S OWN CONTOUR and on the strongest edges of the background; noise is removed first so grain does not look like sharpness.
+    Ls = cv2.GaussianBlur(L, (0, 0), 1.0)
+    gs = np.hypot(cv2.Sobel(Ls, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(Ls, cv2.CV_32F, 0, 1, ksize=3)) / 8.0        # slope per pixel (Sobel 3x3 sums 8 x the slope)
+    rng7 = cv2.dilate(Ls, np.ones((9, 9), np.uint8)) - cv2.erode(Ls, np.ones((9, 9), np.uint8))
+
+    def edge_sigma(region, top):
+        sel = region & (rng7 > 0.06) & (gs > np.percentile(gs[region], 100 - top))
+        if sel.sum() < 40: return None
+        return float(np.median(rng7[sel] / np.maximum(gs[sel], 1e-4)) / 2.5)
+    band = cv2.dilate(m, np.ones((9, 9), np.uint8)).astype(bool) & ~cv2.erode(m, np.ones((9, 9), np.uint8)).astype(bool)
+    s_sub, s_bg = edge_sigma(band, 30), edge_sigma(bg, 4)
+    ns, nb = noise(subj), noise(bg)
+    bs, bb = float(np.percentile(L[subj], 1)), float(np.percentile(L[bg], 1))
+    scale = h / 1080.0
+    soft = 0.0
+    if s_sub is not None and s_bg is not None:
+        if s_bg > s_sub + 0.35: soft = float(np.clip(np.sqrt(max(s_bg ** 2 - s_sub ** 2, 0.0)), 0.0, 4.0))             # the subject's edge is sharper than anything in the scene: add the missing blur
+        elif s_sub > s_bg + 0.8: soft = -float(np.clip(0.8 * (s_sub - s_bg), 0.0, 3.0))                                  # softer than the scene: sharpen a little
+    r = (s_bg / s_sub) if (s_sub and s_bg) else 1.0
+    sg = bg_g = 0.0
+    if ns > nb * 1.1 and ns > 0.004: bg_g = float(np.sqrt(ns * ns - nb * nb)) * 255.0 / GRAIN_STD_PER_UNIT        # the footage is grainier than the picture behind it
+    elif nb > ns * 1.1 and nb > 0.004: sg = float(np.sqrt(nb * nb - ns * ns)) * 255.0 / GRAIN_STD_PER_UNIT         # the background is grainier than the subject
+    # black level: only when the subject really HAS dark tones to move (a bright face on a dark background has no blacks to match)
+    s25 = float(np.percentile(L[subj], 25))
+    if bb - bs > 0.012 and bs < 0.12: bl = float((bb - bs) / max(1e-3, 1.0 - bs))                                 # background blacks are lifted: lift the subject's
+    elif bs - bb > 0.02 and 0.05 < bs < 0.25 and s25 < 0.35: bl = -float((bs - bb) / max(1e-3, 1.0 - bb))        # subject's darks are milky next to a deep background
+    else: bl = 0.0
+    return dict(match_softness=round(soft / scale, 2), subject_grain=round(float(np.clip(sg, 0, 2)), 3), background_grain=round(float(np.clip(bg_g, 0, 2)), 3),
+                match_blacks=round(float(np.clip(bl, -0.25, 0.25)), 3),
+                measured=dict(subject_edge_blur_px=round(s_sub or 0.0, 2), background_edge_blur_px=round(s_bg or 0.0, 2), sharpness_ratio=round(r, 2),
+                              subject_noise_levels=round(ns * 255, 2), background_noise_levels=round(nb * 255, 2),
+                              subject_black=round(bs, 3), background_black=round(bb, 3)))
 
 
 def analyze(comp_rgb, subject_mask) -> dict:
@@ -143,6 +210,7 @@ def analyze(comp_rgb, subject_mask) -> dict:
                    shadow_dx=round(sgn * float(np.clip(0.01 + 0.05 * abs(gx), 0.01, 0.04)), 3), shadow_dy=0.015)
         measured.update(subject_highlight_vs_background=round(ratio, 2), edge_brightness=round(lr, 3))
     out["measured"] = measured
+    out["camera"] = analyze_camera(comp_rgb, subject_mask)
     return out
 
 

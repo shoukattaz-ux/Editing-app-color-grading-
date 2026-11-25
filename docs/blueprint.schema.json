@@ -1089,6 +1089,44 @@
                       "minimum": 0.0,
                       "maximum": 1.0,
                       "default": 0.8
+                    },
+                    "camera_match": {
+                      "description": "[needs background_replacement] CAMERA MATCH: measure how the camera 'saw' the subject and the background (sharpness, grain, black level) and make the subject match the scene, so it does not look pasted on. 0 = off, 1 = the measured correction. Controls you set below always win.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "match_softness": {
+                      "description": "[needs background_replacement] Blur (+) or sharpen (-) the SUBJECT only (its edge too). Automatic with camera_match.",
+                      "type": "number",
+                      "minimum": -3.0,
+                      "maximum": 6.0
+                    },
+                    "subject_grain": {
+                      "description": "[needs background_replacement] Film grain / sensor noise added to the subject only (1.0 = about 4.6 levels of noise). Automatic with camera_match when the background is grainier.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 2.0
+                    },
+                    "background_grain": {
+                      "description": "[needs background_replacement] Grain added to the background only, so a clean picture gets the noise of the footage. Automatic with camera_match when the footage is grainier.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 2.0
+                    },
+                    "match_blacks": {
+                      "description": "[needs background_replacement] Move the SUBJECT's black point to the scene's: + lifts blacks (a milky / faded background), - deepens them. Automatic with camera_match.",
+                      "type": "number",
+                      "minimum": -0.25,
+                      "maximum": 0.25
+                    },
+                    "fringe": {
+                      "description": "Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 4.0,
+                      "default": 0.0
                     }
                   },
                   "additionalProperties": false

@@ -69,7 +69,7 @@ def prepare(blueprint: Any, source: str | None, policy: PathPolicy, base_dir: Pa
 
 def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
     """studio_look with auto_match: render the composite without any look, find the person by rendering it over magenta, measure, keep the settings."""
-    looks = [o for o in plan.steps if o.type == "studio_look" and o.params.get("auto_match", 0) > 0]
+    looks = [o for o in plan.steps if o.type == "studio_look" and (o.params.get("auto_match", 0) > 0 or o.params.get("camera_match", 0) > 0)]
     if not looks: return
     import hashlib, json as _json, cv2
     import numpy as np
@@ -79,7 +79,7 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
         repl = next((o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) is lk), None)
         mtimes = [Path(a.resolved).stat().st_mtime_ns for a in plan.blueprint.assets.values() if a.resolved and Path(a.resolved).is_file()]
         ops_sig = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o.type != "studio_look"]
-        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, mtimes, lk.id, ops_sig, plan.edl, "auto1"], default=str).encode()).hexdigest()[:24]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, mtimes, lk.id, ops_sig, plan.edl, "auto2"], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "look" / f"auto_{key}.json"
         if f.is_file():
             plan.look_auto[lk.id] = _json.loads(f.read_text(encoding="utf-8")); continue
@@ -99,7 +99,7 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
             plan.measuring = False
         res = analyze(np.ascontiguousarray(comp), mask)
         plan.look_auto[lk.id] = res
-        if mask.any():
+        if mask.any() and lk.params.get("auto_match", 0) > 0:
             # skin guard: render with the derived look; if skin tones moved more than a colourist would allow, ease off the colour-casting controls
             from .studio import skin_shift
             k = 1.0

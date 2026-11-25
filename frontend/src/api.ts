@@ -31,6 +31,7 @@ export interface MediaItem { path: string; name: string; kind: "image" | "video"
 export interface MediaBin { sources: MediaItem[]; assets: MediaItem[] }
 export interface KeyFinding { id: string; severity: "problem" | "warn" | "info"; title: string; detail: string; time: number | null; fix: { label: string; set?: Record<string, any>; add_ops?: { type: string; params: Record<string, any> }[]; advice?: string } | null; measure: Record<string, any> }
 export interface KeyDoctorResult { findings: KeyFinding[]; score: number; frames_checked: number; summary: string }
+export interface CameraNote { match_softness: number; subject_grain: number; background_grain: number; match_blacks: number; measured: { subject_edge_blur_px: number; background_edge_blur_px: number; subject_noise_levels: number; background_noise_levels: number; subject_black: number; background_black: number } }
 export interface AiDevice { choice: string; running_on: string; provider: string; wanted: string; actual: string | null; fell_back: boolean; options: { value: string; label: string }[] }
 export interface ReportConfig { endpoint: string; bucket: string; access_key_id_masked: string; has_secret: boolean; enabled: boolean; auto_send: boolean; configured: boolean; pending: number; last: { ok?: boolean; error?: string; when?: number } }
 
@@ -43,10 +44,15 @@ export class Api {
       const d = b?.detail; const msg = typeof d === "string" ? d : d?.errors ? d.errors.map((e: any) => e.message ?? e).join("; ") : `HTTP ${r.status}`;
       throw new ApiError(msg, r.status, b);
     }
-    if (raw) { const n = r.headers.get("x-evp-plate"); if (n && this.onPlate) { try { this.onPlate(JSON.parse(n)); } catch { /* ignore */ } } }
+    if (raw) {
+      const n = r.headers.get("x-evp-plate"); if (n && this.onPlate) { try { this.onPlate(JSON.parse(n)); } catch { /* ignore */ } }
+      const c = r.headers.get("x-evp-camera"); if (c && this.onCamera) { try { this.onCamera(JSON.parse(c)); } catch { /* ignore */ } }
+    }
     return raw ? r.blob() : r.json();
   }
   /** clean plate use per keying operation, reported by the engine with every preview frame: { opId: { used, rejected } } */
+  /** camera match measurements per studio look, reported with every preview frame */
+  onCamera?: (n: Record<string, CameraNote>) => void;
   onPlate?: (n: Record<string, { used: number; rejected: number }>) => void;
   mediaUrl(path: string) { return `${this.base}/api/media/project?path=${encodeURIComponent(path)}&token=${this.token}`; }
   sourceUrl() { return `${this.base}/api/media/source?token=${this.token}`; }

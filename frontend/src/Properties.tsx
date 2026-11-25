@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { Blueprint, Op, OpSpec, ParamSpec, Schema } from "./model";
 import * as m from "./model";
-import type { Issue, VideoInfo } from "./api";
+import type { CameraNote, Issue, VideoInfo } from "./api";
 import { Btn, Empty, Icon, resolutionOptions } from "./ui";
 import { KeyframeGraph } from "./Keyframes";
 import { ColorWheels } from "./ColorWheels";
@@ -139,6 +139,27 @@ function MaskTools({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** Camera match: make the subject look as if the same camera shot it and the background */
+function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
+  const v = (op.parameters?.camera_match as number | undefined) ?? 0;
+  const set = (x: number) => edit(b => m.setParam(b, op.id, "camera_match", Math.round(x * 100) / 100), `p:${op.id}:camera_match`);
+  const ms = note?.measured;
+  return (
+    <section className="cameramatch">
+      <div className="master-head"><h4>Camera match</h4><span className="muted small">{v > 0 ? `${Math.round(v * 100)}%` : "off"}</span></div>
+      <p className="muted small">Footage and a background picture are rarely shot by the same camera: one is sharper, grainier or has different blacks, and that is what makes a subject look pasted on. Camera match measures both and adjusts the <b>subject</b> (and, if needed, the background grain) so they agree. Needs a background replacement.</p>
+      <div className="master-row"><input type="range" min={0} max={100} value={Math.round(v * 100)} onChange={e => set(+e.target.value / 100)} onDoubleClick={() => set(0)} aria-label="Camera match amount" />
+        <Btn label={v > 0 ? "Off" : "Match now"} kind={v > 0 ? undefined : "primary"} onClick={() => set(v > 0 ? 0 : 1)} /></div>
+      {v > 0 && !note && <p className="muted small">Measuring on the next preview frame…</p>}
+      {v > 0 && note && ms && (<ul className="cm-list">
+        <li><b>Sharpness:</b> subject edge blur {ms.subject_edge_blur_px.toFixed(1)} px, background {ms.background_edge_blur_px.toFixed(1)} px → {note.match_softness > 0.05 ? `softening the subject (${note.match_softness.toFixed(1)})` : note.match_softness < -0.05 ? `sharpening the subject (${(-note.match_softness).toFixed(1)})` : "already matched"}</li>
+        <li><b>Grain:</b> subject {ms.subject_noise_levels.toFixed(1)}, background {ms.background_noise_levels.toFixed(1)} levels → {note.subject_grain > 0.02 ? `adding grain to the subject (${note.subject_grain.toFixed(2)})` : note.background_grain > 0.02 ? `adding grain to the background (${note.background_grain.toFixed(2)})` : "already matched"}</li>
+        <li><b>Black level:</b> subject {ms.subject_black.toFixed(2)}, background {ms.background_black.toFixed(2)} → {Math.abs(note.match_blacks) > 0.005 ? `${note.match_blacks > 0 ? "lifting" : "deepening"} the subject's blacks (${note.match_blacks.toFixed(2)})` : "no change"}</li>
+      </ul>)}
+      <p className="muted small">Fine-tune below: <b>match softness</b>, <b>subject grain</b>, <b>background grain</b>, <b>match blacks</b> (your values always win over the measured ones) and <b>fringe</b> (lens colour fringing at the frame edges).</p>
+    </section>);
+}
+
 /** Key doctor: measure the key on sample frames, say what is wrong, offer real fixes */
 function KeyDoctor({ op, bp, schema, edit, setT, run, dur }: { op: Op; bp: Blueprint; schema: Schema; edit: Edit; setT: (t: number) => void; run?: (id: string) => Promise<any>; dur: number }) {
   const [res, setRes] = useState<any | null>(null);
@@ -220,7 +241,8 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor }: {
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes }: {
+  cameraNotes?: Record<string, CameraNote>;
   keyDoctor?: (opId: string) => Promise<any>;
   importAsset?: () => Promise<string | null>; plateNotes?: Record<string, { used: number; rejected: number }>;
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
@@ -257,6 +279,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
         </div>
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
+      {op.type === "studio_look" && <CameraMatch op={op} edit={edit} note={cameraNotes?.[op.id]} />}
       {(op.type === "background_removal" || op.type === "chroma_key") && <KeyDoctor op={op} bp={bp} schema={schema} edit={edit} setT={setT} run={keyDoctor} dur={dur} />}
       {op.type === "background_removal" && op.parameters?.mode === "screen" && <CleanPlateTools op={op} edit={edit} importAsset={importAsset} note={plateNotes?.[op.id]} />}
       {spec?.parameters.amount && <MasterAmount op={op} spec={spec.parameters.amount} edit={edit} />}

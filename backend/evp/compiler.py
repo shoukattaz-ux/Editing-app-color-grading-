@@ -406,6 +406,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     def look_block(src: str, L: dict, ref_curves=None) -> str:
         """the global finish, in RGB (curve, split-tone, bloom) then YUV (vignette, local contrast, saturation, grain)"""
         from .studio import tint_vector
+        if L.get("fringe", 0) > 0: src = fringe_block(src, L["fringe"])
         rgbf: list[str] = []
         c = L["contrast"]
         if c > 0:
@@ -432,6 +433,37 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if L["grain"] > 0:
             tail.append(f"noise=alls={L['grain'] * 14:.2f}:allf=t+u")
         return g.add([rgb], ",".join(tail))
+
+    def subject_camera(fg: str, L: dict) -> str:
+        """camera match on the SUBJECT only: black point, softness (edge too) or sharpening, grain. The alpha is handled apart from the colour."""
+        s, gr, bl = float(L.get("match_softness", 0.0)), float(L.get("subject_grain", 0.0)), float(L.get("match_blacks", 0.0))
+        if abs(s) < 1e-3 and gr <= 0 and abs(bl) < 1e-3: return fg
+        col, alpha = splitn(fg, 2)
+        a = g.add([alpha], "alphaextract")
+        if s > 0: a = g.add([a], f"gblur=sigma={max(0.3, 0.8 * s * scale_px):.3f}")          # the edge softens with the picture
+        rgb_f = []
+        if abs(bl) >= 1e-3:
+            e = (f"clip(val+{bl:.4f}*(maxval-val)\\,0\\,maxval)" if bl > 0 else f"clip((val-{-bl:.4f}*maxval)/{1 + bl:.4f}\\,0\\,maxval)")
+            rgb_f.append(f"lutrgb=r='{e}':g='{e}':b='{e}'")
+        yuv_f: list[str] = []
+        if s > 0: yuv_f.append(f"gblur=sigma={max(0.3, s * scale_px):.3f}")
+        elif s < 0: yuv_f.append(f"unsharp=lx=5:ly=5:la={min(2.0, -s * 0.5):.3f}:cx=5:cy=5:ca=0")
+        if gr > 0: yuv_f.append(f"noise=alls={gr * 14:.2f}:allf=t+u")
+        chain = ["format=gbrp", *rgb_f]
+        if yuv_f: chain += [cs.rgb_to_yuv(), *yuv_f, cs.yuv_to_rgb("gbrp")]
+        colour = g.add([col], ",".join(chain))
+        return g.add([g.add([colour], "format=rgba"), a], "alphamerge,format=rgba")
+
+    def fringe_block(src: str, px: float) -> str:
+        """lens colour fringing: green slightly magnified, red more, blue not at all, so they separate towards the frame edge by `px` pixels"""
+        k = px * scale_px / (W / 2.0)
+        rgb = g.add([src], cs.yuv_to_rgb("gbrp"))
+        ra, rb, rc = splitn(rgb, 3)
+        up = lambda f: f"scale=w='trunc(iw*{f:.6f}/2)*2':h='trunc(ih*{f:.6f}/2)*2':flags=bicubic,crop={W}:{H},setsar=1"
+        gch = g.add([ra], f"extractplanes=g,{up(1 + k)}")
+        bch = g.add([rb], "extractplanes=b,setsar=1")
+        rch = g.add([rc], f"extractplanes=r,{up(1 + 2 * k)}")
+        return g.add([g.add([gch, bch, rch], "mergeplanes=0x001020:gbrp")], cs.rgb_to_yuv())
 
     def place_subject(fg: str, p: dict) -> str:
         """resize / move the keyed subject on a transparent canvas (so everything after it - integration, shadow - lines up with the result)"""
@@ -476,7 +508,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if look is not None:                                       # the look's master Amount also scales how strongly the subject is integrated into the scene
             la = max(0.0, float(L.params.get("amount", 1.0)))
             if la != 1.0:
-                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow")}}
+                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow", "match_softness", "subject_grain", "background_grain", "match_blacks")}}
         rp = r.params if r else {}
         moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
         sp = rp if (r and rp["shadow"] > 0) else (look if look and look.get("shadow", 0) > 0 else None)      # a look's measured shadow applies only if the background has none of its own
@@ -490,7 +522,11 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if shadow:
                 fg, f_sh = splitn(fg, 2)
                 sh = cast_shadow(f_sh, sp)
-            if look: bgs, fg = integrate(bgs, fg, look)
+            if look:
+                fg = subject_camera(fg, look)
+                bgs, fg = integrate(bgs, fg, look)
+                if look.get("background_grain", 0) > 0:
+                    bgs = g.add([bgs], f"{cs.rgb_to_yuv()},noise=alls={look['background_grain'] * 14:.2f}:allf=t+u,{cs.yuv_to_rgb('rgba')}")
             if sh: bgs = g.add([bgs, sh], "overlay=shortest=1:format=auto,format=rgba")
             return g.add([bgs, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
         amt = min(1.0, float(k.params.get("amount", 1.0)))

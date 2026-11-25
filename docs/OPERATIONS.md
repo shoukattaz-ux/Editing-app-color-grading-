@@ -168,6 +168,12 @@ Timeline track: **effects**
 | `subject_exposure` | number |  | -1.5 … 1.5 EV | [needs background_replacement] Brighten or darken only the subject to sit naturally in the scene. |
 | `reference_asset_id` | asset |  |  | A reference picture whose overall colour and tone you want. The app measures how the finished frame differs from it (per colour channel, mid-point frame of the look's range) and adds the correction as RGB curves. It matches colour and tone only - not content, framing or lighting direction. |
 | `reference_strength` | number | `0.8` | 0.0 … 1.0 | How much of the measured correction to apply. |
+| `camera_match` | number | `0.0` | 0.0 … 1.0 | [needs background_replacement] CAMERA MATCH: measure how the camera 'saw' the subject and the background (sharpness, grain, black level) and make the subject match the scene, so it does not look pasted on. 0 = off, 1 = the measured correction. Controls you set below always win. |
+| `match_softness` | number |  | -3.0 … 6.0 px at 1080p | [needs background_replacement] Blur (+) or sharpen (-) the SUBJECT only (its edge too). Automatic with camera_match. |
+| `subject_grain` | number |  | 0.0 … 2.0 | [needs background_replacement] Film grain / sensor noise added to the subject only (1.0 = about 4.6 levels of noise). Automatic with camera_match when the background is grainier. |
+| `background_grain` | number |  | 0.0 … 2.0 | [needs background_replacement] Grain added to the background only, so a clean picture gets the noise of the footage. Automatic with camera_match when the footage is grainier. |
+| `match_blacks` | number |  | -0.25 … 0.25 | [needs background_replacement] Move the SUBJECT's black point to the scene's: + lifts blacks (a milky / faded background), - deepens them. Automatic with camera_match. |
+| `fringe` | number | `0.0` | 0.0 … 4.0 px at 1080p | Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture. |
 
 ## `video_enhancement` — Video Enhancement
 

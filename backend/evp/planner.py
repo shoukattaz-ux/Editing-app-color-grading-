@@ -101,6 +101,8 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
                [r for r in ops if r.type == "background_replacement"]
         reps = [r for r in reps if _overlap(r, lk)]
         if not reps:
+            if lk.params.get("camera_match", 0) > 0 or any(lk.params.get(k) for k in ("match_softness", "subject_grain", "background_grain", "match_blacks")):
+                rep.warn("CAMERA_MATCH_NO_BACKGROUND", f"'{lk.id}': camera match compares the subject with the background behind it, so it needs a background_replacement; it does nothing without one (fringe still works)", lk.id)
             rep.warn("STUDIO_NO_BACKGROUND", f"'{lk.id}' has no background_replacement to integrate the subject into; only its global grade (contrast, tint, glow, vignette, clarity, grain) is applied", lk.id)
             continue
         r = sorted(reps, key=lambda c: (not (c.start_frame <= lk.start_frame and c.end_frame >= lk.end_frame), index[c.id]))[0]
