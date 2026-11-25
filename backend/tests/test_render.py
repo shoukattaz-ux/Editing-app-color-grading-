@@ -794,3 +794,22 @@ def test_transparent_export_rules_and_preview_checkerboard(prep, media, tmp_path
     im = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR).astype(int)
     a, b = im[2, 2], im[2, 20]
     assert a.std() < 8 and abs(int(a[0]) - int(b[0])) > 20, "the preview should show a grey checkerboard where the screen was"
+
+
+def test_screen_keyer_fast_colour_field_matches_the_exact_blur():
+    """_nearest_solid blurs a shrunken copy (7x faster at 720p). Where the picture is visible the result must equal the full-resolution blur."""
+    import cv2, numpy as np
+    from evp.ml.screenkey import ScreenKeyer
+    rng = np.random.default_rng(3)
+    h, w = 360, 640
+    f = cv2.GaussianBlur(rng.random((h, w, 3)).astype(np.float32), (0, 0), 6)
+    solid = np.zeros((h, w), np.float32); cv2.circle(solid, (320, 180), 110, 1.0, -1); solid = cv2.GaussianBlur(solid, (0, 0), 1.5)
+    near, got = ScreenKeyer._nearest_solid(f, solid, h, w)
+    sig = max(3.0, min(h, w) / 120)
+    ref = np.zeros_like(f); rg = np.zeros((h, w, 1), bool)
+    for sg in (sig, sig * 4, sig * 16):                                   # the original, exact computation
+        den = cv2.GaussianBlur(solid, (0, 0), sg)[..., None]
+        cand = cv2.GaussianBlur(f * solid[..., None], (0, 0), sg) / np.maximum(den, 1e-4)
+        use = (den > 0.02) & ~rg; ref = np.where(use, cand, ref); rg |= den > 0.02
+    vis = solid > 0.01
+    assert np.abs(near - np.clip(ref, 0, 1))[vis].max() < 0.02 and (got == rg)[vis].all()

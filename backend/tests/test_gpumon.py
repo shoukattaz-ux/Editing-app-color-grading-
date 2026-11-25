@@ -86,3 +86,10 @@ def test_amf_is_an_automatic_choice_and_api_endpoint(tmp_path):
     cl = TestClient(create_app("tok", str(tmp_path / "d")))
     r = cl.get("/api/gpu", headers={"x-evp-token": "tok"}).json()
     assert r["state"] in ("cpu", "ready", "active") and "label" in r and "detail" in r
+
+
+def test_keying_job_explains_why_the_gpu_is_idle():
+    r = mon(out({}, {})).snapshot(DML, [{"state": "running", "encoder": None, "current": "Green-screen keying (processor) 'remove_green': frame 137/752"}])
+    assert r["state"] == "ready" and "runs on the processor by design" in r["detail"]
+    ai = mon(out({}, {})).snapshot(DML, [{"state": "running", "encoder": None, "current": "AI matting 'k': frame 1/9"}])
+    assert "by design" not in ai["detail"]

@@ -127,6 +127,9 @@ class GpuMonitor:
         else: parts.append("Live usage percentages are only available on Windows; this shows the configured device.")
         if enc: parts.append(f"Export encoder: {enc}" + (" (on the GPU)." if enc_gpu else " (on the processor)."))
         if reason: parts.append("Why: " + reason + ".")
+        if running and "keying (processor)" in str((job or {}).get("current", "")) and not (pct and pct >= IDLE_BELOW):
+            parts.append("Green-screen keying is classic image processing (no neural network), so it runs on the processor by design. The graphics card is used by "
+                         "AI background removal (mode 'ai'), face tools, AI upscaling and the hardware video encoder.")
         if fell_back: parts.append("Settings > AI device lets you pick a card or run the check again.")
         return {"state": state, "label": label, "detail": " ".join(parts), "percent": pct, "engines": (s or {}).get("engines", {}) if fresh else {},
                 "vram_mb": (s or {}).get("vram_mb") if fresh else None, "system_percent": (s or {}).get("system_percent") if fresh else None,

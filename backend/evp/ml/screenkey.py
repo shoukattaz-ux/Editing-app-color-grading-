@@ -115,9 +115,19 @@ class ScreenKeyer:
         """colour of the nearest solid subject pixels (blurred, widening until every pixel has one) and where such a colour exists"""
         sig = max(3.0, min(h, w) / 120)
         near = np.zeros_like(f_clean); got = np.zeros((h, w, 1), bool)
+
+        def blur(img: np.ndarray, sg: float) -> np.ndarray:
+            # a wide Gaussian costs time proportional to its width AND the picture size (90 % of the keyer's time at 720p). The colour field it makes
+            # is smooth anyway, so blur a shrunken copy (sigma ~3 px there) and scale back up: same result to within rounding, far faster.
+            d = int(min(32, max(1, sg // 3)))
+            if d == 1: return cv2.GaussianBlur(img, (0, 0), sg)
+            small = cv2.resize(img, (max(1, w // d), max(1, h // d)), interpolation=cv2.INTER_AREA)
+            small = cv2.GaussianBlur(small, (0, 0), sg / d)
+            return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+
         for sg in (sig, sig * 4, sig * 16):
-            den = cv2.GaussianBlur(solid, (0, 0), sg)[..., None]
-            cand = cv2.GaussianBlur(f_clean * solid[..., None], (0, 0), sg) / np.maximum(den, 1e-4)
+            den = blur(solid, sg)[..., None]
+            cand = blur(f_clean * solid[..., None], sg) / np.maximum(den, 1e-4)
             use = (den > 0.02) & ~got
             near = np.where(use, cand, near); got |= den > 0.02
         return np.clip(near, 0, 1), got

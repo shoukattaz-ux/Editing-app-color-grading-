@@ -190,7 +190,7 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
         n = k.end_frame - k.start_frame
         full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n, plan.edl)}.mkv"
         if frame is None or full.is_file():
-            cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id, "AI matting")) if progress else None
+            cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id, "AI matting" if op.params.get("mode") == "ai" else "Green-screen keying (processor)")) if progress else None
             plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
         else:
             f = min(max(frame, k.start_frame), k.end_frame - 1)
