@@ -8,8 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/wheels-scopes.cjs && node e2e/restore-gpu.cjs",
-    "e2e:restore": "node e2e/restore-gpu.cjs"
+    "e2e": "node e2e/wheels-scopes.cjs && node e2e/restore-gpu.cjs && node e2e/merge.cjs",
+    "e2e:restore": "node e2e/restore-gpu.cjs",
+    "e2e:merge": "node e2e/merge.cjs"
   },
   "dependencies": {
     "react": "^18.3.1",

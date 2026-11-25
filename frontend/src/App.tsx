@@ -6,6 +6,7 @@ import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
 import { Timeline } from "./Timeline";
 import { GpuChip } from "./Gpu";
+import { mergeBlueprint, ExecOptions } from "./merge";
 import { Properties } from "./Properties";
 import { Sidebar, TABS, Tab, Ctx } from "./Sidebar";
 import { Btn, Empty, Icon, fmtEta, resolutionOptions } from "./ui";
@@ -185,12 +186,24 @@ function Editor({ api }: { api: Api }) {
   useEffect(() => {          // reopened on the edited preview: show it again (cached previews come back instantly)
     if (project && restoreView.current) { restoreView.current = false; updateProxy(project.blueprint); }
   }, [project?.path, project?.version]);
-  const executeBlueprint = useCallback(async (nb: Blueprint) => {
-    // keep imported blueprint's own asset list; existing project assets with same id are replaced by the blueprint's definition
-    edit(() => nb); setSel(null); setTab("effects");
-    toast("Blueprint applied — rendering preview…");
-    await updateProxy(nb);
-  }, [edit, updateProxy, toast]);
+  const executeBlueprint = useCallback(async (nb: Blueprint, o: ExecOptions = { how: "add", applyOutput: false, clip: null }) => {
+    let next = nb, msg = "Blueprint applied — rendering preview…";
+    if (o.how === "add") {
+      // ADD: the pasted blueprint is merged into the timeline; nothing that is already there is removed or replaced
+      const r = mergeBlueprint(bp, nb, schema, { applyOutput: o.applyOutput, clip: o.clip }, tl.duration);
+      next = r.bp;
+      try {
+        const v = await api.validate(next);
+        const lost = v.warnings.find(w => w.code === "SKIPPED_OPERATION" && w.op_id && bp.operations.some(x => x.id === w.op_id));
+        if (!v.ok || lost) { toast(`Nothing was changed: ${(v.errors[0] ?? lost)?.message ?? "the result is not valid"}`, "err"); return; }
+        if (v.repaired) next = v.repaired as Blueprint;
+      } catch { /* the editor validates again after the edit */ }
+      msg = `Added ${r.added.length} effect(s); your ${bp.operations.length} existing effect(s) were kept` + (r.notes.length ? ` — note: ${r.notes[0]}` : "") + ". Rendering preview…";
+    }
+    edit(() => next); setSel(null); setTab("effects");
+    toast(msg);
+    await updateProxy(next);
+  }, [edit, updateProxy, toast, bp, schema, tl.duration, api]);
 
   // keyboard
   useEffect(() => {
@@ -217,7 +230,7 @@ function Editor({ api }: { api: Api }) {
   const video = project.video;
   const stale = !proxy || proxy.bp !== bp;
   const issues = [...(report?.errors ?? []), ...(report?.warnings ?? [])];
-  const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, mode, playing, videoRef, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport };
+  const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, mode, playing, videoRef, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport, selClip, layout: tl };
   const drag = (key: "left" | "right" | "bottom", sign: 1 | -1) => (e: React.PointerEvent) => {
     const start = key === "bottom" ? e.clientY : e.clientX, v0 = layout[key]; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const mv = (ev: PointerEvent) => setLayout(l => ({ ...l, [key]: Math.max(key === "bottom" ? 140 : 220, Math.min(key === "bottom" ? 520 : 560, v0 + sign * ((key === "bottom" ? ev.clientY : ev.clientX) - start))) }));

@@ -129,3 +129,6 @@ C cut at playhead · Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shi
 
 ## GPU indicator
 The toolbar chip shows what the graphics card is doing: **GPU active · 41%** (green, pulsing), **GPU ready · idle** (blue), **GPU not used** (amber, hover or click for the reason). On Windows the percentage is measured, the same counters as Task Manager, summed over this app and its video encoder only, together with the video memory it holds. Other systems show the configured device only. AMD (AMF), NVIDIA (NVENC) and Intel (QSV) hardware video encoders are used automatically for export when "auto" is chosen and the card passes a test encode.
+
+## Executing a blueprint: add or replace
+Blueprint tab > **When I execute**. **Add to my timeline** (default) merges the pasted blueprint into your project and keeps everything already there: background removal, background layers, effects, cuts, assets and output settings. Clashing ids / asset names are renamed automatically, and a second background over an existing one is left out and reported. With cuts, select a clip first to apply the blueprint **only to that clip** (its times then start at the clip's start). **Replace the whole timeline** is the old behaviour (Undo brings the previous timeline back).
