@@ -86,3 +86,80 @@ def test_validation_and_warning_without_a_background(prep):
     assert any(w.code == "CAMERA_MATCH_NO_BACKGROUND" for w in ok(light_pattern=0.5).warnings)
     assert ok(light_pattern=0.5, light_pattern_scale=2, light_pattern_speed=0.5, light_pattern_falloff=0.3).ok
     assert not ok(light_pattern=1.5).ok and not ok(light_pattern_scale=0.1).ok and not ok(light_pattern_falloff=2).ok
+
+
+# ------------------------------------------------------------------------------------------------ colour, style, spread, bend, where it falls
+def tint(a): m = subj(a).mean(axis=(0, 1)); return m                              # mean R, G, B of the subject patch
+
+
+def test_light_colour_tints_the_lit_parts_only_inside_the_subject(prep, media):
+    white, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0)
+    gold, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_color="#ffb000")
+    cyan, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_color="#00e5ff")
+    tw, tg, tc = tint(white), tint(gold), tint(cyan)
+    assert tg[2] < tw[2] - 8 and tg[0] >= tw[0] - 3                                   # gold: less blue, red stays
+    assert tc[0] < tw[0] - 8 and tc[2] >= tw[2] - 3                                   # cyan: less red
+    base, _ = comp(prep, media)
+    assert np.abs(bgbox(gold) - bgbox(base)).max() <= 1                               # the background does not take the colour
+    assert np.array_equal(white, comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_color="#ffffff")[0])      # white = the plain pattern
+
+
+def test_a_second_colour_tints_the_ground_between_the_lit_parts(prep, media):
+    plain, _ = comp(prep, media, light_pattern=0.8, light_pattern_falloff=0.0, light_pattern_speed=0.0)
+    two, _ = comp(prep, media, light_pattern=0.8, light_pattern_falloff=0.0, light_pattern_speed=0.0, light_pattern_color2="#0030ff")
+    p, t = subj(plain), subj(two)
+    dark = p.mean(2) < np.percentile(p.mean(2), 30)                                    # the darkest part of the pattern
+    assert t[dark][:, 2].mean() > p[dark][:, 2].mean() + 8 and t[dark][:, 0].mean() < p[dark][:, 0].mean() - 5     # bluer there
+
+
+def test_solid_patches_have_harder_edges_than_a_wide_spread(prep, media):
+    hard, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_style="solid", light_pattern_spread=0.0, light_pattern_speed=0.0)
+    soft, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_style="solid", light_pattern_spread=1.0, light_pattern_speed=0.0)
+    g1 = lambda a: np.abs(np.diff(subj(a).mean(2), axis=1)).max()
+    assert g1(hard) > 1.8 * g1(soft)
+    lum = subj(hard).mean(2)
+    assert (np.abs(lum - np.median(lum)) > 6).mean() > 0.2                              # patches: two clear levels, lit and unlit
+    ripples, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_spread=0.0, light_pattern_speed=0.0)
+    assert np.abs(ripples - hard).mean() > 1                                            # a different look from the web
+
+
+def test_particles_are_sparse_glints_that_drift(prep, media):
+    base, _ = comp(prep, media)
+    a, _ = comp(prep, media, t=1.0, light_pattern=1.0, light_pattern_falloff=0.0, light_pattern_style="particles", light_pattern_spread=0.0)
+    d = np.abs(subj(a, 50, 130) - subj(base, 50, 130)).max(2)
+    assert 0.002 < (d > 25).mean() < 0.25 and d.max() > 60                            # few, bright glints; the rest of the subject is not darkened
+    assert subj(a, 50, 130).mean() > subj(base, 50, 130).mean() - 3
+    b, _ = comp(prep, media, t=1.4, light_pattern=1.0, light_pattern_falloff=0.0, light_pattern_style="particles", light_pattern_spread=0.0)
+    patch = (slice(70, 110), slice(175, 215))
+    assert np.abs(a[patch] - b[patch]).mean() > 0.4                                     # they move
+
+
+def test_bend_changes_the_pattern_and_zero_bend_is_a_regular_pattern(prep, media):
+    straight, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_warp=0.0, light_pattern_speed=0.0)
+    bent, _ = comp(prep, media, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_warp=2.0, light_pattern_speed=0.0)
+    assert np.abs(straight - bent).mean() > 1.5
+    # without bend the light is a fixed grid of straight lines: the same picture at two times (speed does not matter, nothing animates)
+    later, _ = comp(prep, media, t=1.0, light_pattern=0.9, light_pattern_falloff=0.0, light_pattern_warp=0.0, light_pattern_speed=2.0)
+    assert sd(subj(later)) > 6
+
+
+def test_the_light_can_never_fall_outside_the_subject_unless_you_ask(prep, media):
+    base, _ = comp(prep, media)
+    wild, _ = comp(prep, media, light_pattern=1.0, light_pattern_spread=1.0, light_pattern_falloff=0.0, light_pattern_color="#00ffff", light_pattern_color2="#ff00ff", light_pattern_on="subject")
+    changed = np.abs(wild - base).max(2) > 2
+    _, p = comp(prep, media, light_pattern=1.0)
+    matte = np.asarray(Image.open(io.BytesIO(render_frame(p.plan, media["video"], 1.0, None, str(media["dir"]), view="alpha"))).convert("L"), dtype=float) / 255.0
+    assert changed.sum() > 500 and (matte > 0.5).sum() > 4000                           # the light is really there ...
+    diff = np.abs(wild - base).max(2)
+    assert (diff <= matte * 260 + 2.5).all()                                            # ... and a wide, coloured, strong one never changes a pixel by more than the matte covers it (nothing where the matte is 0)
+    assert not (changed & (matte < 0.005)).any()
+    on_bg, _ = comp(prep, media, light_pattern=1.0, light_pattern_falloff=0.0, light_pattern_on="background")
+    assert sd(bgbox(on_bg)) > 4 and np.abs(subj(on_bg, 70, 110)[:, 10:50] - subj(base, 70, 110)[:, 10:50]).max() <= 2           # background only: the picture is lit, the subject is not
+    both, _ = comp(prep, media, light_pattern=1.0, light_pattern_falloff=0.0, light_pattern_on="both")
+    assert sd(bgbox(both)) > 4 and sd(subj(both)) > 6
+
+
+def test_new_parameter_validation(prep):
+    ok = lambda **kw: prep(bp(ops=[{"id": "l", "type": "studio_look", "start": 0, "parameters": {"light_pattern": 0.5, **kw}}])).report.ok
+    assert ok(light_pattern_style="particles", light_pattern_color="#ffcc00", light_pattern_color2="#001133", light_pattern_spread=0.5, light_pattern_warp=1.5, light_pattern_on="both")
+    assert not ok(light_pattern_style="lasers") and not ok(light_pattern_on="everywhere") and not ok(light_pattern_spread=2) and not ok(light_pattern_warp=3) and not ok(light_pattern_color="notacolour")

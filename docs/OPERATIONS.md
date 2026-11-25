@@ -186,6 +186,12 @@ Timeline track: **effects**
 | `light_pattern_scale` | number | `1.0` | 0.3 … 3.0 | [light_pattern] Size of the ripples (1 = about nine cells across the frame; larger = bigger, calmer ripples). |
 | `light_pattern_speed` | number | `1.0` | 0.0 … 3.0 | [light_pattern] How fast the ripples move (0 = a still pattern). |
 | `light_pattern_falloff` | number | `0.6` | 0.0 … 1.0 | [light_pattern] How much weaker the light is towards the bottom of the frame (it comes from above): 0 = even, 1 = nothing at the bottom. |
+| `light_pattern_style` | enum | `ripples` | ripples, solid, particles | [light_pattern] ripples = a moving web of thin bright lines (caustics); solid = hard-edged moving patches of light (dappled light); particles = drifting glints / dust / bubbles of light. |
+| `light_pattern_color` | color | `#ffffff` |  | [light_pattern] Colour of the light. White leaves the subject's own colours; any other colour tints the lit parts towards it (cyan, gold, warm white ...). |
+| `light_pattern_color2` | color |  |  | [light_pattern] Optional second colour for the darker ground between the lit parts (e.g. a deep blue for a two-tone light). Empty = no tint there. |
+| `light_pattern_spread` | number | `0.15` | 0.0 … 1.0 | [light_pattern] How far the light spreads: 0 = crisp lines / hard edges, 1 = a wide soft glow. |
+| `light_pattern_warp` | number | `1.0` | 0.0 … 2.0 | [light_pattern, ripples / solid] How strongly the pattern bends and wobbles (0 = straight regular lines, 2 = heavily distorted water). |
+| `light_pattern_on` | enum | `subject` | subject, background, both | [light_pattern] Where the light falls. subject (default) = only on the keyed subject: it can never appear on the background, even with a wide spread. background = only on the picture behind. both = on both. |
 | `light_pattern_asset_id` | asset |  |  | [light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples. |
 | `fringe` | number | `0.0` | 0.0 … 4.0 px at 1080p | Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture. |
 

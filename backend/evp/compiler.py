@@ -455,33 +455,71 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         colour = g.add([col], ",".join(chain))
         return g.add([g.add([colour], "format=rgba"), a], "alphamerge,format=rgba")
 
-    def light_pattern_stream(L: dict) -> str:
-        """a gray W x H stream: bright web / ripples on a darker ground, moving. Generated at a quarter of the size (smooth, and 16x cheaper), or the user's own picture / loop."""
+    PATTERN_MEAN = {"ripples": 0.266, "solid": 0.253, "particles": 0.02, "asset": 0.27}      # average brightness of each generated pattern: the light must redistribute, not darken
+
+    def light_pattern_stream(L: dict) -> tuple[str, float]:
+        """a gray W x H stream (bright = lit) and its average brightness. Generated at a quarter of the size (smooth, and 16x cheaper), or the user's own picture / loop."""
         aid = L.get("light_pattern_asset_id")
+        spread = float(L.get("light_pattern_spread", 0.15))
+        tail = f",gblur=sigma={max(0.3, spread * 14 * scale_px):.3f}" if spread > 0.02 else ""
         if aid:
-            return g.add([f"{asset_idx(aid)}:v"], f"fps={fps:g}" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",scale={W}:{H}:flags=bicubic,format=gray")
+            return g.add([f"{asset_idx(aid)}:v"], f"fps={fps:g}" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",scale={W}:{H}:flags=bicubic,format=gray{tail}"), PATTERN_MEAN["asset"]
         w4, h4 = max(2, W // 4), max(2, H // 4)
-        f = 2 * 3.14159265 * 5.0 / (w4 * max(0.3, L["light_pattern_scale"]))          # ~5 cells across at scale 1
-        sp = L["light_pattern_speed"]
-        u, v = f"(X*{f:.6f})", f"(Y*{f:.6f})"
-        w1 = f"abs(sin({u}*0.9+{v}*0.5+1.8*sin({v}*0.7+T*{sp * 1.3:.4f})))"
-        w2 = f"abs(sin({u}*0.5-{v}*0.9+1.8*sin({u}*0.6+T*{sp * 1.1:.4f})))"
-        w3 = f"abs(sin({u}*1.1-{v}*0.2+1.4*sin({v}*0.9-T*{sp * 0.9:.4f})))"
-        expr = f"min(255,255*1.4*(pow(1-{w1},8)+pow(1-{w2},8)+pow(1-{w3},8)))".replace(",", "\\,")
-        return g.add([], f"nullsrc=s={w4}x{h4}:r={fps:g},format=gray" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",geq=lum='{expr}',scale={W}:{H}:flags=bicubic,format=gray")
+        style = L.get("light_pattern_style", "ripples")
+        sp, scl, warp = float(L["light_pattern_speed"]), max(0.3, float(L["light_pattern_scale"])), float(L.get("light_pattern_warp", 1.0))
+        if style == "particles":
+            cell = 6.0 / scl                                                         # quarter-size pixels per cell: bigger scale = bigger, fewer glints
+            yy = f"(Y+T*{sp * 14:.4f})"                                              # they drift upwards
+            cx, cy = f"floor(X/{cell:.4f})", f"floor({yy}/{cell:.4f})"
+            h = f"mod(abs(sin({cx}*12.9898+{cy}*78.233)*43758.5453),1)"
+            fx, fy = f"(X/{cell:.4f}-{cx}-0.5)", f"({yy}/{cell:.4f}-{cy}-0.5)"
+            expr = f"if(gt({h},0.8),255*pow(max(0,1-hypot({fx},{fy})*2.0),2)*(0.55+{h}*0.45),0)"
+        else:
+            f = 2 * 3.14159265 * 5.0 / (w4 * scl)                                    # ~5 cells across at scale 1
+            u, v = f"(X*{f:.6f})", f"(Y*{f:.6f})"
+            w1 = f"abs(sin({u}*0.9+{v}*0.5+{1.8 * warp:.3f}*sin({v}*0.7+T*{sp * 1.3:.4f})))"
+            w2 = f"abs(sin({u}*0.5-{v}*0.9+{1.8 * warp:.3f}*sin({u}*0.6+T*{sp * 1.1:.4f})))"
+            w3 = f"abs(sin({u}*1.1-{v}*0.2+{1.4 * warp:.3f}*sin({v}*0.9-T*{sp * 0.9:.4f})))"
+            expr = (f"if(gt({w1}+{w2}+{w3},2.3),255,0)" if style == "solid"
+                    else f"min(255,255*1.4*(pow(1-{w1},8)+pow(1-{w2},8)+pow(1-{w3},8)))")
+        expr = expr.replace(",", "\\,")
+        return g.add([], f"nullsrc=s={w4}x{h4}:r={fps:g},format=gray" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",geq=lum='{expr}',scale={W}:{H}:flags=bicubic,format=gray{tail}"), PATTERN_MEAN[style]
+
+    def _rgb01(hexc: str | None) -> tuple[float, float, float] | None:
+        if not hexc: return None
+        h = hexc.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+    def light_blend(colour: str, L: dict) -> str:
+        """colour: a gbrp stream. Lit where the pattern is bright, a little darker between, weaker towards the bottom (the light comes from above), tinted by the light colour(s)"""
+        k = float(L.get("light_pattern", 0.0))
+        pat, mean = light_pattern_stream(L)
+        pat = g.add([pat], "format=gbrp")
+        fall = float(L.get("light_pattern_falloff", 0.6))
+        F = f"(1-{fall:.4f}*Y/H)"
+        M = f"(1+{0.34 * min(1.5, k):.4f}*{F}*(2.2*B/255-{2.2 * mean:.4f}))"
+        c1, c2 = _rgb01(L.get("light_pattern_color")), _rgb01(L.get("light_pattern_color2"))
+        t1 = max(1 - x for x in c1) if c1 else 0.0
+        t2 = max(1 - x for x in c2) if c2 else 0.0
+        exprs = []
+        for plane in (1, 2, 0):                                                        # gbrp planes are G, B, R: take the colour's g, b, r
+            x = f"(A*{M})"
+            if c2: x = f"({x}*(1-S2)+{c2[plane] * 255:.1f}*S2)".replace("S2", f"({0.3 * min(1.5, k) * t2:.4f}*{F}*(1-B/255))")
+            if c1 and t1 > 0.01: x = f"({x}*(1-S1)+{c1[plane] * 255:.1f}*S1)".replace("S1", f"({0.85 * min(1.0, k) * t1:.4f}*B/255*{F})")
+            exprs.append(f"clip({x},0,255)".replace(",", "\\,"))
+        return g.add([colour, pat], f"blend=c0_expr='{exprs[0]}':c1_expr='{exprs[1]}':c2_expr='{exprs[2]}':shortest=1")
 
     def light_on_subject(fg: str, L: dict) -> str:
-        """project the light pattern onto the SUBJECT'S colour (its matte is untouched): lit where the web is bright, a little darker between,
-        weaker towards the bottom of the frame because the light comes from above"""
-        k = float(L.get("light_pattern", 0.0))
-        if k <= 0: return fg
+        """project the light onto the SUBJECT'S colour (its matte is untouched, so nothing can ever land outside the subject)"""
+        if float(L.get("light_pattern", 0.0)) <= 0 or L.get("light_pattern_on", "subject") == "background": return fg
         col, alpha = splitn(fg, 2)
         a = g.add([alpha], "alphaextract")
-        pat = g.add([light_pattern_stream(L)], "format=gbrp")
-        colour = g.add([col], "format=gbrp")
-        fall = float(L.get("light_pattern_falloff", 0.6))
-        lit = g.add([colour, pat], f"blend=all_expr='clip(A*(1+{0.34 * min(1.5, k):.4f}*(1-{fall:.4f}*Y/H)*(2.2*B/255-0.585))\\,0\\,255)':shortest=1")
+        lit = light_blend(g.add([col], "format=gbrp"), L)
         return g.add([g.add([lit], "format=rgba"), a], "alphamerge,format=rgba")
+
+    def light_on_background(bgs: str, L: dict) -> str:
+        if float(L.get("light_pattern", 0.0)) <= 0 or L.get("light_pattern_on", "subject") == "subject": return bgs
+        return g.add([light_blend(g.add([bgs], "format=gbrp"), L)], "format=rgba")
 
     def fringe_block(src: str, px: float) -> str:
         """lens colour fringing: green slightly magnified, red more, blue not at all, so they separate towards the frame edge by `px` pixels"""
@@ -604,6 +642,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 fg = subject_camera(fg, look)
                 fg = light_on_subject(fg, look)
                 bgs, fg = integrate(bgs, fg, look)
+                bgs = light_on_background(bgs, look)
                 if look.get("background_grain", 0) > 0:
                     bgs = g.add([bgs], f"{cs.rgb_to_yuv()},noise=alls={look['background_grain'] * 14:.2f}:allf=t+u,{cs.yuv_to_rgb('rgba')}")
             for layer in (rfl, sh, ctl):                                 # reflection under the cast shadow under the contact shadow, all under the subject

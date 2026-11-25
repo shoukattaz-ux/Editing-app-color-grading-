@@ -38,9 +38,21 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     await page.click(".lightpattern >> text=Underwater ripples"); await page.waitForTimeout(1000);
     let look = (await bpNow()).operations.find(o => o.type === "studio_look");
     check(look.parameters.light_pattern === 0.6 && look.parameters.light_pattern_scale === 1.3 && look.parameters.light_pattern_falloff === 0.55, "the preset sets strength, size and fall-off", JSON.stringify(look.parameters));
-    check(await page.locator('input[aria-label="Ripple size"]').count() === 1 && await page.locator('input[aria-label="Speed"]').count() === 1, "size and speed sliders appear");
+    check(await page.locator('input[aria-label="Pattern size"]').count() === 1 && await page.locator('input[aria-label="Speed"]').count() === 1, "size and speed sliders appear");
     await page.locator('input[aria-label="Speed"]').evaluate(el => { const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; s.call(el, "2"); el.dispatchEvent(new Event("input", { bubbles: true })); });
     await page.waitForTimeout(900); look = (await bpNow()).operations.find(o => o.type === "studio_look"); check(look.parameters.light_pattern_speed === 2, "the speed slider stores its value");
+    await page.click('.lightpattern button:has-text("Particles")'); await page.waitForTimeout(700);
+    await page.click('.lightpattern button:has-text("Solid")'); await page.waitForTimeout(700);
+    look = (await bpNow()).operations.find(o => o.type === "studio_look");
+    check(look.parameters.light_pattern_style === "solid", "the style buttons store the chosen style");
+    check(look.parameters.light_pattern_on === "subject", "apply-to defaults to subject only");
+    await page.click('.lightpattern button:has-text("Both")'); await page.waitForTimeout(700);
+    check((await bpNow()).operations.find(o => o.type === "studio_look").parameters.light_pattern_on === "both", "apply-to can be switched");
+    await page.click('.lightpattern button:has-text("Subject only")'); await page.click('.lightpattern button:has-text("Ripples")'); await page.waitForTimeout(700);
+    await page.locator('input[aria-label="Light colour"]').evaluate(el => { const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; s.call(el, "#ff8800"); el.dispatchEvent(new Event("input", { bubbles: true })); });
+    await page.waitForTimeout(700);
+    check((await bpNow()).operations.find(o => o.type === "studio_look").parameters.light_pattern_color === "#ff8800", "the light colour picker stores its colour");
+    check(await page.locator('input[aria-label="Spread (softness)"]').count() === 1 && await page.locator('input[aria-label="Bend (warp)"]').count() === 1, "spread and bend sliders appear");
     // the render: the subject varies, the background does not
     const stats = await page.evaluate(async ([base, token, bp]) => {
       const f = async (b) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: b, t: 1, width: 640 }) });

@@ -51,6 +51,12 @@ def resolve(params: dict, auto: dict | None = None) -> dict:
     base["light_pattern_speed"] = float(params.get("light_pattern_speed") if params.get("light_pattern_speed") is not None else 1.0)
     base["light_pattern_falloff"] = float(params.get("light_pattern_falloff") if params.get("light_pattern_falloff") is not None else 0.6)
     base["light_pattern_asset_id"] = params.get("light_pattern_asset_id")
+    base["light_pattern_style"] = params.get("light_pattern_style") or "ripples"
+    base["light_pattern_color"] = params.get("light_pattern_color") or "#ffffff"
+    base["light_pattern_color2"] = params.get("light_pattern_color2")
+    base["light_pattern_spread"] = float(params.get("light_pattern_spread") if params.get("light_pattern_spread") is not None else 0.15)
+    base["light_pattern_warp"] = float(params.get("light_pattern_warp") if params.get("light_pattern_warp") is not None else 1.0)
+    base["light_pattern_on"] = params.get("light_pattern_on") or "subject"
     return base
 
 
