@@ -129,3 +129,73 @@ def _try_encoder(name: str) -> bool:
     r = proc.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2", "-frames:v", "2",
                         "-c:v", name, "-f", "null", "-"], capture_output=True, timeout=30)
     return r.returncode == 0
+
+
+# ---------------------------------------------------------------- why is (or is not) the graphics card used?
+@functools.lru_cache(maxsize=16)
+def encoder_error(name: str) -> str:
+    """the last line FFmpeg prints when a 1-frame test encode with `name` fails ('' when it works)"""
+    r = proc.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2", "-frames:v", "2", "-c:v", name, "-f", "null", "-"],
+                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    if r.returncode == 0: return ""
+    lines = [l.strip() for l in (r.stderr or "").splitlines() if l.strip()]
+    return lines[-1][:300] if lines else f"exit code {r.returncode}"
+
+
+@functools.lru_cache(maxsize=1)
+def hwaccels() -> tuple[str, ...]:
+    """hardware video decoders this FFmpeg build knows (d3d11va, dxva2, cuda, qsv ...)"""
+    out = proc.run([ffmpeg_bin(), "-hide_banner", "-hwaccels"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    return tuple(l.strip() for l in out.splitlines()[1:] if l.strip())
+
+
+def hw_decode_usable() -> bool:
+    """hardware decoding of the SOURCE for renders: Windows only (d3d11va / dxva2 run on AMD, NVIDIA and Intel); the decoded frames come back to memory, so the rest of the pipeline is unchanged"""
+    import sys
+    return sys.platform == "win32" and os.environ.get("EVP_HWDECODE", "1") != "0" and any(h in hwaccels() for h in ("d3d11va", "dxva2"))
+
+
+def gpu_diagnosis(ai: dict | None = None, adapters: list[dict] | None = None, onnx_providers: list[str] | None = None) -> list[dict]:
+    """a checklist for the GPU panel: what really runs on the graphics card, what does not, and the exact fix for each problem.
+    [{topic, status: ok|warn|info, text, fix}]  (the three arguments are injectable for tests)"""
+    import sys
+    from .ml import device
+    ai = ai if ai is not None else device.describe()
+    ads = adapters if adapters is not None else device.adapters()
+    prov = onnx_providers if onnx_providers is not None else device._available()
+    out: list[dict] = []
+    real = [a for a in ads if not a.get("software")]
+    if sys.platform == "win32":
+        if real:
+            out.append({"topic": "Graphics cards", "status": "ok", "text": "; ".join(f"{a['name']} ({a['vram_mb']} MB)" + (" - AMD" if a["vendor"] == 0x1002 else " - NVIDIA" if a["vendor"] == 0x10DE else " - Intel" if a["vendor"] == 0x8086 else "") for a in real)})
+        else:
+            out.append({"topic": "Graphics cards", "status": "warn", "text": "Windows reports no hardware graphics adapter.", "fix": "Install or update the graphics driver (AMD: Adrenalin from amd.com), then restart."})
+    # AI models
+    if sys.platform == "win32" and "DmlExecutionProvider" not in prov:
+        out.append({"topic": "AI (keying, hair, upscaling)", "status": "warn", "text": "The DirectML build of ONNX Runtime is not installed, so the AI runs on the processor.",
+                    "fix": "Run scripts\\dev.ps1 (it installs it), or: pip uninstall -y onnxruntime onnxruntime-directml && pip install onnxruntime-directml"})
+    elif ai.get("fell_back"):
+        out.append({"topic": "AI (keying, hair, upscaling)", "status": "warn", "text": "The graphics card refused the AI model and it ran on the processor.", "fix": "Update the graphics driver; Settings > AI device lets you pick another card."})
+    else:
+        out.append({"topic": "AI (keying, hair, upscaling)", "status": "ok" if ai.get("provider") not in (None, "CPU") else "info", "text": f"Runs on {ai.get('running_on', 'the processor')}."})
+    # encoder
+    enc = encoders()
+    amf = [n for n in ("h264_amf", "hevc_amf") if n in enc]
+    working = [n for n in ("h264_nvenc", "h264_amf", "h264_qsv", "h264_videotoolbox") if n in enc and _try_encoder(n)]
+    if working:
+        out.append({"topic": "Video encoding (export / preview video)", "status": "ok", "text": f"Hardware encoder {working[0]} works and is used automatically."})
+    elif amf:
+        err = encoder_error(amf[0])
+        fix = ("Update the AMD Radeon driver (Adrenalin); the AMF runtime DLL could not be loaded." if "dll" in err.lower() or "amf" in err.lower() else "Update the AMD Radeon driver (Adrenalin).")
+        out.append({"topic": "Video encoding (export / preview video)", "status": "warn", "text": f"{amf[0]} exists in FFmpeg but the test encode failed: {err}", "fix": fix})
+    else:
+        out.append({"topic": "Video encoding (export / preview video)", "status": "warn" if real else "info", "text": "This FFmpeg build has no hardware encoder (no h264_amf / nvenc / qsv), so exports use the processor.",
+                    "fix": "Use a full FFmpeg build (for example gyan.dev 'full' or BtbN 'win64-gpl') and put it on PATH or in the app's tools folder."})
+    # decoding
+    if sys.platform == "win32":
+        ok = hw_decode_usable()
+        out.append({"topic": "Video decoding (source file)", "status": "ok" if ok else "info",
+                    "text": "Exports and preview videos decode the source on the graphics card (d3d11va / dxva2); if that ever fails the render retries on the processor." if ok else "This FFmpeg build has no d3d11va / dxva2 hardware decoding, so the source is decoded on the processor."})
+    out.append({"topic": "Keying, colour grading, compositing", "status": "info",
+                "text": "These run on the processor (FFmpeg filters). That is why the graphics card can look quiet while they work: only the AI models, encoding and decoding use it. They cannot be moved to a graphics card without losing features."})
+    return out

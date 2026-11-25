@@ -219,3 +219,10 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .floorfx{border:1px solid #ffffff1f;border-radius:10px;padding:10px 12px;margin:12px 0}.floorfx h4{margin:0}
 
 .lightpattern{border:1px solid #ffffff1f;border-radius:10px;padding:10px 12px;margin:12px 0}.lightpattern h4{margin:0}
+
+.gpupop{max-height:70vh;overflow:auto}
+.popclose{float:right;border:0;background:transparent;color:inherit;font-size:16px;cursor:pointer;opacity:.7}
+.gpudiag{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:7px}
+.gpudiag li{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.4;padding:6px 8px;border-radius:6px;background:#ffffff0a;border-left:3px solid #64748b}
+.gpudiag li.ok{border-left-color:#22c55e}.gpudiag li.warn{border-left-color:#f59e0b}
+.gpudiag li em{font-style:normal;opacity:.85}

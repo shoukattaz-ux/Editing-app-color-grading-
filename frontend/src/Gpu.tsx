@@ -25,11 +25,13 @@ export function GpuChip({ api, working }: { api: Api; working: boolean }) {
       <button className={`gpuchip ${v.cls}`} onClick={() => setOpen(o => !o)} title={s?.detail ?? "Checking the graphics card…"} aria-label={`Graphics card status: ${v.text}`}>
         <i className="dot" />{v.text}
       </button>
-      {open && s && <div className="menu gpupop" role="dialog" onMouseLeave={() => setOpen(false)}>
-        <b>{s.adapter ?? "No graphics card in use"}</b>
+      {open && s && <div className="menu gpupop" role="dialog" >
+        <button className="popclose" onClick={() => setOpen(false)} aria-label="Close">×</button><b>{s.adapter ?? "No graphics card in use"}</b>
         <p>{s.detail}</p>
         {s.measurable && s.percent !== null && <div className="gpubar" aria-hidden><span style={{ width: `${Math.min(100, s.percent)}%` }} /></div>}
         {s.encoder && <p className="muted">Export encoder: {s.encoder}{s.encoder_on_gpu ? " (GPU)" : " (processor)"}</p>}
+        {s.diagnosis && s.diagnosis.length > 0 && <ul className="gpudiag" aria-label="What runs where">
+          {s.diagnosis.map(d => <li key={d.topic} className={d.status}><b>{d.status === "ok" ? "✓" : d.status === "warn" ? "!" : "i"} {d.topic}</b><span>{d.text}</span>{d.fix && <em>Fix: {d.fix}</em>}</li>)}</ul>}
       </div>}
     </span>);
 }

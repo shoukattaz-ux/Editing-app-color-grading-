@@ -393,6 +393,12 @@ class Job:
                         self._log(f"WARNING: no face detected for '{fid}' - the operation has no visible effect")
                 self._p0, self._pw = 0.75, 0.25
             ok = self._attempt(tmp_out, self.opts)
+            if not ok and not self._cancel.is_set() and "-hwaccel" in (self.compiled.args if self.compiled else []):
+                self._log("Hardware decoding failed; retrying with the processor decoding the source.")
+                self.fallback_used = True
+                self.opts = RenderOptions(**{**self.opts.__dict__, "hwdecode": False})
+                self.progress = 0.0
+                ok = self._attempt(tmp_out, self.opts)
             if not ok and not self._cancel.is_set() and self.opts.encoder != "cpu":
                 self._log("Hardware encoder failed; retrying on CPU (libx264/libx265).")
                 self.fallback_used = True

@@ -175,10 +175,10 @@ function Editor({ api }: { api: Api }) {
     } catch (e: any) { toast(e.message, "err"); }
   }, [api, bp, pollJob, toast]);
 
-  // The picture in the preview already follows every slider live (a real frame from the same engine as the export). The preview VIDEO
-  // (for playback) is re-rendered by itself a moment after you stop editing, so there is no button to press.
-  const [autoPreview, setAutoPreviewRaw] = useState(() => { try { return localStorage.getItem("evp.autoPreview") !== "0"; } catch { return true; } });
-  const setAutoPreview = (v: boolean) => { setAutoPreviewRaw(v); try { localStorage.setItem("evp.autoPreview", v ? "1" : "0"); } catch { /* ignore */ } };
+  // The picture in the preview follows every slider live: only the CURRENT frame is rendered (the same engine as the export). The preview VIDEO
+  // (for playback) is rendered only when you press "Apply to full video" (or switch Auto on), so editing never re-processes the whole clip.
+  const [autoPreview, setAutoPreviewRaw] = useState(() => { try { return localStorage.getItem("evp.autoApply") === "1"; } catch { return false; } });        // off by default: while you edit, only the current frame is rendered
+  const setAutoPreview = (v: boolean) => { setAutoPreviewRaw(v); try { localStorage.setItem("evp.autoApply", v ? "1" : "0"); } catch { /* ignore */ } };
   const lastAuto = useRef<Blueprint | null>(null);
   useEffect(() => {
     if (!project || !project.video || !autoPreview || mode !== "edited") return;
@@ -194,7 +194,7 @@ function Editor({ api }: { api: Api }) {
   }, [project?.path, project?.version]);
   const executeBlueprint = useCallback(async (nb: Blueprint, o: ExecOptions = { how: "add", applyOutput: false, clip: null }) => {
     nb = applyStrength(nb, schema, o.strength ?? 1);               // "Strength" slider of the Blueprint tab: the master Amount of every pasted effect
-    let next = nb, msg = "Blueprint applied — rendering preview…";
+    let next = nb, msg = "Blueprint applied — showing the current frame. Press Apply to full video to render it all.";
     if (o.how === "add") {
       // ADD: the pasted blueprint is merged into the timeline; nothing that is already there is removed or replaced
       const r = mergeBlueprint(bp, nb, schema, { applyOutput: o.applyOutput, clip: o.clip }, tl.duration);
@@ -210,7 +210,7 @@ function Editor({ api }: { api: Api }) {
     edit(() => next); setSel(null); setTab("effects");
     toast(msg);
     await updateProxy(next);
-  }, [edit, updateProxy, toast, bp, schema, tl.duration, api]);
+  }, [edit, toast, bp, schema, tl.duration, api]);
 
   // keyboard
   useEffect(() => {
@@ -276,7 +276,7 @@ function Editor({ api }: { api: Api }) {
         <Btn icon="redo" onClick={doRedo} disabled={!hist.future.length} title="Redo (Ctrl+Y)" />
         <span className="spacer" />
         <Btn icon="bolt" label="Execute Blueprint" kind="primary" onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
-        <Btn icon="eye" label="Render preview" onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Render the 640px proxy preview" />
+        <Btn icon="eye" label="Apply to full video" kind={stale || !proxy ? "primary" : undefined} onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Happy with this frame? Render the whole timeline (640px preview video for playback). While you edit, only the current frame is rendered. Export makes the final full-quality file." />
         <Btn icon="export" label="Export" onClick={() => setExportOpen(true)} disabled={!video} />
         <GpuChip api={api} working={!!job && ACTIVE.includes(job.state)} />
         <Btn icon="gear" onClick={() => setSettingsOpen(true)} title="Settings: problem reports" />

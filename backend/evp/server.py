@@ -273,6 +273,19 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         original: bool = False
         view: str | None = None          # key QC: alpha | edge | red | white | grey | checker
 
+    from collections import OrderedDict
+    _FRAMES: "OrderedDict[str, Response]" = OrderedDict()        # the last 32 single-frame previews, keyed by everything that affects the picture
+
+    def _frame_key(plan, source, b) -> str:
+        import hashlib
+        files = []
+        for a in plan.blueprint.assets.values():
+            r = getattr(a, "resolved", None)
+            try: files.append((r, os.stat(r).st_mtime_ns))
+            except (OSError, TypeError): files.append((r, 0))
+        blob = json.dumps([b.blueprint if not b.original else None, round(b.t, 4), b.width, b.view, bool(b.original), str(source), os.stat(source).st_mtime_ns, files], sort_keys=True, default=str)
+        return hashlib.sha256(blob.encode()).hexdigest()
+
     @app.post("/api/preview/frame", dependencies=[api()])
     def frame(b: FrameReq):
         st.need_project()
@@ -283,6 +296,9 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             raise HTTPException(422, {"errors": [i.message for i in prep.report.errors]})
         try:
             if b.view is not None and b.view not in ("alpha", "edge", "red", "white", "grey", "checker"): raise HTTPException(422, {"errors": ["unknown view"]})
+            ckey = _frame_key(prep.plan, st.source, b)
+            if ckey in _FRAMES:                                                  # the same picture again (scrubbing back, undo, toggling): instant
+                _FRAMES.move_to_end(ckey); return _FRAMES[ckey]
             png = render_frame(prep.plan, st.source, b.t, b.width, str(st.project.cache_dir), view=b.view)
         except ValueError as e:
             raise HTTPException(422, {"errors": [str(e)]})
@@ -293,7 +309,10 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         hairs = {k: ref.hair for k, ref in prep.plan.mattes.items() if getattr(ref, "hair", None)}                  # hair detail use per key: {used, skipped}
         floors = dict(prep.plan.floor)                                                                              # floor line per background replacement: {y, cut}
         hdr = {**({"x-evp-floor": json.dumps(floors)} if floors else {}), **({"x-evp-plate": json.dumps(notes)} if notes else {}), **({"x-evp-camera": json.dumps(cams)} if cams else {}), **({"x-evp-hair": json.dumps(hairs)} if hairs else {})}
-        return Response(png, media_type="image/png", headers=hdr or None)
+        resp = Response(png, media_type="image/png", headers=hdr or None)
+        _FRAMES[ckey] = resp
+        while len(_FRAMES) > 32: _FRAMES.popitem(last=False)
+        return resp
 
     class RenderReq(BaseModel):
         blueprint: Any
@@ -431,7 +450,11 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         """is the graphics card working right now? (measured on Windows; configured device elsewhere)"""
         from .ml.device import describe
         from .ml.gpumon import monitor
-        return monitor().snapshot(describe(), [{"state": j.state, "encoder": j._encoder_name(), "current": j.current} for j in st.jobs.jobs.values()])
+        from .media import gpu_diagnosis
+        snap = monitor().snapshot(describe(), [{"state": j.state, "encoder": j._encoder_name(), "current": j.current} for j in st.jobs.jobs.values()])
+        try: snap["diagnosis"] = gpu_diagnosis()
+        except Exception as e: snap["diagnosis"] = [{"topic": "Diagnosis", "status": "info", "text": f"could not run the checks: {e}"}]
+        return snap
 
     # ---------------- problem reports (Cloudflare R2)
     class ReportCfg(BaseModel):

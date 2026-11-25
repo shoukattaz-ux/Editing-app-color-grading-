@@ -34,13 +34,20 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
   const chip = await page.locator(".gpuchip").innerText();
   check(/^GPU/.test(chip), "a GPU indicator is always visible in the toolbar", chip);
   check(await page.locator(".gpuchip").getAttribute("title") !== null && (await page.locator(".gpuchip").getAttribute("title")).length > 20, "it explains itself on hover");
+  await page.click(".gpuchip"); await page.waitForSelector(".gpudiag li");
+  check(await page.locator(".gpudiag li").count() >= 3 && /Keying, colour grading/.test(await page.locator(".gpudiag").innerText()), "the GPU panel lists what runs on the card and what does not, with fixes");
+  await page.click(".gpupop .popclose");
   let renders = 0; page.on("request", r => { if (r.method() === "POST" && r.url().endsWith("/api/render")) renders++; });
   await page.click('button[role=tab]:has-text("Edited")');                           // live preview, never a button to press
   await page.click("button[aria-label=Color]"); await page.click("text=Blank grade"); await page.waitForSelector(".wheel");
   check(await page.locator(".banner").count() === 0, "no blocking 'Update preview video' banner over the picture");
+  await page.waitForTimeout(2600);                                                   // longer than the old auto re-render delay
+  check(renders === 0 && await page.locator("video.media").count() === 0, "editing renders only the live frame: no full-video render started by itself", `${renders} render request(s)`);
+  check(await page.locator('.chip-top button:has-text("Apply to full video")').count() === 1, "an 'Apply to full video' button is offered");
+  await page.click('button:has-text("Apply to full video") >> nth=0');
   await page.waitForSelector("video.media", { timeout: 30000 });
   await page.waitForFunction(() => !document.querySelector(".chip-top"), null, { timeout: 30000 });
-  check(renders >= 1, "the preview video was re-rendered by itself after the edit (no click)", `${renders} render request(s)`);
+  check(renders >= 1, "Apply to full video renders the whole timeline", `${renders} render request(s)`);
   // undo / redo right above the timeline: step back and forward through the edit, with a description of each step
   const apiOps = async () => (await (await fetch(`http://127.0.0.1:${be.port}/api/project`, { headers: { "x-evp-token": be.token } })).json()).blueprint.operations.length;
   check(await page.locator(".tl-bar .undo-group button[aria-label=Undo]").isEnabled() && !(await page.locator(".tl-bar .undo-group button[aria-label=Redo]").isEnabled()), "Undo / Redo sit in the timeline bar: undo is available, redo is not yet");

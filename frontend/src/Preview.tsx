@@ -94,7 +94,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   if (!video) return <div className="preview"><Empty icon="film" title="No video imported">Import a source video from the Media tab to start.</Empty></div>;
 
   const badge = mode === "compare" && loupe > 0 ? `Before/After · full-resolution frames at ${loupe * 100}%` : mode === "original" ? "Original · source quality" : playable ? "Edited · 640px proxy preview (final render is full quality)"
-    : mode === "compare" ? "Compare · 960px live frames" : "Edited · live frame 960px — playback after the preview video updates";
+    : mode === "compare" ? "Compare · 960px live frames" : "Edited · live frame 960px — press Apply to full video to play it";
   return (
     <div className="preview">
       <div className="stage" ref={wrap}>
@@ -117,7 +117,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         {masks && masks.ops.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <MaskOverlay rect={fit} masks={masks.ops} selected={masks.selected} onChange={masks.onChange} onSelect={masks.onSelect} />}
         {mode === "edited" && !playable && !qcOn && (          // small, in the corner: never covers the picture, which is already live
           <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>
-            : <>{auto ? "Preview video updates automatically" : "Preview video out of date"}<Btn label="Update now" icon="bolt" onClick={onUpdateProxy} disabled={proxyBusy} /></>}</div>)}
+            : <>{auto ? "Preview video updates automatically" : "Live frame: only this frame is rendered while you edit"}<Btn label="Apply to full video" icon="bolt" kind="primary" onClick={onUpdateProxy} disabled={proxyBusy} title="Render the whole timeline for playback" /></>}</div>)}
       </div>
       <div className="transport">
         <div className="seg" role="tablist" aria-label="Preview mode">
@@ -141,7 +141,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         {qcOn && <select className="loupe-sel" value={qcZoom} onChange={e => setQcZoom(+e.target.value)} aria-label="Key view zoom" title="Zoom in on the edge: the normal picture is shown beside the key view">
           <option value={0}>Fit</option><option value={1}>1:1</option><option value={2}>200%</option><option value={4}>400%</option></select>}
         <button className={"autobtn" + (auto ? " on" : "")} onClick={() => setAuto(!auto)} aria-pressed={auto}
-          title="Auto: re-render the preview video by itself shortly after you stop editing (videos up to 90 s). The picture itself always follows your sliders live.">Auto</button>
+          title="Auto-apply (off by default): re-render the whole preview video by itself shortly after you stop editing (videos up to 90 s). With it off, editing renders only the current frame and you press Apply to full video when you are happy.">Auto-apply</button>
         <span className="badge">{badge}</span>
         <Btn icon="full" title="Full screen" onClick={() => wrap.current?.requestFullscreen?.()} />
       </div>

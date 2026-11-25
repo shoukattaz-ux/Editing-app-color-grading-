@@ -12,7 +12,7 @@ from .animate import AnimChain
 from .keyframes import to_expr
 from .masks import write_mask
 from .floorfx import reflection_gradient, band_mask as floor_band, write_gray
-from .media import supports_timeline, ffmpeg_bin, encoders, _try_encoder
+from .media import supports_timeline, ffmpeg_bin, encoders, _try_encoder, hw_decode_usable
 
 
 @dataclass
@@ -25,6 +25,7 @@ class RenderOptions:
     audio: bool = True
     encoder: str = "cpu"                 # cpu | auto | explicit encoder name
     frame_only: bool = False             # emit one PNG to stdout
+    hwdecode: bool | None = None         # decode the source on the graphics card (None = automatic: Windows renders when d3d11va / dxva2 exist; never for single frames)
     view: str | None = None              # key QC view (single frames): alpha | edge | red | white | grey | checker - shows the matte instead of the finished picture
 
 
@@ -932,6 +933,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     first_src = pieces[0][0] if pieces else seek_f
     if first_src > 0 and (pieces or opts.t_start):
         args += ["-ss", f"{max(0.0, (first_src - 0.5) / fps):.6f}"]
+    hw = opts.hwdecode if opts.hwdecode is not None else (not opts.frame_only and hw_decode_usable())
+    if hw and not opts.frame_only: args += ["-hwaccel", "auto"]                     # decoded frames come back to memory: the filters are unchanged
     args += ["-i", source]
     for grp in inputs: args += grp
     args += ["-filter_complex", graph, "-map", "[vout]"]
