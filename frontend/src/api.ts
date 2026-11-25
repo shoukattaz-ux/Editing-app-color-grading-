@@ -26,6 +26,8 @@ export interface ProjectState { path: string; name: string; version: number; sou
 export interface JobState { id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }
 
 export interface GpuStatus { state: "active" | "ready" | "cpu"; label: string; detail: string; percent: number | null; engines: Record<string, number>; vram_mb: number | null; system_percent: number | null; adapter: string | null; provider: string | null; measurable: boolean; encoder: string | null; encoder_on_gpu: boolean | null; fell_back: boolean; job: string | null }
+export interface MediaItem { path: string; name: string; kind: "image" | "video" | "lut"; exists: boolean; size?: number; mtime?: number; width?: number; height?: number; duration?: number; fps?: number; has_audio?: boolean; current?: boolean }
+export interface MediaBin { sources: MediaItem[]; assets: MediaItem[] }
 export interface AiDevice { choice: string; running_on: string; provider: string; wanted: string; actual: string | null; fell_back: boolean; options: { value: string; label: string }[] }
 export interface ReportConfig { endpoint: string; bucket: string; access_key_id_masked: string; has_secret: boolean; enabled: boolean; auto_send: boolean; configured: boolean; pending: number; last: { ok?: boolean; error?: string; when?: number } }
 
@@ -73,6 +75,9 @@ export class Api {
   /** width null = full output resolution (used by the 1:1 loupe) */
   frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width }, true); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
+  mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }
+  thumbUrl(src: "asset" | "source", path: string, w = 192) { return `${this.base}/api/media/thumb?src=${src}&path=${encodeURIComponent(path)}&w=${w}&token=${this.token}`; }
+  removeAsset(path: string) { return this.req("POST", "/api/project/asset/remove", { path }); }
   gpu(): Promise<GpuStatus> { return this.req("GET", "/api/gpu"); }
   aiDevice(): Promise<AiDevice> { return this.req("GET", "/api/ai-device"); }
   setAiDevice(device: string): Promise<AiDevice> { return this.req("PUT", "/api/ai-device", { device }); }

@@ -9,6 +9,11 @@ const stem = (p: string) => (p.split(/[\\/]/).pop() ?? "asset").replace(/\.[^.]+
 export async function importAssetFile(ctx: Ctx, title: string, kind: "image" | "any" = "any"): Promise<string | null> {
   const p = await ctx.askPath(title, kind);
   if (!p) return null;
+  return importAssetPath(ctx, p);
+}
+
+/** same, for a path you already have (drag and drop from the computer) */
+export async function importAssetPath(ctx: Ctx, p: string): Promise<string | null> {
   const e = ext(p);
   const type = ["cube", "3dl"].includes(e) ? "lut" : VIDEO_EXT.includes(e) ? "video" : "image";
   let id = stem(p), n = 1;
@@ -22,10 +27,10 @@ export async function importAssetFile(ctx: Ctx, title: string, kind: "image" | "
 }
 
 /** add a background_replacement over the current selection range using an asset (or a colour) */
-export function addBackground(ctx: Ctx, assetId?: string) {
+export function addBackground(ctx: Ctx, assetId?: string, at?: number) {
   const spec = ctx.schema.operations["background_replacement"];
   const d = ctx.duration || ctx.video?.duration || 5;
-  const a = m.snap(Math.min(ctx.t, Math.max(0, d - 1)), ctx.video?.fps ?? 30), b = Math.min(d, m.snap(a + Math.min(5, d), ctx.video?.fps ?? 30));
+  const a = m.snap(Math.min(at ?? ctx.t, Math.max(0, d - 1)), ctx.video?.fps ?? 30), b = Math.min(d, m.snap(a + Math.min(5, d), ctx.video?.fps ?? 30));
   let id = "";
   ctx.edit(bp => { const r = m.addOp(bp, spec, a, b); id = r.id; return m.setParam(r.bp, r.id, assetId ? "asset_id" : "color", assetId ?? "#101820"); });
   setTimeout(() => ctx.setSel(id), 0);
@@ -42,4 +47,33 @@ export async function importBackground(ctx: Ctx) {
   const id = await importAssetFile(ctx, "Import a background (image or video)", "image");
   if (id && ctx.video) addBackground(ctx, id);
   else if (id) ctx.toast("Add a video first, then choose this background in the Backgrounds panel");
+}
+
+
+// ---------------------------------------------------------------------------------------------- Media bin helpers
+/** the blueprint id of a project file (registering it first if the bin lists a file the blueprint does not know, e.g. after an Undo) */
+export function ensureAsset(ctx: Ctx, item: { path: string; kind: string; name: string }): string {
+  const have = ctx.bp.assets.find(a => a.path === item.path);
+  if (have) return have.id;
+  let id = stem(item.name), n = 1;
+  while (ctx.bp.assets.some(a => a.id === id)) id = `${stem(item.name)}_${++n}`;
+  ctx.edit(bp => m.addAsset(bp, { id, type: item.kind, path: item.path }));
+  return id;
+}
+
+/** colour LUT from the bin -> a colour grading effect using it */
+export function applyLut(ctx: Ctx, item: { path: string; kind: string; name: string }, at?: number) {
+  const spec = ctx.schema.operations["color_grading"];
+  const id = ensureAsset(ctx, item);
+  const d = ctx.duration || ctx.video?.duration || 5;
+  const a = m.snap(Math.min(at ?? 0, Math.max(0, d - 1)), ctx.video?.fps ?? 30);
+  let opId = "";
+  ctx.edit(bp => { const r = m.addOp(bp, spec, a, d); opId = r.id; return m.setParam(r.bp, r.id, "lut_asset_id", id); });
+  setTimeout(() => ctx.setSel(opId), 0);
+}
+
+/** a stored background (picture or video) from the bin -> a background layer at `at` seconds */
+export function useBackgroundItem(ctx: Ctx, item: { path: string; kind: string; name: string }, at?: number) {
+  if (!ctx.video) { ctx.toast("Import a source video first, then use this background", "err"); return; }
+  addBackground(ctx, ensureAsset(ctx, item), at);
 }

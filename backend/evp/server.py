@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import __version__
+from . import __version__, mediabin
 from .blueprint import VideoInfo
 from .compiler import RenderOptions
 from .engine import prepare, render_frame, Job, JobManager
@@ -169,6 +169,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         p = st.need_project()
         info = probe(path)
         p.update(source=str(Path(path).resolve()))
+        mediabin.remember_source(p, str(Path(path).resolve()))      # stays in the Media bin after another video replaces it
         st.video = info
 
     @app.post("/api/project/source", dependencies=[api()])
@@ -393,6 +394,42 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         jobs = list(st.jobs.jobs.values())[-1:]
         log = "\n".join(jobs[0].log) if jobs else ""
         return st.reporter.send("user_report", b.message or "(no message)", {"last_job_state": jobs[0].state if jobs else None}, bp, log)
+
+    # ---------------- media bin: everything ever imported into this project
+    @app.get("/api/project/media", dependencies=[api()])
+    def media_bin():
+        p = st.need_project()
+        return mediabin.scan(p, st.source)
+
+    @app.get("/api/media/thumb", dependencies=[api()])
+    def media_thumb(src: str, path: str, w: int = 192):
+        p = st.need_project()
+        w = max(48, min(512, w))
+        if src == "asset":
+            f = st.policy().resolve(path, p.root)
+            if f.parent.resolve() != p.assets_dir.resolve(): raise HTTPException(404, "not a project asset")
+        elif src == "source":                                      # only videos this project has used
+            known = {os.path.normcase(os.path.abspath(x)) for x in [st.source, *p.data.get("sources_history", [])] if x}
+            if os.path.normcase(os.path.abspath(path)) not in known: raise HTTPException(404, "unknown source")
+            f = Path(path)
+        else:
+            raise HTTPException(404, "unknown kind")
+        if not f.is_file() or mediabin.kind_of(f) not in ("image", "video"): raise HTTPException(404, "no picture for this file")
+        t = mediabin.make_thumb(p, f, w)
+        if t is None: raise HTTPException(404, "could not read a frame")
+        return FileResponse(t, media_type="image/png", headers={"cache-control": "private, max-age=86400"})
+
+    class AssetPath(BaseModel):
+        path: str
+
+    @app.post("/api/project/asset/remove", dependencies=[api()])
+    def remove_asset(b: AssetPath):
+        """delete the project's own COPY of an imported file (the original you imported is never touched)"""
+        p = st.need_project()
+        f = st.policy().resolve(b.path, p.root)
+        if f.parent.resolve() != p.assets_dir.resolve() or not f.is_file(): raise HTTPException(404, "not a project asset")
+        f.unlink()
+        return {"ok": True}
 
     # ---------------- media (range requests supported by FileResponse)
     @app.get("/api/media/source", dependencies=[api()])

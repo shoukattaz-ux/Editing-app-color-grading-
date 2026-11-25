@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { importAssetFile, importBackground, importVideoFile } from "./imports";
+import { importAssetFile, importBackground, importVideoFile, applyLut, useBackgroundItem } from "./imports";
+import type { MediaDrag } from "./Media";
 import { Api, ApiError, JobState, ProjectState, ReportConfig, Validation, AiDevice, connection } from "./api";
 import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
@@ -231,6 +232,17 @@ function Editor({ api }: { api: Api }) {
   const stale = !proxy || proxy.bp !== bp;
   const issues = [...(report?.errors ?? []), ...(report?.warnings ?? [])];
   const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, mode, playing, videoRef, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport, selClip, layout: tl };
+  // a card from the Media bin dropped on the timeline: backgrounds on the Background track, LUTs on the Effects track, source videos on the Video track
+  const onDropMedia = (d: MediaDrag, at: number, lane: string) => {
+    if (d.kind === "lut") { if (lane !== "effects") { toast("Drop a LUT on the Effects track", "err"); return; } applyLut(ctx, d, at); return; }
+    if (d.src === "source") {
+      if (lane !== "video") { toast("Drop a source video on the Video track", "err"); return; }
+      if (d.path === project.source?.path) return;
+      api.setSource(d.path).then(p => { load(p); toast(`'${d.name}' is now the source video`); }).catch((e: any) => toast(e.message, "err")); return;
+    }
+    if (lane !== "background") { toast("Drop a background on the Background track", "err"); return; }
+    useBackgroundItem(ctx, d, at);
+  };
   const drag = (key: "left" | "right" | "bottom", sign: 1 | -1) => (e: React.PointerEvent) => {
     const start = key === "bottom" ? e.clientY : e.clientX, v0 = layout[key]; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const mv = (ev: PointerEvent) => setLayout(l => ({ ...l, [key]: Math.max(key === "bottom" ? 140 : 220, Math.min(key === "bottom" ? 520 : 560, v0 + sign * ((key === "bottom" ? ev.clientY : ev.clientX) - start))) }));
@@ -284,7 +296,7 @@ function Editor({ api }: { api: Api }) {
 
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />
       <div style={{ gridColumn: "1 / -1" }}>
-        <Timeline history={{ canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, undoCount: hist.past.length, redoCount: hist.future.length, undoLabel: labelNext(hist, "undo"), redoLabel: labelNext(hist, "redo"), onUndo: doUndo, onRedo: doRedo }} bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
+        <Timeline onDropMedia={onDropMedia} history={{ canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, undoCount: hist.past.length, redoCount: hist.future.length, undoLabel: labelNext(hist, "undo"), redoLabel: labelNext(hist, "redo"), onUndo: doUndo, onRedo: doRedo }} bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
           onCut={cutHere} onDeleteClip={() => removeClip()} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
       </div>
       <footer className="status" style={{ gridColumn: "1 / -1" }}>

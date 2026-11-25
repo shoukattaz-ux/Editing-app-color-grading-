@@ -164,3 +164,21 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .exec-opts label{display:flex;gap:6px;align-items:flex-start;line-height:1.35}
 .exec-opts .sub{margin-left:20px;align-items:center;flex-wrap:wrap}
 .exec-opts select{max-width:100%}
+
+.mfilter{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.mfilter input{flex:1 1 100%;min-width:0}
+.mfilter button{height:24px;padding:0 10px;border-radius:999px;border:1px solid #ffffff22;background:transparent;color:inherit;font-size:11.5px;cursor:pointer}
+.mfilter button.on{background:#3b82f633;border-color:#3b82f6}
+.mzone{border:1px dashed transparent;border-radius:10px;padding:4px;margin:2px -4px}.mzone.over{border-color:#3b82f6;background:#3b82f614}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
+.mcard{border:1px solid #ffffff1c;border-radius:10px;background:#ffffff08;padding:6px;display:flex;flex-direction:column;gap:3px;cursor:grab;position:relative}
+.mcard:hover{border-color:#3b82f688}.mcard.used{border-color:#22c55e66}.mcard.missing{opacity:.6;border-color:#ef444488}
+.mthumb{position:relative;aspect-ratio:16/9;border-radius:6px;background:#0008;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.mthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.mdur{position:absolute;right:4px;bottom:4px;font-size:10px;padding:1px 5px;border-radius:4px;background:#000b}
+.mbadge{position:absolute;left:4px;top:4px;font-size:9.5px;padding:1px 6px;border-radius:999px;background:#16a34acc}
+.mname{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mmeta{font-size:10.5px;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mact{display:flex;gap:4px;margin-top:2px}.mact .btn:first-child{flex:1}
+.mempty{padding:14px 8px;text-align:center;font-size:12px;opacity:.7;border:1px dashed #ffffff22;border-radius:8px}
+.muted.small{font-size:11px;margin:6px 2px}
+.tl-lane.dropok{outline:2px dashed #3b82f6;outline-offset:-2px;background:#3b82f61a}
+.mfilter input{background:#0e1014;color:inherit;border:1px solid #ffffff22;border-radius:6px;padding:5px 8px;font-size:12px}

@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Blueprint, Op, Schema } from "./model";
 import * as m from "./model";
 import type { Issue, VideoInfo } from "./api";
 import { Btn, Icon } from "./ui";
+import { MEDIA_MIME, MediaDrag } from "./Media";
 
 const TRACKS: { id: string; label: string; icon: string }[] = [
   { id: "video", label: "Video", icon: "film" }, { id: "background", label: "Background", icon: "image" },
@@ -13,7 +14,8 @@ const CAT_COLOR: Record<string, string> = { Keying: "#2fb57a", Compositing: "#7a
 /** distinct keyframe times (relative to the effect's start) across all its animated parameters */
 const kfTimes = (op: Op): number[] => [...new Set(Object.values(op.keyframes ?? {}).flatMap(k => k.map(x => +x.time.toFixed(4))))].sort((a, b) => a - b);
 
-export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selClip, setSelClip, edit, issues, zoom, setZoom, sourceName, onCut, onDeleteClip, history }: {
+export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selClip, setSelClip, edit, issues, zoom, setZoom, sourceName, onCut, onDeleteClip, history, onDropMedia }: {
+  onDropMedia: (d: MediaDrag, t: number, lane: string) => void;
   history: { canUndo: boolean; canRedo: boolean; undoCount: number; redoCount: number; undoLabel: string; redoLabel: string; onUndo: () => void; onRedo: () => void };
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; sel: string | null; setSel: (id: string | null) => void;
   selClip: string | null; setSelClip: (id: string | null) => void;
@@ -23,6 +25,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
   const fps = layout.fps, dur = layout.duration || 10;
   const clipDrag = useRef<{ id: string; side: "start" | "end"; x0: number; edge0: number } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const [dropLane, setDropLane] = useState("");
   const drag = useRef<{ id: string; mode: "move" | "start" | "end"; x0: number; op: Op } | null>(null);
   const width = Math.max(300, dur * zoom + 40);
   useEffect(() => { const w = (scroller.current?.clientWidth ?? 900) - 160; if (video) setZoom(Math.max(8, Math.min(600, w / video.duration))); }, [video?.duration]);
@@ -114,7 +117,14 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
             return (
               <div className="tl-row" key={tr.id} style={{ height: 8 + nl * 28 }}>
                 <div className="tl-label"><Icon n={tr.icon} size={14} /> {tr.label}</div>
-                <div className="tl-lane" style={{ width }} onPointerDown={e => { setSel(null); setSelClip(null); seek(e, e.currentTarget as HTMLElement); }}>
+                <div className={"tl-lane" + (dropLane === tr.id ? " dropok" : "")} style={{ width }}
+                  onDragOver={e => { if (e.dataTransfer.types.includes(MEDIA_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; if (dropLane !== tr.id) setDropLane(tr.id); } }}
+                  onDragLeave={() => setDropLane(l => (l === tr.id ? "" : l))}
+                  onDrop={e => {
+                    const raw = e.dataTransfer.getData(MEDIA_MIME); setDropLane(""); if (!raw) return;
+                    e.preventDefault(); const r = e.currentTarget.getBoundingClientRect();
+                    try { onDropMedia(JSON.parse(raw) as MediaDrag, m.xToTime(e.clientX - r.left, zoom, fps, dur), tr.id); } catch { /* not ours */ }
+                  }} onPointerDown={e => { setSel(null); setSelClip(null); seek(e, e.currentTarget as HTMLElement); }}>
                   {tr.id === "video" && video && layout.clips.map((c, i) => (
                     <div key={c.id} className={`clip source footage ${selClip === c.id ? "sel" : ""}`} style={{ left: c.tStart * zoom, width: Math.max(10, (c.tEnd - c.tStart) * zoom - 1), top: 4 }}
                       title={`${c.label || sourceName} · source ${m.formatTime(c.srcStart, fps).slice(3)} – ${m.formatTime(c.srcEnd, fps).slice(3)} · drag an edge to trim`}

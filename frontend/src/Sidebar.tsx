@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { Api, Issue, ProjectState, Validation, VideoInfo } from "./api";
 import type { Blueprint, Schema } from "./model";
 import type { ExecOptions } from "./merge";
+import { MediaBinPanel } from "./Media";
 import * as m from "./model";
 import { importAssetFile, importBackground, importVideoFile, addBackground } from "./imports";
 import { Btn, Empty, Icon } from "./ui";
@@ -27,24 +28,7 @@ export function Sidebar({ tab, ctx }: { tab: Tab; ctx: Ctx }) {
 
 const span = (ctx: Ctx) => { const d = ctx.duration || ctx.video?.duration || 5; const s = m.snap(Math.min(ctx.t, Math.max(0, d - 1)), ctx.video?.fps ?? 30); return [s, Math.min(d, m.snap(s + Math.min(5, d), ctx.video?.fps ?? 30))] as const; };
 
-function MediaTab({ ctx }: { ctx: Ctx }) {
-  const { video, project } = ctx;
-  const importVideo = () => importVideoFile(ctx);
-  return (<>
-    <h3>Source video</h3>
-    {video ? <div className="card"><Icon n="film" size={20} /><div><b>{project.source?.path?.split(/[\\/]/).pop()}</b>
-      <div className="muted">{video.width}×{video.height} · {video.fps} fps · {video.duration.toFixed(2)} s · {video.codec} · {video.has_audio ? "audio" : "no audio"}</div></div></div>
-      : <Empty icon="film" title="No video yet">Import the original video. The file is only referenced — never overwritten.</Empty>}
-    {project.missing.source && <div className="issue error"><Icon n="warn" size={14} /> Source missing: {project.missing.source}</div>}
-    <Btn icon="plus" kind="primary" label={video ? "Replace / relink video…" : "Import video…"} onClick={importVideo} />
-    <h3 style={{ marginTop: 18 }}>Backgrounds and looks</h3>
-    <p className="muted">Pictures or videos to put behind the person, and colour LUTs. They are copied into the project folder.</p>
-    <div className="btn-row">
-      <Btn icon="image" label="Import background…" onClick={() => importBackground(ctx)} title="Pick an image or video; it is added to the project and used as the background right away" />
-      <Btn icon="color" label="Import LUT…" onClick={() => importAssetFile(ctx, "Import a colour LUT (.cube / .3dl)", "any")} />
-    </div>
-  </>);
-}
+function MediaTab({ ctx }: { ctx: Ctx }) { return <MediaBinPanel ctx={ctx} />; }
 
 function ProjectsTab({ ctx }: { ctx: Ctx }) {
   const [vers, setVers] = useState<any[]>([]);
