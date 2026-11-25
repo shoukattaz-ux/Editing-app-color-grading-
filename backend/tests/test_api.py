@@ -413,3 +413,30 @@ def test_ai_device_reports_when_the_graphics_card_silently_fell_back(monkeypatch
     d.note_session(Sess("DmlExecutionProvider"))
     assert d.describe()["fell_back"] is False
     d._ACTUAL["provider"] = None
+
+
+def test_export_into_a_chosen_folder_never_overwrites(client, proj, tmp_path, media):
+    dest = tmp_path / "My Exports"; dest.mkdir()
+    def go():
+        r = client.post("/api/render", headers=H, json={"blueprint": bp(), "preset": "export", "filename": "final", "encoder": "cpu", "out_dir": str(dest), "t_start": 0, "t_end": 0.5})
+        assert r.status_code == 200, r.text
+        j = wait(client, r.json()["job"]["id"], 120)
+        assert j["state"] == "done", j.get("error")
+        return j["output"], r.json()["output"]
+    o1, r1 = go()
+    assert o1 == str(dest / "final.mp4") and r1 == o1 and (dest / "final.mp4").stat().st_size > 1000
+    o2, _ = go()
+    assert o2 == str(dest / "final (2).mp4") and (dest / "final.mp4").is_file()                  # the first export is kept
+    assert not list((proj and __import__("pathlib").Path(proj["path"]) / "exports").glob("*.mp4"))  # nothing went to the project's own folder
+
+
+def test_export_folder_errors_and_the_original_is_safe(client, proj, tmp_path, media):
+    r = client.post("/api/render", headers=H, json={"blueprint": bp(), "preset": "export", "filename": "x", "out_dir": str(tmp_path / "nope")})
+    assert r.status_code == 422 and "does not exist" in json.dumps(r.json())
+    import shutil, pathlib
+    src_dir = pathlib.Path(media["video"]).parent
+    before = pathlib.Path(media["video"]).read_bytes()
+    r2 = client.post("/api/render", headers=H, json={"blueprint": bp(), "preset": "export", "filename": pathlib.Path(media["video"]).stem, "encoder": "cpu", "out_dir": str(src_dir), "t_start": 0, "t_end": 0.4})
+    assert r2.status_code == 200 and r2.json()["output"] != media["video"]                       # same name next to the original: numbered, original untouched
+    wait(client, r2.json()["job"]["id"], 120)
+    assert pathlib.Path(media["video"]).read_bytes() == before

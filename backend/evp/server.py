@@ -293,6 +293,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         encoder: str = "auto"
         t_start: float | None = None
         t_end: float | None = None
+        out_dir: str | None = None       # export into this folder instead of the project's exports folder
 
     @app.post("/api/render", dependencies=[api()])
     def render(b: RenderReq):
@@ -311,12 +312,23 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         else:
             ext = prep.plan.blueprint.output.format
             name = "".join(c for c in b.filename if c.isalnum() or c in " _-").strip()[:80] or "export"
-            out = safe_output_path(p.exports_dir / f"{name}.{ext}", st.source, p.exports_dir)
+            if b.out_dir and b.out_dir.strip():
+                d = Path(b.out_dir.strip()).expanduser()
+                if not d.is_dir(): raise HTTPException(422, {"errors": [f"The folder does not exist: {d}"]})
+                if not os.access(d, os.W_OK): raise HTTPException(422, {"errors": [f"Cannot write to this folder: {d}"]})
+                d = d.resolve()
+                out = d / f"{name}.{ext}"
+                n = 1
+                while out.exists() or (st.source and os.path.normcase(str(out)) == os.path.normcase(str(Path(st.source).resolve()))):
+                    n += 1; out = d / f"{name} ({n}).{ext}"          # a file in YOUR folder is never overwritten (and never the original video)
+                out = safe_output_path(out, st.source, d)
+            else:
+                out = safe_output_path(p.exports_dir / f"{name}.{ext}", st.source, p.exports_dir)
             opts = RenderOptions(encoder=b.encoder, t_start=b.t_start, t_end=b.t_end)
             kind = "render"
         job = Job(prep.plan, st.source, str(out), opts, str(p.cache_dir), kind)
         st.jobs.submit(job)
-        return {"cached": False, "job": job.to_json(), "output": f"{'cache' if kind == 'proxy' else 'exports'}/{out.name}"}
+        return {"cached": False, "job": job.to_json(), "output": (str(out) if kind == "render" and b.out_dir and b.out_dir.strip() else f"{'cache' if kind == 'proxy' else 'exports'}/{out.name}")}
 
     def _job(i: str) -> Job:
         j = st.jobs.jobs.get(i)

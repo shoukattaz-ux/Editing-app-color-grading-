@@ -306,7 +306,7 @@ function Editor({ api }: { api: Api }) {
         <span className="spacer" /><span>{hist.past.length} undo step(s)</span>
       </footer>
       {settingsOpen && <SettingsDialog api={api} onClose={() => setSettingsOpen(false)} toast={toast} />}
-      {exportOpen && <ExportDialog api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
+      {exportOpen && <ExportDialog askPath={askPath} api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
       <Toasts toasts={toasts} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} />
     </div>
   );
@@ -327,9 +327,12 @@ function JobBar({ job, api, onUpdate, compact }: { job: JobState; api: Api; onUp
     </div>);
 }
 
-function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, projectName, video }: { api: Api; bp: Blueprint; edit: Ctx["edit"]; onClose: () => void; video: ProjectState["video"]; job: JobState | null; setJob: (j: JobState | null) => void; pollJob: (j: JobState, d: (j: JobState) => void) => Promise<void>; toast: Ctx["toast"]; projectName: string }) {
+function ExportDialog({ askPath, api, bp, edit, onClose, job, setJob, pollJob, toast, projectName, video }: { askPath: Ctx["askPath"]; api: Api; bp: Blueprint; edit: Ctx["edit"]; onClose: () => void; video: ProjectState["video"]; job: JobState | null; setJob: (j: JobState | null) => void; pollJob: (j: JobState, d: (j: JobState) => void) => Promise<void>; toast: Ctx["toast"]; projectName: string }) {
   const o = bp.output ?? {};
   const [name, setName] = useState(projectName);
+  const [dir, setDirRaw] = useState(() => { try { return localStorage.getItem("evp.exportDir") ?? ""; } catch { return ""; } });   // "" = the project's own exports folder
+  const setDir = (d: string) => { setDirRaw(d); try { localStorage.setItem("evp.exportDir", d); } catch { /* ignore */ } };
+  const browse = async () => { const p = await askPath("Choose the export folder", "any"); if (p) setDir(p); };
   const [enc, setEnc] = useState("auto");
   const [sys, setSys] = useState<any>(null);
   const [log, setLog] = useState(false);
@@ -338,7 +341,7 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
   useEffect(() => { if (job?.kind === "render") setExportJob(job); }, [job]);
   const start = async () => {
     try {
-      const r = await api.render(bp, "export", { filename: name, encoder: enc });
+      const r = await api.render(bp, "export", { filename: name, encoder: enc, ...(dir ? { out_dir: dir } : {}) });
       await pollJob(r.job!, j => { if (j.state === "done") toast("Export finished: " + j.output); else if (j.state === "failed") toast("Export failed: " + j.error, "err"); });
     } catch (e: any) { toast(e instanceof ApiError ? e.message : String(e), "err"); }
   };
@@ -350,6 +353,13 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
         <h3>Export final video</h3>
         <div className="grid2">
           <label className="field"><span className="fl">file name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
+          <div className="field exportdir" style={{ gridColumn: "1 / -1" }}><span className="fl">save to</span>
+            <div className="slider-row">
+              <input readOnly value={dir || "The project's exports folder"} title={dir || "Inside this project's folder"} aria-label="Export folder" onClick={browse} />
+              <Btn icon="folder" label="Choose folder…" onClick={browse} disabled={running} title="Pick where the exported video is saved" />
+              {dir && <Btn label="Project folder" onClick={() => setDir("")} disabled={running} title="Back to the project's own exports folder" />}
+            </div>
+            <span className="muted small">An existing file with the same name is never overwritten: the new one is saved as “name (2)”.</span></div>
           <label className="field"><span className="fl">container</span><select value={o.format ?? "mp4"} onChange={e => set({ format: e.target.value })}><option disabled={["prores", "prores4444", "vp9_alpha"].includes(o.codec ?? "")}>mp4</option><option disabled={o.codec === "vp9_alpha"}>mov</option><option disabled={o.codec !== "vp9_alpha"} value="webm">webm</option></select></label>
           {(o.codec === "prores") && <label className="field"><span className="fl">ProRes profile</span><select value={o.prores_profile ?? "hq"} onChange={e => set({ prores_profile: e.target.value })}><option value="proxy">Proxy</option><option value="lt">LT</option><option value="standard">422</option><option value="hq">422 HQ</option></select></label>}
           <label className="field"><span className="fl">resolution</span><select value={String(o.resolution ?? "source")} onChange={e => set({ resolution: e.target.value })}>{resolutionOptions(video, o.resolution).map(r => <option key={r}>{r}</option>)}</select></label>
@@ -363,7 +373,7 @@ function ExportDialog({ api, bp, edit, onClose, job, setJob, pollJob, toast, pro
         {sys && <p className="muted">{sys.cpu_count} CPU threads · hardware encoders: {sys.hardware_encoders_working.length ? sys.hardware_encoders_working.join(", ") : "none detected (CPU encode)"} · AI device: {sys.ai_devices?.[0] ?? "unavailable"}{sys.ai_devices?.[0] === "CPU" ? " (install onnxruntime-gpu / -directml for GPU)" : ""}</p>}
         {exportJob && <JobBar job={exportJob} api={api} onUpdate={j => { setExportJob(j); setJob(j); }} />}
         {exportJob && <><div className="muted">{exportJob.current}{exportJob.hardware_fallback ? " · GPU encoder failed, used CPU" : ""}</div>
-          {exportJob.state === "done" && <div className="issue ok"><Icon n="check" size={14} /> Saved to {exportJob.output}</div>}
+          {exportJob.state === "done" && <div className="issue ok"><Icon n="check" size={14} /> Saved to {exportJob.output}{window.evp?.reveal && <Btn icon="folder" label="Show in folder" onClick={() => window.evp!.reveal!(exportJob.output)} />}</div>}
           <Btn label={log ? "Hide log" : "Show render log"} onClick={() => setLog(l => !l)} />{log && <pre className="log">{exportJob.log.join("\n")}</pre>}</>}
         <div className="btn-row end"><Btn label="Close" onClick={onClose} disabled={running} /><Btn icon="export" kind="primary" label="Start export" onClick={start} disabled={running} /></div>
       </div>

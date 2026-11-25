@@ -4,6 +4,7 @@ export interface Bridge {
   backend: { port: number; token: string };
   pickFile?: (opts: { title: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   pickFolder?: (title: string) => Promise<string | null>;
+  reveal?: (path: string) => Promise<void>;
   isElectron?: boolean;
   pathFor?: (f: File) => string;
   app?: { info: () => Promise<{ version: string; packaged: boolean; logDir: string }>; checkUpdates: () => Promise<void>; openLogs: () => Promise<void> };

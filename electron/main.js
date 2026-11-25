@@ -183,6 +183,7 @@ ipcMain.on("backend-info", (e) => { e.returnValue = info; });
 ipcMain.handle("app-info", () => ({ version: app.getVersion(), packaged: app.isPackaged, logDir: logDir() }));
 ipcMain.handle("check-updates", () => checkForUpdates(true));
 ipcMain.handle("open-logs", () => shell.openPath(logDir()));
+ipcMain.handle("reveal-path", (_e, p) => { try { if (typeof p === "string" && p) shell.showItemInFolder(p); } catch { /* ignore */ } });
 ipcMain.handle("pick-file", async (_e, opts) => {
   const r = await dialog.showOpenDialog(win, { title: opts?.title, properties: ["openFile"], filters: opts?.filters });
   return r.canceled ? null : r.filePaths[0];
