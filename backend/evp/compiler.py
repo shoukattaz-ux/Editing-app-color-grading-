@@ -11,6 +11,7 @@ from .planner import Plan, _dominant
 from .animate import AnimChain
 from .keyframes import to_expr
 from .masks import write_mask
+from .floorfx import reflection_gradient, band_mask as floor_band, write_gray
 from .media import supports_timeline, ffmpeg_bin, encoders, _try_encoder
 
 
@@ -484,6 +485,51 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         black = g.add([], f"color=c=black:s={W}x{H}:r={fps:g},format=rgba{shift}")
         return g.add([black, a], "alphamerge,format=rgba")
 
+    def floor_for(r: Operation | None) -> dict | None:
+        """the floor line of a background replacement (final-frame fraction) unless the subject is cut by the frame bottom"""
+        if r is None: return None
+        p = r.params
+        if p.get("reflection", 0) <= 0 and p.get("contact_shadow", 0) <= 0: return None
+        if p.get("floor_y") is not None: return {"y": float(p["floor_y"]), "cut": False}
+        f = plan.floor.get(r.id)
+        return f if f and not f["cut"] else None
+
+    def mul_mask(a: str, path: str) -> str:
+        """a gray stream x a still gray mask (both 0..255): a * mask / 255"""
+        work_files.append(path)
+        inputs.append(["-loop", "1", "-framerate", f"{fps:g}", "-i", path])
+        m = g.add([f"{len(inputs)}:v"], f"fps={fps:g}" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",scale={W}:{H},format=gray")
+        return g.add([a, m], "blend=all_expr='A*B/255':shortest=1")
+
+    def shift_down(src: str, d: int) -> str:
+        """move a full-frame stream down (d > 0) or up (d < 0) by d pixels; the vacated edge is transparent / black"""
+        if d == 0: return src
+        if d > 0: return g.add([src], f"pad=iw:ih+{d}:0:{d}:black@0,crop=iw:{H}:0:0")
+        return g.add([src], f"pad=iw:ih+{-d}:0:0:black@0,crop=iw:{H}:0:{-d}")
+
+    def reflection_layer(tap: str, p: dict, F: float) -> str:
+        """the subject flipped about the floor line, faded with distance and blurred, as an rgba layer for under the subject"""
+        fp = int(round(F * H))
+        flipped = shift_down(g.add([tap], "vflip"), 2 * fp - (H - 1))
+        col, a = splitn(flipped, 2)
+        a = mul_mask(g.add([a], "alphaextract"), write_gray(reflection_gradient(H, W, fp, p["reflection_length"] * H, p["reflection"]), wd, "refl"))
+        bl = p["reflection_blur"] * scale_px
+        if bl > 0.3: a = g.add([a], f"gblur=sigma={bl:.3f}")
+        col = g.add([col], "format=gbrp" + (f",gblur=sigma={bl:.3f}" if bl > 0.3 else "") + ",format=rgba")
+        return g.add([col, a], "alphamerge,format=rgba")
+
+    def contact_layer(tap: str, p: dict, F: float) -> str:
+        """a tight dark blob at the floor line: the lowest slice of the subject, squashed and blurred, so it follows the feet"""
+        fp = int(round(F * H))
+        band = max(2, int(round(p["contact_height"] * H)))
+        d = band // 2                                                   # shift the subject (rgba: the vacated rows are transparent, a gray plane's "black" would be 16) so the slice is centred on the floor line
+        a = mul_mask(g.add([shift_down(tap, d)], "alphaextract"), write_gray(floor_band(H, W, fp + d, band), wd, "contact"))
+        cb = max(0.5, p["contact_blur"] * scale_px)
+        a = g.add([a], f"gblur=sigma={cb:.3f}:sigmaV={max(0.4, cb * 0.35):.3f}")
+        a = g.add([a], f"lut=y='clip(val*{min(1.0, p['contact_shadow'] * 1.1):.4f}\\,0\\,255)'")
+        black = g.add([], f"color=c=black:s={W}x{H}:r={fps:g},format=rgba{shift}")
+        return g.add([black, a], "alphamerge,format=rgba")
+
     def qc_view(src: str, k: Operation) -> str:
         v = opts.view
         fg = make_keyed(src, k)
@@ -518,16 +564,21 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         def build(src: str) -> str:
             bgs, fg = bg_stream(r, k), make_keyed(src, k)
             if moved: fg = place_subject(fg, rp)
-            sh = None
-            if shadow:
-                fg, f_sh = splitn(fg, 2)
-                sh = cast_shadow(f_sh, sp)
+            sh = rfl = ctl = None
+            fl = floor_for(r)
+            want = [n for n, on in (("shadow", shadow), ("reflect", bool(fl) and rp["reflection"] > 0), ("contact", bool(fl) and rp["contact_shadow"] > 0)) if on]
+            if want:
+                outs = splitn(fg, 1 + len(want)); fg = outs[0]; taps = dict(zip(want, outs[1:]))
+                if "shadow" in taps: sh = cast_shadow(taps["shadow"], sp)
+                if "reflect" in taps: rfl = reflection_layer(taps["reflect"], rp, fl["y"])
+                if "contact" in taps: ctl = contact_layer(taps["contact"], rp, fl["y"])
             if look:
                 fg = subject_camera(fg, look)
                 bgs, fg = integrate(bgs, fg, look)
                 if look.get("background_grain", 0) > 0:
                     bgs = g.add([bgs], f"{cs.rgb_to_yuv()},noise=alls={look['background_grain'] * 14:.2f}:allf=t+u,{cs.yuv_to_rgb('rgba')}")
-            if sh: bgs = g.add([bgs, sh], "overlay=shortest=1:format=auto,format=rgba")
+            for layer in (rfl, sh, ctl):                                 # reflection under the cast shadow under the contact shadow, all under the subject
+                if layer: bgs = g.add([bgs, layer], "overlay=shortest=1:format=auto,format=rgba")
             return g.add([bgs, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
         amt = min(1.0, float(k.params.get("amount", 1.0)))
         if amt >= 0.9995: return ranged_block(cur, rng, build)

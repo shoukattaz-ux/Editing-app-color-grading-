@@ -48,6 +48,7 @@ export class Api {
       const n = r.headers.get("x-evp-plate"); if (n && this.onPlate) { try { this.onPlate(JSON.parse(n)); } catch { /* ignore */ } }
       const c = r.headers.get("x-evp-camera"); if (c && this.onCamera) { try { this.onCamera(JSON.parse(c)); } catch { /* ignore */ } }
       const h = r.headers.get("x-evp-hair"); if (h && this.onHair) { try { this.onHair(JSON.parse(h)); } catch { /* ignore */ } }
+      const fl = r.headers.get("x-evp-floor"); if (fl && this.onFloor) { try { this.onFloor(JSON.parse(fl)); } catch { /* ignore */ } }
     }
     return raw ? r.blob() : r.json();
   }
@@ -56,6 +57,8 @@ export class Api {
   onCamera?: (n: Record<string, CameraNote>) => void;
   /** hair detail use per keying operation: { opId: { used, skipped } } */
   onHair?: (n: Record<string, { used: number; skipped: number }>) => void;
+  /** the floor line found for each background replacement: { opId: { y (fraction of the frame height), cut } } */
+  onFloor?: (n: Record<string, { y: number; cut: boolean }>) => void;
   onPlate?: (n: Record<string, { used: number; rejected: number }>) => void;
   mediaUrl(path: string) { return `${this.base}/api/media/project?path=${encodeURIComponent(path)}&token=${this.token}`; }
   sourceUrl() { return `${this.base}/api/media/source?token=${this.token}`; }

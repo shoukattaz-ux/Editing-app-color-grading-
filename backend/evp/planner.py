@@ -24,6 +24,7 @@ class Plan:
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
     face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
     upscales: dict = field(default_factory=dict)                  # op id -> ml.upscale.UpscaleRef (filled by the engine)
+    floor: dict = field(default_factory=dict)                     # replacement id -> {"y": floor line (fraction of the frame height), "cut": subject touches the frame bottom} (filled by the engine)
     masks: dict[str, list] = field(default_factory=dict)          # keyer id -> the garbage / keep masks that correct its matte
 
     def upscale_ops(self) -> list[Operation]:

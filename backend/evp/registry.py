@@ -191,7 +191,14 @@ _reg(OpSpec("background_replacement", "Background Replacement", "Compositing", S
              "shadow": Param(N, 0.0, 0.0, 1.0, desc="Opacity of a soft cast shadow of the subject on the background (0 = off)."),
              "shadow_blur": Param(N, 28.0, 1.0, 100.0, unit="px at 1080p", desc="Softness of the shadow; bigger = a wall further behind the subject."),
              "shadow_dx": Param(N, 0.03, -0.3, 0.3, desc="Shadow offset sideways, fraction of frame width (opposite the key light)."),
-             "shadow_dy": Param(N, 0.02, -0.3, 0.3, desc="Shadow offset downward, fraction of frame height.")}))
+             "shadow_dy": Param(N, 0.02, -0.3, 0.3, desc="Shadow offset downward, fraction of frame height."),
+             "floor_y": Param(N, None, 0.0, 1.0, desc="[reflection, contact shadow] Where the floor is, as a fraction of the frame height from the top. Empty = automatic: the lowest point of the subject on the middle frame. If the subject is cut off by the bottom of the frame there is no floor in view and both effects are skipped."),
+             "reflection": Param(N, 0.0, 0.0, 1.0, desc="Floor reflection: the subject mirrored about the floor line, fading with distance. 0 = off."),
+             "reflection_length": Param(N, 0.25, 0.05, 0.8, desc="[reflection] How far down the reflection reaches, as a fraction of the frame height."),
+             "reflection_blur": Param(N, 6.0, 0.0, 40.0, unit="px at 1080p", desc="[reflection] Softness of the reflection (a polished floor is sharp, a matte floor blurry)."),
+             "contact_shadow": Param(N, 0.0, 0.0, 1.0, desc="Contact shadow: a tight dark blob under the feet, made from the lowest slice of the subject, so it follows every step. 0 = off."),
+             "contact_height": Param(N, 0.03, 0.005, 0.2, desc="[contact shadow] How tall a slice of the subject (above the floor line) makes the shadow, as a fraction of the frame height."),
+             "contact_blur": Param(N, 10.0, 1.0, 60.0, unit="px at 1080p", desc="[contact shadow] Softness; wider and softer for a diffuse light, tighter for a hard one.")}))
 _reg(OpSpec("color_grading", "Color Grading", "Color", STAGE_GRADE, "effects",
             "Exposure, contrast, tone, white balance, saturation, LGG, RGB curves, LUT, presets.", {"amount": _AMOUNT_FX, **_COLOR_PARAMS}))
 _reg(OpSpec("studio_look", "Studio Look", "Color", STAGE_LOOK, "effects",

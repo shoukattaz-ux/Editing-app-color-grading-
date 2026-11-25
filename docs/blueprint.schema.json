@@ -757,6 +757,54 @@
                       "minimum": -0.3,
                       "maximum": 0.3,
                       "default": 0.02
+                    },
+                    "floor_y": {
+                      "description": "[reflection, contact shadow] Where the floor is, as a fraction of the frame height from the top. Empty = automatic: the lowest point of the subject on the middle frame. If the subject is cut off by the bottom of the frame there is no floor in view and both effects are skipped.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0
+                    },
+                    "reflection": {
+                      "description": "Floor reflection: the subject mirrored about the floor line, fading with distance. 0 = off.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "reflection_length": {
+                      "description": "[reflection] How far down the reflection reaches, as a fraction of the frame height.",
+                      "type": "number",
+                      "minimum": 0.05,
+                      "maximum": 0.8,
+                      "default": 0.25
+                    },
+                    "reflection_blur": {
+                      "description": "[reflection] Softness of the reflection (a polished floor is sharp, a matte floor blurry).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 40.0,
+                      "default": 6.0
+                    },
+                    "contact_shadow": {
+                      "description": "Contact shadow: a tight dark blob under the feet, made from the lowest slice of the subject, so it follows every step. 0 = off.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "contact_height": {
+                      "description": "[contact shadow] How tall a slice of the subject (above the floor line) makes the shadow, as a fraction of the frame height.",
+                      "type": "number",
+                      "minimum": 0.005,
+                      "maximum": 0.2,
+                      "default": 0.03
+                    },
+                    "contact_blur": {
+                      "description": "[contact shadow] Softness; wider and softer for a diffuse light, tighter for a hard one.",
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 60.0,
+                      "default": 10.0
                     }
                   },
                   "additionalProperties": false

@@ -103,6 +103,13 @@ Timeline track: **background**
 | `shadow_blur` | number | `28.0` | 1.0 … 100.0 px at 1080p | Softness of the shadow; bigger = a wall further behind the subject. |
 | `shadow_dx` | number | `0.03` | -0.3 … 0.3 | Shadow offset sideways, fraction of frame width (opposite the key light). |
 | `shadow_dy` | number | `0.02` | -0.3 … 0.3 | Shadow offset downward, fraction of frame height. |
+| `floor_y` | number |  | 0.0 … 1.0 | [reflection, contact shadow] Where the floor is, as a fraction of the frame height from the top. Empty = automatic: the lowest point of the subject on the middle frame. If the subject is cut off by the bottom of the frame there is no floor in view and both effects are skipped. |
+| `reflection` | number | `0.0` | 0.0 … 1.0 | Floor reflection: the subject mirrored about the floor line, fading with distance. 0 = off. |
+| `reflection_length` | number | `0.25` | 0.05 … 0.8 | [reflection] How far down the reflection reaches, as a fraction of the frame height. |
+| `reflection_blur` | number | `6.0` | 0.0 … 40.0 px at 1080p | [reflection] Softness of the reflection (a polished floor is sharp, a matte floor blurry). |
+| `contact_shadow` | number | `0.0` | 0.0 … 1.0 | Contact shadow: a tight dark blob under the feet, made from the lowest slice of the subject, so it follows every step. 0 = off. |
+| `contact_height` | number | `0.03` | 0.005 … 0.2 | [contact shadow] How tall a slice of the subject (above the floor line) makes the shadow, as a fraction of the frame height. |
+| `contact_blur` | number | `10.0` | 1.0 … 60.0 px at 1080p | [contact shadow] Softness; wider and softer for a diffuse light, tighter for a hard one. |
 
 ## `color_grading` — Color Grading
 

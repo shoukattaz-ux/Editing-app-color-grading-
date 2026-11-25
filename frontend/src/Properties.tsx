@@ -139,6 +139,35 @@ function MaskTools({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** Floor: reflection and contact shadow, so the subject stands ON the floor of the new scene */
+function FloorFx({ op, edit, note }: { op: Op; edit: Edit; note?: { y: number; cut: boolean } }) {
+  const pr = op.parameters ?? {};
+  const num = (k: string, d: number) => (typeof pr[k] === "number" ? (pr[k] as number) : d);
+  const set = (k: string, v: number | undefined) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
+  const manual = typeof pr.floor_y === "number";
+  const on = num("reflection", 0) > 0 || num("contact_shadow", 0) > 0;
+  const slider = (k: string, label: string, d: number, max = 100, unit = "%") => (
+    <label className="field"><span className="fl">{label} <em>{Math.round(num(k, d) * 100)}{unit}</em></span>
+      <input type="range" min={0} max={max} value={Math.round(num(k, d) * 100)} onChange={e => set(k, +e.target.value / 100)} aria-label={label} /></label>);
+  return (
+    <section className="floorfx">
+      <div className="master-head"><h4>Floor: reflection and contact shadow</h4><span className="muted small">{on ? "on" : "off"}</span></div>
+      <p className="muted small">If the person stands on a floor, add a soft <b>reflection</b> and a tight <b>contact shadow</b> under the feet. Both are made from the subject itself, so they follow every step. The floor line is found automatically (the lowest point of the subject) or set by hand.</p>
+      {slider("reflection", "Reflection", 0)}
+      {num("reflection", 0) > 0 && <>{slider("reflection_length", "Reflection length", 0.25, 80)}
+        <label className="field"><span className="fl">Reflection blur <em>{num("reflection_blur", 6).toFixed(0)} px</em></span><input type="range" min={0} max={40} value={num("reflection_blur", 6)} onChange={e => set("reflection_blur", +e.target.value)} aria-label="Reflection blur" /></label></>}
+      {slider("contact_shadow", "Contact shadow", 0)}
+      {num("contact_shadow", 0) > 0 && <label className="field"><span className="fl">Contact shadow softness <em>{num("contact_blur", 10).toFixed(0)} px</em></span><input type="range" min={1} max={60} value={num("contact_blur", 10)} onChange={e => set("contact_blur", +e.target.value)} aria-label="Contact shadow softness" /></label>}
+      {on && <>
+        <label className="check"><input type="checkbox" checked={manual} onChange={e => set("floor_y", e.target.checked ? Math.round((note?.y ?? 0.85) * 100) / 100 : undefined)} /> Set the floor line by hand</label>
+        {manual && <label className="field"><span className="fl">Floor line <em>{Math.round(num("floor_y", 0.85) * 100)}% from the top</em></span><input type="range" min={0} max={100} value={Math.round(num("floor_y", 0.85) * 100)} onChange={e => set("floor_y", +e.target.value / 100)} aria-label="Floor line" /></label>}
+        {!manual && note && !note.cut && <div className="issue ok"><Icon n="check" size={14} /> Floor found at {Math.round(note.y * 100)}% of the frame height (the lowest point of the subject).</div>}
+        {!manual && note && note.cut && <div className="issue warning"><Icon n="warn" size={14} /> The subject touches the bottom of the frame, so no floor is in view and both effects are skipped. Scale the subject down / move it up, or set the floor line by hand.</div>}
+        {!manual && !note && <p className="muted small">The floor is measured on the next preview frame.</p>}
+      </>}
+    </section>);
+}
+
 /** Hair detail: the AI model refines a band around the edge; the screen key stays in charge elsewhere */
 function HairDetail({ op, edit, note }: { op: Op; edit: Edit; note?: { used: number; skipped: number } }) {
   const v = (op.parameters?.hair_detail as number | undefined) ?? 0;
@@ -259,7 +288,8 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes }: {
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes, floorNotes }: {
+  floorNotes?: Record<string, { y: number; cut: boolean }>;
   hairNotes?: Record<string, { used: number; skipped: number }>;
   cameraNotes?: Record<string, CameraNote>;
   keyDoctor?: (opId: string) => Promise<any>;
@@ -298,6 +328,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
         </div>
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
+      {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
       {op.type === "studio_look" && <CameraMatch op={op} edit={edit} note={cameraNotes?.[op.id]} />}
       {(op.type === "background_removal" || op.type === "chroma_key") && <KeyDoctor op={op} bp={bp} schema={schema} edit={edit} setT={setT} run={keyDoctor} dur={dur} />}
       {op.type === "background_removal" && op.parameters?.mode === "screen" && <HairDetail op={op} edit={edit} note={hairNotes?.[op.id]} />}
