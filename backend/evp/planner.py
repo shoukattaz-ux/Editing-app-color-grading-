@@ -24,6 +24,7 @@ class Plan:
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
     face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
     upscales: dict = field(default_factory=dict)                  # op id -> ml.upscale.UpscaleRef (filled by the engine)
+    masks: dict[str, list] = field(default_factory=dict)          # keyer id -> the garbage / keep masks that correct its matte
 
     def upscale_ops(self) -> list[Operation]:
         return [o for o in self.steps if o.type == "ai_upscale"]
@@ -81,6 +82,17 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
         # implicit dependency so the ordering honours it
         if k.id not in r.depends_on:
             r.depends_on = r.depends_on + [k.id]
+
+    # --- garbage / keep masks: bind to the key(s) they correct
+    for mk in (o for o in ops if o.type == "matte_mask"):
+        declared = [byid[d] for d in mk.depends_on if d in byid and OPERATIONS[byid[d].type].provides_alpha]
+        pool = declared or [k for k in ops if OPERATIONS[k.type].provides_alpha and _overlap(k, mk)]
+        if mk.params["shape"] == "polygon" and not mk.params.get("polygon"):
+            rep.warn("MASK_EMPTY", f"'{mk.id}': shape is polygon but no points are set; the mask does nothing", mk.id)
+        if not pool:
+            rep.warn("MASK_NO_KEY", f"'{mk.id}': there is no chroma key / background removal at this time for the mask to correct; it does nothing", mk.id)
+            continue
+        for k in pool: plan.masks.setdefault(k.id, []).append(mk)
 
     # --- studio looks: bind to the background replacement they integrate the subject into (if any)
     for lk in (o for o in ops if o.type == "studio_look"):

@@ -3,11 +3,13 @@ import type { Api, VideoInfo } from "./api";
 import type { Blueprint } from "./model";
 import * as m from "./model";
 import { Btn, Empty, Icon } from "./ui";
+import { MaskOverlay, useFitRect } from "./MaskOverlay";
+import type { Op } from "./model";
 
 export type Mode = "original" | "edited" | "compare";
 
 /** Processed still frame at time t (same engine as export). Debounced; stale responses are dropped. */
-function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled: boolean, width: number | null = 960) {
+function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled: boolean, width: number | null = 960, view?: string) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,18 +20,19 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
     const h = setTimeout(async () => {
       setBusy(true);
       try {
-        const blob = await api.frame(bp, t, original, width);
+        const blob = await api.frame(bp, t, original, width, view);
         if (my !== seq.current) return;
         setUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); setErr(null);
       } catch (e: any) { if (my === seq.current) setErr(e.message); }
       finally { if (my === seq.current) setBusy(false); }
     }, 220);
     return () => clearTimeout(h);
-  }, [api, bp, Math.round(t * 1000), original, enabled, width]);
+  }, [api, bp, Math.round(t * 1000), original, enabled, width, view]);
   return { url, err, busy };
 }
 
-export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto }: {
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks }: {
+  masks?: { ops: Op[]; selected: string | null; onChange: (id: string, patch: Record<string, any>) => void; onSelect: (id: string) => void };
   auto: boolean; setAuto: (v: boolean) => void;
   playing: boolean; setPlaying: (v: boolean | ((p: boolean) => boolean)) => void;
   api: Api; bp: Blueprint; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; mode: Mode; setMode: (m: Mode) => void;
@@ -40,9 +43,16 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   const [wipe, setWipe] = useState(50);
   const [loupe, setLoupe] = useState<number>(0);          // 0 = off, else zoom factor (1 = 100% / 1:1 pixels)
   const wrap = useRef<HTMLDivElement>(null);
-  const playable = mode === "original" || (mode === "edited" && !!proxyUrl && !stale);
-  const needEditedFrame = mode === "compare" || (mode === "edited" && !playable);
-  const full = mode === "compare" && loupe > 0 ? null : 960;
+  // key QC views (matte / edge band / subject on a solid colour): judge a key by looking at the matte, not at the finished picture
+  const [qc, setQc] = useState("normal");
+  const [qcZoom, setQcZoom] = useState(0);                        // 0 = fit, else 1:1 / 2x / 4x with the normal picture beside it
+  const hasKey = bp.operations.some(o => (o.type === "chroma_key" || o.type === "background_removal") && o.enabled !== false);
+  const qcOn = qc !== "normal" && mode !== "original" && hasKey;
+  const playable = !qcOn && (mode === "original" || (mode === "edited" && !!proxyUrl && !stale));
+  const needEditedFrame = qcOn ? qcZoom > 0 : (mode === "compare" || (mode === "edited" && !playable));
+  const full = qcOn ? (qcZoom > 0 ? null : 960) : (mode === "compare" && loupe > 0 ? null : 960);
+  const view = useFrame(api, bp, t, false, qcOn && !!video, full, qc);
+  const fit = useFitRect(wrap, video?.width ?? 0, video?.height ?? 0);
   const edited = useFrame(api, bp, t, false, needEditedFrame && !!video, full);
   const orig = useFrame(api, bp, t, true, mode === "compare" && !!video, full);
   const src = mode === "original" ? api.sourceUrl() : proxyUrl;
@@ -87,10 +97,12 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   return (
     <div className="preview">
       <div className="stage" ref={wrap}>
+        {qcOn && qcZoom === 0 && (view.url ? <img className="media" src={view.url} alt="Key view" /> : <div className="media ph">{view.err ? <span className="err-text">{view.err}</span> : "Rendering…"}</div>)}
+        {qcOn && qcZoom > 0 && <Loupe before={edited.url} after={view.url} zoom={qcZoom} labels={["NORMAL", qc === "alpha" ? "MATTE" : qc === "edge" ? "EDGE BAND" : "ON " + qc.toUpperCase()]} />}
         {playable && src && <video ref={videoRef} key={src} src={src} className="media" playsInline preload="auto" crossOrigin="anonymous" onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = mediaTime(t); }} />}
-        {mode === "edited" && !playable && (edited.url ? <img className="media" src={edited.url} alt="Edited frame" /> : <div className="media ph">{edited.err ? <span className="err-text">{edited.err}</span> : "Rendering frame…"}</div>)}
-        {mode === "compare" && loupe > 0 && <Loupe before={orig.url} after={edited.url} zoom={loupe} />}
-        {mode === "compare" && loupe === 0 && (
+        {mode === "edited" && !playable && !qcOn && (edited.url ? <img className="media" src={edited.url} alt="Edited frame" /> : <div className="media ph">{edited.err ? <span className="err-text">{edited.err}</span> : "Rendering frame…"}</div>)}
+        {mode === "compare" && !qcOn && loupe > 0 && <Loupe before={orig.url} after={edited.url} zoom={loupe} />}
+        {mode === "compare" && !qcOn && loupe === 0 && (
           <div className="compare">
             {orig.url && <img className="media" src={orig.url} alt="Original frame" />}
             {edited.url && <img className="media top" src={edited.url} alt="Edited frame" style={{ clipPath: `inset(0 0 0 ${wipe}%)` }} />}
@@ -99,8 +111,9 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
             <span className="tag l">BEFORE</span><span className="tag r">AFTER</span>
             {edited.err && <div className="err-banner">{edited.err}</div>}
           </div>)}
-        {(edited.busy || orig.busy || proxyBusy) && <div className="spin" title="Rendering" />}
-        {mode === "edited" && !playable && (          // small, in the corner: never covers the picture, which is already live
+        {(edited.busy || orig.busy || view.busy || proxyBusy) && <div className="spin" title="Rendering" />}
+        {masks && masks.ops.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <MaskOverlay rect={fit} masks={masks.ops} selected={masks.selected} onChange={masks.onChange} onSelect={masks.onSelect} />}
+        {mode === "edited" && !playable && !qcOn && (          // small, in the corner: never covers the picture, which is already live
           <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>
             : <>{auto ? "Preview video updates automatically" : "Preview video out of date"}<Btn label="Update now" icon="bolt" onClick={onUpdateProxy} disabled={proxyBusy} /></>}</div>)}
       </div>
@@ -118,6 +131,13 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
           <select className="loupe-sel" value={loupe} onChange={e => setLoupe(+e.target.value)} aria-label="Zoom loupe" title="Pixel-level before/after at full output resolution">
             <option value={0}>Wipe</option><option value={1}>1:1 zoom</option><option value={2}>200%</option><option value={4}>400%</option>
           </select>)}
+        <select className="loupe-sel" value={hasKey ? qc : "normal"} disabled={!hasKey || mode === "original"} onChange={e => setQc(e.target.value)} aria-label="Key view"
+          title={!hasKey ? "Add a chroma key or background removal to use the key views" : mode === "original" ? "Switch to Edited or Before/After to look at the key" : "Look at the matte instead of the finished picture: halos and holes are easy to see"}>
+          <option value="normal">View: normal</option><option value="alpha">Matte (alpha)</option><option value="edge">Edge band</option>
+          <option value="red">On red</option><option value="white">On white</option><option value="grey">On grey</option><option value="checker">On checkerboard</option>
+        </select>
+        {qcOn && <select className="loupe-sel" value={qcZoom} onChange={e => setQcZoom(+e.target.value)} aria-label="Key view zoom" title="Zoom in on the edge: the normal picture is shown beside the key view">
+          <option value={0}>Fit</option><option value={1}>1:1</option><option value={2}>200%</option><option value={4}>400%</option></select>}
         <button className={"autobtn" + (auto ? " on" : "")} onClick={() => setAuto(!auto)} aria-pressed={auto}
           title="Auto: re-render the preview video by itself shortly after you stop editing (videos up to 90 s). The picture itself always follows your sliders live.">Auto</button>
         <span className="badge">{badge}</span>
@@ -129,7 +149,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
 
 /** Side-by-side magnifier: both panes show the same spot of full-resolution frames at 1:1 (or 2x/4x) pixels.
  *  Drag either pane to move; the two panes stay locked together. */
-function Loupe({ before, after, zoom }: { before: string | null; after: string | null; zoom: number }) {
+function Loupe({ before, after, zoom, labels = ["BEFORE", "AFTER"] }: { before: string | null; after: string | null; zoom: number; labels?: [string, string] }) {
   const [focus, setFocus] = useState({ x: 0.5, y: 0.4 });
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
   const drag = useRef<{ x: number; y: number; f: { x: number; y: number } } | null>(null);
@@ -148,8 +168,8 @@ function Loupe({ before, after, zoom }: { before: string | null; after: string |
   };
   return (
     <div className="loupe">
-      {[["BEFORE", before], ["AFTER", after]].map(([label, url]) => (
-        <div key={label as string} ref={label === "AFTER" ? pane : undefined} className="loupe-pane" style={style(url as string | null)}
+      {[[labels[0], before], [labels[1], after]].map(([label, url]) => (
+        <div key={label as string} ref={label === labels[1] ? pane : undefined} className="loupe-pane" style={style(url as string | null)}
           onPointerDown={down} onPointerMove={move} onPointerUp={() => { drag.current = null; }} role="img" aria-label={`${label} at ${zoom * 100}%`}>
           <span className="tag l">{label} · {zoom * 100}%</span>
           {!url && <span className="loupe-wait">Rendering full-resolution frame…</span>}

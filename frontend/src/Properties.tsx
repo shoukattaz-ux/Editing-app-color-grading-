@@ -117,6 +117,28 @@ function ClipPanel({ bp, video, layout, id, edit, t, onCut, onDeleteClip, onSele
     </div>);
 }
 
+/** garbage / keep mask: what it does, what shape, quick placements; the shape itself is drawn on the picture */
+function MaskTools({ op, edit }: { op: Op; edit: Edit }) {
+  const pr = op.parameters ?? {}, mode = pr.mode ?? "garbage", shape = pr.shape ?? "rect";
+  const patch = (o: Record<string, any>) => edit(b => Object.entries(o).reduce((acc, [k, v]) => m.setParam(acc, op.id, k, v), b), `mask:${op.id}`);
+  const strips: [string, Record<string, number>][] = [["Left strip", { x: 0, y: 0, width: 0.15, height: 1 }], ["Right strip", { x: 0.85, y: 0, width: 0.15, height: 1 }], ["Top strip", { x: 0, y: 0, width: 1, height: 0.15 }], ["Bottom strip", { x: 0, y: 0.85, width: 1, height: 0.15 }], ["Centre", { x: 0.3, y: 0.2, width: 0.4, height: 0.6 }]];
+  return (
+    <section className="masktools">
+      <h4>Mask</h4>
+      <div className="seg2" role="group" aria-label="Mask type">
+        <button className={mode === "garbage" ? "on bad" : ""} onClick={() => patch({ mode: "garbage" })} title="This area is always removed">Garbage — remove</button>
+        <button className={mode === "keep" ? "on good" : ""} onClick={() => patch({ mode: "keep" })} title="This area is always kept">Keep — keep</button>
+      </div>
+      <div className="seg2" role="group" aria-label="Shape">
+        {(["rect", "ellipse", "polygon"] as const).map(s => <button key={s} className={shape === s ? "on" : ""}
+          onClick={() => patch(s === "polygon" && !(pr.polygon?.length >= 3) ? { shape: s, polygon: [[0.3, 0.2], [0.7, 0.2], [0.5, 0.75]] } : { shape: s })}>{s === "rect" ? "Rectangle" : s === "ellipse" ? "Ellipse" : "Polygon"}</button>)}
+      </div>
+      {shape !== "polygon" && <div className="chips">{strips.map(([n, v]) => <button key={n} className="chip" onClick={() => patch(v)}>{n}</button>)}</div>}
+      {shape === "polygon" && <div className="chips"><button className="chip" onClick={() => patch({ polygon: [[0.3, 0.2], [0.7, 0.2], [0.5, 0.75]] })}>Reset to a triangle</button></div>}
+      <p className="muted small">Draw it on the picture (set the preview to <b>Edited</b>): drag the shape to move it, drag the white squares to resize{shape === "polygon" ? "; click the picture to add a corner, double-click a corner to delete it" : ""}. Check it with <b>View → Matte (alpha)</b>. {mode === "garbage" ? "Everything inside is removed (lights, stands, the screen edge)." : "Everything inside is kept (a face or shirt the key made see-through)."}</p>
+    </section>);
+}
+
 /** Master amount: ONE slider that fades the whole effect between the original footage (0 %) and the full effect (100 %), and pushes it further (up to 150 % where the effect allows it). The sliders below keep their own values. */
 function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit }) {
   const max = Math.round((spec.maximum ?? 1.5) * 100);
@@ -170,6 +192,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
           <label className="field"><span className="fl">end <em>s</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+end.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, op.start, Math.max(s, op.start + 1 / fps)), "time:" + op.id); }} /></label>
         </div>
       </section>
+      {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {spec?.parameters.amount && <MasterAmount op={op} spec={spec.parameters.amount} edit={edit} />}
       {op.type === "color_grading" && <section><h4>Colour wheels</h4><ColorWheels op={op} edit={edit} /></section>}
       <section>

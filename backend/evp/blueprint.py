@@ -185,6 +185,14 @@ def _coerce(name: str, spec: Param, v: Any) -> Any:
     if t == "asset":
         if not isinstance(v, str) or not ID_RE.match(v): raise ValueError(f"'{name}' must be an asset id")
         return v
+    if t == "points" and name == "polygon":
+        if not isinstance(v, list) or not (3 <= len(v) <= 64): raise ValueError(f"'{name}' needs 3 to 64 points [x, y]")
+        out = []
+        for p_ in v:
+            if not (isinstance(p_, list) and len(p_) == 2 and all(isinstance(q, (int, float)) and not isinstance(q, bool) and 0 <= q <= 1 for q in p_)):
+                raise ValueError(f"'{name}' points must be [x, y] in 0..1 (fractions of the frame)")
+            out.append([float(p_[0]), float(p_[1])])
+        return out
     if t == "points":
         if not isinstance(v, list) or not (2 <= len(v) <= 16 if name.startswith("curve") else len(v) == 3):
             raise ValueError(f"'{name}' has wrong length")

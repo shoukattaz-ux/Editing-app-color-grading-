@@ -74,7 +74,7 @@ export class Api {
   importAsset(path: string): Promise<{ path: string }> { return this.req("POST", "/api/project/asset", { path }); }
   validate(blueprint: unknown): Promise<Validation> { return this.req("POST", "/api/blueprint/validate", { blueprint }); }
   /** width null = full output resolution (used by the 1:1 loupe) */
-  frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width }, true); }
+  frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960, view?: string): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width, ...(view ? { view } : {}) }, true); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
   mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }
   thumbUrl(src: "asset" | "source", path: string, w = 192) { return `${this.base}/api/media/thumb?src=${src}&path=${encodeURIComponent(path)}&w=${w}&token=${this.token}`; }

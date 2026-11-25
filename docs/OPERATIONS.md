@@ -22,6 +22,24 @@ Timeline track: **effects** · provides an alpha layer for `background_replaceme
 | `edge_feather` | number | `0.0` | 0.0 … 20.0 px | Gaussian softening of the matte edge. |
 | `background_color` | color | `#000000` |  | Fill used when no background_replacement consumes this key. |
 
+## `matte_mask` — Garbage / Keep Mask
+
+Correct a key by hand with a shape. Garbage = this area is always removed (lights, stands, the edge of the screen). Keep = this area is always kept (a face or shirt the key made see-through). Applies to the keying operation(s) it overlaps (or the one in depends_on); coordinates are fractions of the frame (0-1, x/y from the top-left), so they work at any resolution.
+
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `mode` | enum | `garbage` | garbage, keep | garbage = always removed; keep = always kept. |
+| `shape` | enum | `rect` | rect, ellipse, polygon | rect and ellipse use x, y, width, height; polygon uses `polygon`. |
+| `x` | number | `0.0` | 0.0 … 1.0 | [rect, ellipse] left edge, fraction of the frame width. |
+| `y` | number | `0.0` | 0.0 … 1.0 | [rect, ellipse] top edge, fraction of the frame height. |
+| `width` | number | `0.15` | 0.0 … 1.0 | [rect, ellipse] width, fraction of the frame width. |
+| `height` | number | `1.0` | 0.0 … 1.0 | [rect, ellipse] height, fraction of the frame height. |
+| `polygon` | points |  |  | [polygon] 3 to 64 corner points [[x, y], ...], each 0-1 (fractions of the frame). |
+| `feather` | number | `6.0` | 0.0 … 60.0 px at 1080p | Soft edge of the shape, so the correction blends in. |
+| `invert` | boolean | `False` |  | Apply the mask OUTSIDE the shape instead of inside (e.g. garbage everything except the area around the person). |
+
 ## `background_removal` — Background Removal
 
 Remove the background. 'ai' works on ordinary footage (no green screen) using the Robust Video Matting model; 'chroma' keys a green/blue screen.

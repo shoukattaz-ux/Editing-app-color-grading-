@@ -120,11 +120,12 @@ function EffectsTab({ ctx }: { ctx: Ctx }) {
   const groups: Record<string, [string, any][]> = {};
   Object.entries(ctx.schema.operations).forEach(([k, s]) => (groups[s.category] ??= []).push([k, s]));
   return (<>
-    <h3>Effects</h3><p className="muted">Adds an operation at the playhead (5 s). Edit it in the properties panel.</p>
+    <h3>Effects</h3><p className="muted">Adds an operation at the playhead (5 s; a Garbage / Keep Mask covers the whole clip). Edit it in the properties panel.</p>
     {!ctx.video && <div className="issue warning">Import a video first.</div>}
     {Object.entries(groups).map(([cat, list]) => (<div key={cat}><h4>{cat}</h4>
       {list.map(([k, s]) => (<button key={k} className="item" disabled={!s.supported || !ctx.video} title={s.supported ? s.description : s.unsupported_reason}
-        onClick={() => { const [a, b] = span(ctx); let id = ""; ctx.edit(bp => { const r = m.addOp(bp, s, a, b); id = r.id; return r.bp; }); setTimeout(() => ctx.setSel(id), 0); }}>
+        onClick={() => { const [a0, b0] = span(ctx); const whole = k === "matte_mask";   // a mask corrects the key for the whole clip unless you shorten it
+          const [a, b] = whole ? [0, ctx.duration || ctx.video?.duration || b0] : [a0, b0]; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, s, a, b); id = r.id; return r.bp; }); setTimeout(() => ctx.setSel(id), 0); }}>
         <Icon n={s.supported ? "plus" : "x"} size={14} /> {s.title}{!s.supported && <em> · needs model</em>}</button>))}</div>))}
   </>);
 }

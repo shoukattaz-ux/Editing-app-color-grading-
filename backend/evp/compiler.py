@@ -10,6 +10,7 @@ from .studio import resolve as resolve_look
 from .planner import Plan, _dominant
 from .animate import AnimChain
 from .keyframes import to_expr
+from .masks import write_mask
 from .media import supports_timeline, ffmpeg_bin, encoders, _try_encoder
 
 
@@ -23,6 +24,7 @@ class RenderOptions:
     audio: bool = True
     encoder: str = "cpu"                 # cpu | auto | explicit encoder name
     frame_only: bool = False             # emit one PNG to stdout
+    view: str | None = None              # key QC view (single frames): alpha | edge | red | white | grey | checker - shows the matte instead of the finished picture
 
 
 @dataclass
@@ -265,7 +267,27 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         # overlays drop their last frame at EOF)
         cur = g.add([joined], f"setpts=(N+{seek_f})/({fps:g}*TB),fps={fps:g}," + fit, "v0")
 
+    def mask_stream(m: Operation) -> str:
+        path = write_mask(m.params, W, H, wd)
+        work_files.append(path)
+        inputs.append(["-loop", "1", "-framerate", f"{fps:g}", "-i", path])
+        return g.add([f"{len(inputs)}:v"], f"fps={fps:g}" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",scale={W}:{H},format=gray")
+
     def make_keyed(src: str, k: Operation) -> str:
+        """the keyer's rgba (subject colour + matte), then the hand-drawn garbage / keep masks corrected into the matte"""
+        keyed = _make_keyed(src, k)
+        ms = [m for m in plan.masks.get(k.id, []) if m.params["shape"] != "polygon" or m.params.get("polygon")]
+        if not ms: return keyed
+        kc, ka = splitn(keyed, 2)
+        a = g.add([ka], "alphaextract")
+        for m in ms:
+            en = enable(m)
+            opt = f":enable='{en}'" if en else ""
+            expr = "A*(255-B)/255" if m.params["mode"] == "garbage" else "max(A\\,B)"
+            a = g.add([a, mask_stream(m)], f"blend=all_expr='{expr}':shortest=1{opt}")
+        return g.add([kc, a], "alphamerge,format=rgba")
+
+    def _make_keyed(src: str, k: Operation) -> str:
         p = k.params
         if k.type == "background_removal" and p["mode"] in ("ai", "screen"):
             ref = plan.mattes.get(k.id)
@@ -430,6 +452,23 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         black = g.add([], f"color=c=black:s={W}x{H}:r={fps:g},format=rgba{shift}")
         return g.add([black, a], "alphamerge,format=rgba")
 
+    def qc_view(src: str, k: Operation) -> str:
+        v = opts.view
+        fg = make_keyed(src, k)
+        if v in ("alpha", "edge"):
+            a = g.add([fg], "alphaextract")
+            if v == "edge": a = g.add([a], "lut=y='if(between(val\\,6\\,248)\\,255\\,0)'")        # only the partly transparent band
+            white = g.add([], f"color=c=white:s={W}x{H}:r={fps:g},format=rgba{shift}")
+            black = g.add([], f"color=c=black:s={W}x{H}:r={fps:g},format=rgba{shift}")
+            fg = g.add([white, a], "alphamerge,format=rgba")
+            bg = black
+        elif v == "checker":
+            bg = g.add([], f"nullsrc=s={W}x{H}:r={fps:g},geq=lum='if(lt(mod(floor(X/16)+floor(Y/16)\\,2)\\,1)\\,92\\,138)':cb=128:cr=128,format=rgba{shift}")
+        else:
+            col = {"red": "0xe0102a", "white": "0xffffff", "grey": "0x808080"}.get(v, "0x808080")
+            bg = g.add([], f"color=c={col}:s={W}x{H}:r={fps:g},format=rgba{shift}")
+        return g.add([bg, fg], f"overlay=shortest=1:format=auto,{cs.rgb_to_yuv()}")
+
     def composite(cur: str, k: Operation, r: Operation | None) -> str:
         rng = r or k
         L = plan.look_for.get(r.id) if r and not plan.measuring else None
@@ -442,6 +481,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
         sp = rp if (r and rp["shadow"] > 0) else (look if look and look.get("shadow", 0) > 0 else None)      # a look's measured shadow applies only if the background has none of its own
         shadow = bool(r) and sp is not None
+        if opts.view:                                          # key QC view: the matte (or the subject on a solid colour) instead of the finished picture
+            return ranged_block(cur, rng, lambda src: qc_view(src, k))
         def build(src: str) -> str:
             bgs, fg = bg_stream(r, k), make_keyed(src, k)
             if moved: fg = place_subject(fg, rp)
@@ -514,6 +555,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     audio_filters: list[str] = []
     for op in plan.steps:
         t, p = op.type, op.params
+        if opts.view and t not in ("chroma_key", "background_removal", "background_replacement"): continue     # key QC view: nothing but the key
         if t in ("chroma_key", "background_removal"):
             if op.id in plan.consumed_keyers: continue
             if alpha_out and op.id == plan.transparent_key:
@@ -526,6 +568,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 alpha_stream.append(g.add([ka], "alphaextract"))
             else:
                 cur = composite(cur, op, None)
+        elif t == "matte_mask":
+            continue                                                      # applied inside the keyer's matte (make_keyed), not a stage of its own
         elif t == "background_replacement":
             cur = composite(cur, next(o for o in plan.steps if o.id == plan.alpha_source[op.id]), op)
         elif t == "color_grading":

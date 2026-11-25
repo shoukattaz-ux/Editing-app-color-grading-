@@ -288,7 +288,8 @@ function Editor({ api }: { api: Api }) {
           <div className="recovery"><Icon n="check" /> Restored your work exactly as you left it{project.restored_at ? ` (${new Date(project.restored_at * 1000).toLocaleString()})` : ""}. It was auto-saved but not yet saved as a version.
             <Btn label="Save now" kind="primary" onClick={save} />
             <Btn label="Back to last saved version" onClick={async () => { try { load(await api.revert()); toast("Went back to the last saved version"); } catch (e: any) { toast(e.message, "err"); } }} /></div>)}
-        <Preview playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
+        <Preview masks={{ ops: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? bp.operations.filter(o => o.type === "matte_mask" && o.enabled !== false) : [], selected: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? sel : null,
+            onChange: (id, patch) => edit(b => Object.entries(patch).reduce((acc, [k, v]) => m.setParam(acc, id, k, v), b), `mask:${id}`), onSelect: setSel }} playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
           stale={stale} onUpdateProxy={() => { lastAuto.current = null; updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />

@@ -370,7 +370,7 @@ def _rm(p: str):
     except OSError: pass
 
 
-def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 960, work_dir: str | None = None, _measuring: bool = False) -> bytes:
+def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 960, work_dir: str | None = None, _measuring: bool = False, view: str | None = None) -> bytes:
     """Single processed frame as PNG (same pipeline as export, so preview == render)."""
     t = min(max(0.0, t), max(0.0, plan.timeline_duration - 1.0 / plan.blueprint.output.fps))
     wd = work_dir or tempfile.mkdtemp(prefix="evp_f_")
@@ -379,7 +379,9 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
         ensure_auto(plan, source, wd)
         ensure_references(plan, source, wd)
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
-    c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True), wd)
+    if view and not any(o.type in ("chroma_key", "background_removal") for o in plan.steps):
+        raise ValueError("There is no keying (chroma key / background removal) in this project, so there is no matte to show")
+    c = compile_plan(plan, source, "-", RenderOptions(scale_width=scale_width, t_start=t, frame_only=True, view=view), wd)
     try:
         r = proc.run(c.args, capture_output=True, timeout=120)
     finally:

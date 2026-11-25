@@ -271,6 +271,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         t: float = 0
         width: int | None = 960
         original: bool = False
+        view: str | None = None          # key QC: alpha | edge | red | white | grey | checker
 
     @app.post("/api/preview/frame", dependencies=[api()])
     def frame(b: FrameReq):
@@ -281,7 +282,10 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         if not prep.plan:
             raise HTTPException(422, {"errors": [i.message for i in prep.report.errors]})
         try:
-            png = render_frame(prep.plan, st.source, b.t, b.width, str(st.project.cache_dir))
+            if b.view is not None and b.view not in ("alpha", "edge", "red", "white", "grey", "checker"): raise HTTPException(422, {"errors": ["unknown view"]})
+            png = render_frame(prep.plan, st.source, b.t, b.width, str(st.project.cache_dir), view=b.view)
+        except ValueError as e:
+            raise HTTPException(422, {"errors": [str(e)]})
         except RuntimeError as e:
             raise HTTPException(500, str(e))
         return Response(png, media_type="image/png")

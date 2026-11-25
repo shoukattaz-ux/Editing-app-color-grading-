@@ -135,6 +135,19 @@ _reg(OpSpec("chroma_key", "Chroma Key", "Keying", STAGE_KEY, "effects",
             "Key out a solid colour (green/blue screen) and composite on a background colour or the next replacement.",
             {"amount": _AMOUNT_KEY, **_KEY_PARAMS, "background_color": Param(C, "#000000", desc="Fill used when no background_replacement consumes this key.")},
             provides_alpha=True))
+_reg(OpSpec("matte_mask", "Garbage / Keep Mask", "Keying", STAGE_KEY, "effects",
+            "Correct a key by hand with a shape. Garbage = this area is always removed (lights, stands, the edge of the screen). Keep = this area is always kept (a face or "
+            "shirt the key made see-through). Applies to the keying operation(s) it overlaps (or the one in depends_on); coordinates are fractions of the frame (0-1, "
+            "x/y from the top-left), so they work at any resolution.",
+            {"mode": Param(E, "garbage", enum=("garbage", "keep"), desc="garbage = always removed; keep = always kept."),
+             "shape": Param(E, "rect", enum=("rect", "ellipse", "polygon"), desc="rect and ellipse use x, y, width, height; polygon uses `polygon`."),
+             "x": Param(N, 0.0, 0.0, 1.0, desc="[rect, ellipse] left edge, fraction of the frame width."),
+             "y": Param(N, 0.0, 0.0, 1.0, desc="[rect, ellipse] top edge, fraction of the frame height."),
+             "width": Param(N, 0.15, 0.0, 1.0, desc="[rect, ellipse] width, fraction of the frame width."),
+             "height": Param(N, 1.0, 0.0, 1.0, desc="[rect, ellipse] height, fraction of the frame height."),
+             "polygon": Param(PT, None, desc="[polygon] 3 to 64 corner points [[x, y], ...], each 0-1 (fractions of the frame)."),
+             "feather": Param(N, 6.0, 0.0, 60.0, unit="px at 1080p", desc="Soft edge of the shape, so the correction blends in."),
+             "invert": Param(B, False, desc="Apply the mask OUTSIDE the shape instead of inside (e.g. garbage everything except the area around the person).")}))
 _reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "effects",
             "Remove the background. 'ai' works on ordinary footage (no green screen) using the Robust Video Matting model; "
             "'chroma' keys a green/blue screen.",
