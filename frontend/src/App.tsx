@@ -67,7 +67,8 @@ function Editor({ api }: { api: Api }) {
   const toast = useCallback((msg: string, kind: "ok" | "err" = "ok") => {
     const id = ++toastId.current; setToasts(t => [...t, { id, msg, kind }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), kind === "err" ? 7000 : 3000);
   }, []);
-  const edit = useCallback((fn: (b: Blueprint) => Blueprint, key?: string) => setHist(h => m.commit(h, fn(h.present), key)), []);
+  // any edit shows its result: the preview leaves "Original" (the untouched source) for "Edited", so a new effect is never invisible
+  const edit = useCallback((fn: (b: Blueprint) => Blueprint, key?: string) => { setHist(h => m.commit(h, fn(h.present), key)); setMode(md => (md === "original" ? "edited" : md)); }, []);
   // undo / redo: one place for the buttons above the timeline, the toolbar and Ctrl+Z / Ctrl+Y; says what it undid
   const histRef = useRef(hist); histRef.current = hist;
   const schemaRef = useRef(schema); schemaRef.current = schema;
@@ -96,6 +97,7 @@ function Editor({ api }: { api: Api }) {
     setT(typeof ui.t === "number" && ui.t >= 0 ? ui.t : 0); setProxy(null); setReport(null);
     setZoom(typeof ui.zoom === "number" && ui.zoom > 0 ? ui.zoom : 60);
     if (ui.layout && typeof ui.layout.left === "number") setLayout(l => ({ ...l, ...ui.layout }));
+    setToasts(ts => ts.filter(x => x.kind !== "err"));                               // an old error (e.g. a wrong path before) no longer applies
     setMode("original"); setTab((ui.tab as Tab) || (p.video ? "blueprint" : "media"));
     restoreView.current = ui.mode === "edited" && !!p.video;
     onServer.current = !!p.restored;
@@ -117,7 +119,7 @@ function Editor({ api }: { api: Api }) {
     if (tl.clips.length < 2) { toast("A project needs at least one clip", "err"); return; }
     const r = m.deleteClip(bp, cid, v.duration, tl.fps);
     edit(() => r.bp); setSelClipRaw(null);
-    toast(r.removedOps.length ? `Clip deleted; ${r.removedOps.length} effect(s) that were only on it were removed` : "Clip deleted");
+    toast(r.removedOps.length ? `Clip deleted; ${plural(r.removedOps.length, "effect")} that only belonged to it ${r.removedOps.length === 1 ? "was" : "were"} removed` : "Clip deleted");
   }, [bp, selClip, project?.video, tl, edit, toast]);
 
   // validate (debounced) + autosave (debounced) after every document change
@@ -205,16 +207,23 @@ function Editor({ api }: { api: Api }) {
         if (!v.ok || lost) { toast(`Nothing was changed: ${(v.errors[0] ?? lost)?.message ?? "the result is not valid"}`, "err"); return; }
         if (v.repaired) next = v.repaired as Blueprint;
       } catch { /* the editor validates again after the edit */ }
-      msg = `Added ${r.added.length} effect(s); your ${bp.operations.length} existing effect(s) were kept` + (r.notes.length ? ` — note: ${r.notes[0]}` : "") + ". Rendering preview…";
+      msg = `Added ${plural(r.added.length, "effect")}; your ${plural(bp.operations.length, "existing effect")} ${bp.operations.length === 1 ? "was" : "were"} kept` + (r.notes.length ? ` — note: ${r.notes[0]}` : "") + ". Showing the current frame; press Apply to full video to render it all.";
     }
     edit(() => next); setSel(null); setTab("effects");
-    toast(msg);
-    await updateProxy(next);
+    toast(msg);                                                    // only the current frame is rendered (live); the whole timeline waits for "Apply to full video"
   }, [edit, toast, bp, schema, tl.duration, api]);
 
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const all = document.querySelectorAll<HTMLElement>(".modal-bg"), modal = all.length ? all[all.length - 1] : null;
+      if (e.key === "Escape") {                                                           // Esc closes the open dialog / popover, else clears the selection
+        if (modal) { e.preventDefault(); modal.click(); return; }
+        const pop = document.querySelector<HTMLElement>(".gpupop .popclose"); if (pop) { pop.click(); return; }
+        if (!["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) { setSel(null); setSelClip(null); }
+        return;
+      }
+      if (modal) return;                                                                  // nothing behind an open dialog reacts to keys
       const tag = (e.target as HTMLElement)?.tagName; if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
@@ -223,16 +232,18 @@ function Editor({ api }: { api: Api }) {
       else if (e.key === " ") { e.preventDefault(); (window as any).__evpToggle?.(); }
       else if (e.key === "ArrowLeft") (window as any).__evpStep?.(-1);
       else if (e.key === "ArrowRight") (window as any).__evpStep?.(1);
+      else if (e.key === "Home") { e.preventDefault(); setT(0); }
+      else if (e.key === "End") { e.preventDefault(); setT(Math.max(0, tl.duration - 1 / (tl.fps || 25))); }
       else if ((e.key === "c" || e.key === "C") && !mod) { cutHere(); }
       else if ((e.key === "Delete" || e.key === "Backspace") && sel) { edit(b => m.deleteOp(b, sel)); setSel(null); }
       else if ((e.key === "Delete" || e.key === "Backspace") && selClip) { removeClip(); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
-  }, [save, sel, selClip, edit, cutHere, removeClip, doUndo, doRedo]);
+  }, [save, sel, selClip, edit, cutHere, removeClip, doUndo, doRedo, tl.duration, tl.fps]);
 
   if (fatal) return <Fatal title="Backend error">{fatal}</Fatal>;
   if (!schema) return <Fatal title="Starting…">Connecting to the processing engine.</Fatal>;
-  if (!project) return <><Welcome api={api} onOpen={load} toast={toast} askPath={askPath} /><Toasts toasts={toasts} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} /></>;
+  if (!project) return <><Welcome api={api} onOpen={load} toast={toast} askPath={askPath} /><Toasts toasts={toasts} onClose={id => setToasts(ts => ts.filter(x => x.id !== id))} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} /></>;
 
   const video = project.video;
   const stale = !proxy || proxy.bp !== bp;
@@ -275,8 +286,8 @@ function Editor({ api }: { api: Api }) {
         <Btn icon="undo" onClick={doUndo} disabled={!hist.past.length} title="Undo (Ctrl+Z)" />
         <Btn icon="redo" onClick={doRedo} disabled={!hist.future.length} title="Redo (Ctrl+Y)" />
         <span className="spacer" />
-        <Btn icon="bolt" label="Execute Blueprint" kind="primary" onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
-        <Btn icon="eye" label="Apply to full video" kind={stale || !proxy ? "primary" : undefined} onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Happy with this frame? Render the whole timeline (640px preview video for playback). While you edit, only the current frame is rendered. Export makes the final full-quality file." />
+        <Btn icon="bolt" label="Execute Blueprint" kind={bp.operations.length === 0 ? "primary" : undefined} onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
+        <Btn icon="eye" label="Apply to full video" kind={bp.operations.length > 0 && stale ? "primary" : undefined} onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Happy with this frame? Render the whole timeline (640px preview video for playback). While you edit, only the current frame is rendered. Export makes the final full-quality file." />
         <Btn icon="export" label="Export" onClick={() => setExportOpen(true)} disabled={!video} />
         <GpuChip api={api} working={!!job && ACTIVE.includes(job.state)} />
         <Btn icon="gear" onClick={() => setSettingsOpen(true)} title="Settings: problem reports" />
@@ -312,13 +323,18 @@ function Editor({ api }: { api: Api }) {
           onCut={cutHere} onDeleteClip={() => removeClip()} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
       </div>
       <footer className="status" style={{ gridColumn: "1 / -1" }}>
-        <span>{report ? (report.ok ? `✔ ${report.plan.length} ops valid` : `✖ ${report.errors.length} error(s)`) : "…"}{report?.warnings.length ? ` · ${report.warnings.length} warning(s)` : ""}</span>
+        {(() => {
+          const warns = (report?.warnings ?? []).filter(w => w.code !== "NO_OPERATIONS");             // an empty project is not a problem
+          const txt = !report ? "Checking…" : !report.ok ? `✖ ${plural(report.errors.length, "problem")} — click to see` : report.plan.length === 0 ? "No effects yet: add one from Effects, or paste a blueprint"
+            : `✔ ${plural(report.plan.length, "effect")} ready` + (warns.length ? ` · ${plural(warns.length, "note")} — click to see` : "");
+          return <button className={"status-link" + (report && !report.ok ? " bad" : "")} onClick={() => setTab("blueprint")} title="Open the project check in the Blueprint panel">{txt}</button>;
+        })()}
         {job && <JobBar job={job} api={api} onUpdate={setJob} compact />}
-        <span className="spacer" /><span>{hist.past.length} undo step(s)</span>
+        <span className="spacer" /><span>{hist.past.length ? plural(hist.past.length, "undo step") : "Nothing to undo"}</span>
       </footer>
       {settingsOpen && <SettingsDialog api={api} onClose={() => setSettingsOpen(false)} toast={toast} />}
       {exportOpen && <ExportDialog askPath={askPath} api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
-      <Toasts toasts={toasts} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} />
+      <Toasts toasts={toasts} onClose={id => setToasts(ts => ts.filter(x => x.id !== id))} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} />
     </div>
   );
 }
@@ -457,9 +473,9 @@ function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void
         <h3>Problem reports</h3>
         <p className="muted">When a render fails, the app can upload a small diagnostic file (error, log tail, versions, your blueprint with file names only) to <b>your own</b> Cloudflare R2 bucket. It never contains video, audio or frames, and home-folder names are masked. Your keys are stored only on this computer (owner-only file) and are never sent anywhere except to your R2 endpoint.</p>
         <div className="grid2">
-          <label className="field"><span className="fl">R2 endpoint (https://&lt;account&gt;.r2.cloudflarestorage.com)</span><input value={endpoint} onChange={e => setEndpoint(e.target.value)} placeholder="https://…r2.cloudflarestorage.com" /></label>
+          <label className="field"><span className="fl">R2 endpoint <em>(https://&lt;account&gt;.r2.cloudflarestorage.com)</em></span><input value={endpoint} onChange={e => setEndpoint(e.target.value)} placeholder="https://…r2.cloudflarestorage.com" /></label>
           <label className="field"><span className="fl">bucket name</span><input value={bucket} onChange={e => setBucket(e.target.value)} /></label>
-          <label className="field"><span className="fl">Access Key ID {cfg?.access_key_id_masked ? `(saved ${cfg.access_key_id_masked})` : ""}</span><input value={keyId} onChange={e => setKeyId(e.target.value)} autoComplete="off" placeholder={cfg?.access_key_id_masked ? "leave empty to keep" : ""} /></label>
+          <label className="field"><span className="fl">Access Key ID <em>{cfg?.access_key_id_masked ? `(saved ${cfg.access_key_id_masked})` : ""}</em></span><input value={keyId} onChange={e => setKeyId(e.target.value)} autoComplete="off" placeholder={cfg?.access_key_id_masked ? "leave empty to keep" : ""} /></label>
           <label className="field"><span className="fl">Secret Access Key {cfg?.has_secret ? "(saved)" : ""}</span><input type="password" value={secret} onChange={e => setSecret(e.target.value)} autoComplete="new-password" placeholder={cfg?.has_secret ? "leave empty to keep" : ""} /></label>
         </div>
         <label className="check"><input type="checkbox" checked={cfg?.auto_send ?? true} onChange={e => save({ auto_send: e.target.checked })} /> Send a report automatically when a render fails (at most 6 per hour, never the same error twice)</label>
@@ -474,6 +490,9 @@ function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void
       </div>
     </div>);
 }
+
+/** 1 effect / 2 effects */
+export function plural(n: number, word: string): string { return `${n} ${word}${n === 1 ? "" : "s"}`; }
 
 function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: ProjectState) => void; toast: Ctx["toast"]; askPath: Ctx["askPath"] }) {
   const [recent, setRecent] = useState<{ path: string; name: string; modified?: number; unsaved?: boolean }[]>([]);
@@ -518,7 +537,7 @@ function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: Projec
           </div>
           {adv && <div className="adv">
             <label className="field"><span className="fl">project name</span><input value={name} onChange={e => setName(e.target.value)} /></label>
-            <label className="field"><span className="fl">save in folder (default: {defs?.projects_dir ?? "…"})</span><div className="slider-row"><input value={parent} onChange={e => setParent(e.target.value)} placeholder="Default folder" /><Btn label="Browse" onClick={async () => { const p = await askPath("Choose the projects folder", "any"); if (p) setParent(p); }} /></div></label>
+            <label className="field"><span className="fl">save in folder <em>(default: {defs?.projects_dir ?? "…"})</em></span><div className="slider-row"><input value={parent} onChange={e => setParent(e.target.value)} placeholder="Default folder" /><Btn label="Browse" onClick={async () => { const p = await askPath("Choose the projects folder", "any"); if (p) setParent(p); }} /></div></label>
             <label className="field"><span className="fl">video (optional)</span><div className="slider-row"><input value={source} onChange={e => setSource(e.target.value)} placeholder="Choose a video file…" /><Btn label="Browse" onClick={async () => { const p = await askPath("Choose your video (MP4, MOV, MKV, AVI, WebM)", "video"); if (p) setSource(p); }} /></div></label>
             <Btn kind="primary" icon="plus" label="Create project" disabled={!name.trim() || busy}
               onClick={() => go(() => parent.trim() ? api.newProject(parent.trim(), name.trim(), source.trim() || undefined) : api.quickProject(source.trim() || undefined, name.trim()))} />
@@ -554,4 +573,4 @@ function PathDialog({ dlg, close }: { dlg: { title: string; kind: string; resolv
     </div></div>);
 }
 
-const Toasts = ({ toasts }: { toasts: Toast[] }) => <div className="toasts" role="status" aria-live="polite">{toasts.map(t => <div key={t.id} className={`toast ${t.kind}`}>{t.msg}</div>)}</div>;
+const Toasts = ({ toasts, onClose }: { toasts: Toast[]; onClose: (id: number) => void }) => <div className="toasts" role="status" aria-live="polite">{toasts.map(t => <div key={t.id} className={`toast ${t.kind}`} onClick={() => onClose(t.id)} title="Click to close">{t.msg}</div>)}</div>;

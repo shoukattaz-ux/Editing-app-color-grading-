@@ -115,7 +115,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         {(edited.busy || orig.busy || view.busy || proxyBusy) && <div className="spin" title="Rendering" />}
         {zone && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <ZoneOverlay rect={fit} zone={zone} onChange={zone.onChange} />}
         {masks && masks.ops.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <MaskOverlay rect={fit} masks={masks.ops} selected={masks.selected} onChange={masks.onChange} onSelect={masks.onSelect} />}
-        {mode === "edited" && !playable && !qcOn && (          // small, in the corner: never covers the picture, which is already live
+        {mode === "edited" && !playable && !qcOn && bp.operations.length > 0 && (          // small, in the corner: never covers the picture, which is already live (nothing to apply without effects)
           <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>
             : <>{auto ? "Preview video updates automatically" : "Live frame: only this frame is rendered while you edit"}<Btn label="Apply to full video" icon="bolt" kind="primary" onClick={onUpdateProxy} disabled={proxyBusy} title="Render the whole timeline for playback" /></>}</div>)}
       </div>
@@ -125,7 +125,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         </div>
         <Btn icon="stop" title="Stop (return to start)" onClick={stop} />
         <Btn icon="prev" title="Previous frame (←)" onClick={() => step(-1)} />
-        <Btn icon={playing ? "pause" : "play"} kind="primary" title={playable ? "Play / pause (Space)" : "Playback needs the Original or an up-to-date Edited preview"} onClick={toggle} disabled={!playable} />
+        <Btn icon={playing ? "pause" : "play"} kind="primary" title={playable ? "Play / pause (Space)" : "To play the edited video, press Apply to full video first (editing renders only the current frame)"} onClick={toggle} disabled={!playable} />
         <Btn icon="next" title="Next frame (→)" onClick={() => step(1)} />
         <code className="tc">{m.formatTime(t, fps)}</code>
         <input className="scrub" type="range" min={0} max={Math.max(1, Math.round(dur * fps))} value={Math.round(t * fps)} onChange={e => { setPlaying(false); setT(+e.target.value / fps); }} aria-label="Scrub" />

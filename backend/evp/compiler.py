@@ -868,7 +868,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if p["sharpen"] > 0: f.append(f"unsharp=lx=5:ly=5:la={p['sharpen']:.3f}:cx=5:cy=5:ca=0")
             cur = apply_ranged(cur, f, op)
         elif t == "text_overlay":
-            tf = os.path.join(wd, f"{op.id}.txt")           # textfile + expansion=none: no filter-injection via text
+            import uuid as _uuid                            # a unique name: two renders at once (live frame + preview video) must not delete each other's file
+            tf = os.path.join(wd, f"{op.id}_{_uuid.uuid4().hex[:8]}.txt")           # textfile + expansion=none: no filter-injection via text
             Path(tf).write_text(p["text"], encoding="utf-8")
             work_files.append(tf)
             font = find_font()

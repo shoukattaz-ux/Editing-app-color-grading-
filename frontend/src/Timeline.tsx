@@ -108,7 +108,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
             <div className="tl-label" />
             <div className="ruler" style={{ width }} onPointerDown={e => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); seek(e, e.currentTarget as HTMLElement); }}
               onPointerMove={e => { if (e.buttons) seek(e, e.currentTarget as HTMLElement); }}>
-              {ticks.map(s => <span key={s} className="tick" style={{ left: s * zoom }}>{m.formatTime(s, fps).slice(3)}</span>)}
+              {ticks.map(s => <span key={s} className="tick" style={{ left: s * zoom }}>{tickLabel(s)}</span>)}
             </div>
           </div>
           {TRACKS.map(tr => {
@@ -152,4 +152,11 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
       </div>
     </div>
   );
+}
+
+/** ruler label: minutes:seconds (0:00, 0:01.5, 1:30) - plain time, not a frame timecode that reads like minutes */
+export function tickLabel(s: number): string {
+  const h = Math.floor(s / 3600), mi = Math.floor((s % 3600) / 60), sec = s - h * 3600 - mi * 60;
+  const whole = Math.floor(sec + 1e-6), frac = sec - whole > 0.01 ? "." + Math.round((sec - whole) * 10) : "";
+  return (h ? `${h}:${String(mi).padStart(2, "0")}` : `${mi}`) + `:${String(whole).padStart(2, "0")}${frac}`;
 }

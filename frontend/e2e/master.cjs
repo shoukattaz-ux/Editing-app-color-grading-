@@ -44,6 +44,7 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     await page.click("button[aria-label=Effects]"); await page.click(".side >> text=Studio Look"); await page.waitForSelector(".master");
     check(await page.locator(".master").count() === 1, "a Studio Look shows the Master amount block");
     await page.click(".side >> text=Background Removal"); await page.waitForSelector(".master");
+    await page.waitForFunction(() => /nothing removed/.test(document.querySelector(".master")?.textContent ?? ""), null, { timeout: 10000 }).catch(() => {});   // the panel switches from the Studio Look to the key
     check(/original footage \(nothing removed\)/.test(await page.locator(".master").innerText()), "Background Removal shows it too, explained for keying");
     check(await page.locator(".master input[type=range]").getAttribute("max") === "100", "a key goes from 0 to 100 % (no 150 %)");
     await page.click(".side >> text=Video Enhancement"); await page.waitForTimeout(400);

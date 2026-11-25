@@ -8,8 +8,24 @@ import { ColorWheels } from "./ColorWheels";
 
 type Edit = (fn: (b: Blueprint) => Blueprint, key?: string) => void;
 
+/** "gain_db" + unit "dB" -> "Gain" (the unit is shown once, beside it); "fade_in_s" -> "Fade in"; "light_pattern_asset_id" -> "Light pattern picture / video" */
+export function humanLabel(name: string, unit?: string | null): string {
+  let n = name.replace(/_asset_id$/, " picture / video").replace(/_id$/, "");
+  const u = (unit ?? "").toLowerCase();
+  const suffix = { db: "db", s: "s", px: "px", deg: "deg", pct: "pct", ms: "ms" } as Record<string, string>;
+  for (const k of Object.keys(suffix)) if (n.endsWith("_" + k) && (!u || u.startsWith(k) || k === "s" && u.startsWith("s"))) { n = n.slice(0, -k.length - 1); break; }
+  n = n.replace(/_/g, " ").trim();
+  return n.charAt(0).toUpperCase() + n.slice(1);
+}
+
+/** the unit a parameter name ends with (fade_in_s -> "s", gain_db -> "dB"), shown when the schema gives none */
+export function suffixUnit(name: string): string {
+  const m = /_(db|s|px|deg|ms)$/.exec(name); return m ? ({ db: "dB", s: "s", px: "px", deg: "°", ms: "ms" } as Record<string, string>)[m[1]] : "";
+}
+
 function ParamControl({ name, spec, value, onChange, bp, extra }: { name: string; spec: ParamSpec; value: any; onChange: (v: any) => void; bp: Blueprint; extra?: React.ReactNode }) {
-  const label = name.replace(/_/g, " ");
+  const label = humanLabel(name, spec.unit);
+  const aria = name.replace(/_/g, " ");          // the parameter's own name (distinct from the friendly cards above, which use plain words)
   const v = value ?? spec.default;
   const [txt, setTxt] = useState<string | null>(null);
   const [bad, setBad] = useState(false);
@@ -17,14 +33,14 @@ function ParamControl({ name, spec, value, onChange, bp, extra }: { name: string
   if (spec.type === "number" || spec.type === "integer") {
     const min = spec.minimum ?? 0, max = spec.maximum ?? 1, step = spec.type === "integer" ? 1 : (max - min) / 200;
     input = (<div className="slider-row">
-      <input type="range" min={min} max={max} step={step} value={Number(v ?? 0)} onChange={e => onChange(spec.type === "integer" ? parseInt(e.target.value) : parseFloat(e.target.value))} aria-label={label} />
+      <input type="range" min={min} max={max} step={step} value={Number(v ?? 0)} onChange={e => onChange(spec.type === "integer" ? parseInt(e.target.value) : parseFloat(e.target.value))} aria-label={aria} />
       <input type="number" min={min} max={max} step={step} value={+Number(v ?? 0).toFixed(spec.type === "integer" ? 0 : 3)} onChange={e => { const n = parseFloat(e.target.value); if (!isNaN(n)) onChange(spec.type === "integer" ? Math.round(n) : n); }} />
     </div>);
-  } else if (spec.type === "boolean") input = <input type="checkbox" checked={!!v} onChange={e => onChange(e.target.checked)} aria-label={label} />;
+  } else if (spec.type === "boolean") input = <input type="checkbox" checked={!!v} onChange={e => onChange(e.target.checked)} aria-label={aria} />;
   else if (spec.type === "enum") input = <select value={v} onChange={e => onChange(e.target.value)}>{spec.enum!.map(o => <option key={o}>{o}</option>)}</select>;
   else if (spec.type === "color") {
     const hex = typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v : "#00ff00";
-    input = <div className="slider-row"><input type="color" value={hex} onChange={e => onChange(e.target.value)} aria-label={label} /><input type="text" value={v ?? ""} onChange={e => onChange(e.target.value)} /></div>;
+    input = <div className="slider-row"><input type="color" value={hex} onChange={e => onChange(e.target.value)} aria-label={aria} /><input type="text" value={v ?? ""} onChange={e => onChange(e.target.value)} /></div>;
   } else if (spec.type === "asset") {
     const opts = bp.assets.filter(a => spec.asset_types?.includes(a.type));
     input = <select value={value ?? ""} onChange={e => onChange(e.target.value || undefined)}><option value="">— none —</option>{opts.map(a => <option key={a.id} value={a.id}>{a.id} ({a.type})</option>)}</select>;
@@ -35,7 +51,7 @@ function ParamControl({ name, spec, value, onChange, bp, extra }: { name: string
       onBlur={() => { if (!bad) setTxt(null); }} />;
   } else input = <input type="text" value={v ?? ""} onChange={e => onChange(e.target.value)} />;
   return (<div className="pc" title={spec.description}>
-    <div className="pc-head"><label className="fl">{label}{spec.unit ? <em> {spec.unit}</em> : null}{value !== undefined && spec.default !== undefined && value !== spec.default ? <i className="dot" title="changed from default" /> : null}</label>{extra}</div>
+    <div className="pc-head"><label className="fl">{label}{(spec.unit || suffixUnit(name)) ? <em className="unit"> ({spec.unit || suffixUnit(name)})</em> : null}{value !== undefined && spec.default !== undefined && value !== spec.default ? <i className="dot" title="changed from default" /> : null}</label>{extra}</div>
     {input}
   </div>);
 }
@@ -102,9 +118,9 @@ function ClipPanel({ bp, video, layout, id, edit, t, onCut, onDeleteClip, onSele
       <section>
         <h4>Source footage</h4>
         <div className="grid2">
-          <label className="field"><span className="fl">in <em>s</em></span><input type="number" step={step} min={0} max={video.duration} value={+c.srcStart.toFixed(4)}
+          <label className="field"><span className="fl">in <em className="unit">(s)</em></span><input type="number" step={step} min={0} max={video.duration} value={+c.srcStart.toFixed(4)}
             onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) edit(b => m.trimClip(b, id, "start", v, video.duration, fps), `clipin:${id}`); }} /></label>
-          <label className="field"><span className="fl">out <em>s</em></span><input type="number" step={step} min={0} max={video.duration} value={+c.srcEnd.toFixed(4)}
+          <label className="field"><span className="fl">out <em className="unit">(s)</em></span><input type="number" step={step} min={0} max={video.duration} value={+c.srcEnd.toFixed(4)}
             onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) edit(b => m.trimClip(b, id, "end", v, video.duration, fps), `clipout:${id}`); }} /></label>
         </div>
         <p className="muted">Source {m.formatTime(c.srcStart, fps)} → {m.formatTime(c.srcEnd, fps)} of {video.duration.toFixed(2)} s</p>
@@ -416,8 +432,8 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
       <section>
         <h4>Timing</h4>
         <div className="grid2">
-          <label className="field"><span className="fl">start <em>s</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+op.start.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, Math.min(s, end - 1 / fps), end), "time:" + op.id); }} /></label>
-          <label className="field"><span className="fl">end <em>s</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+end.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, op.start, Math.max(s, op.start + 1 / fps)), "time:" + op.id); }} /></label>
+          <label className="field"><span className="fl">Start <em className="unit">(s)</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+op.start.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, Math.min(s, end - 1 / fps), end), "time:" + op.id); }} /></label>
+          <label className="field"><span className="fl">end <em className="unit">(s)</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+end.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, op.start, Math.max(s, op.start + 1 / fps)), "time:" + op.id); }} /></label>
         </div>
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}

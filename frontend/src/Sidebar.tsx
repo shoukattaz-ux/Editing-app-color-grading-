@@ -82,8 +82,8 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
     </div>
     <fieldset className="exec-opts">
       <legend>When I execute</legend>
-      <label><input type="radio" name="how" checked={how === "add"} onChange={() => setHow("add")} /> <b>Add to my timeline</b> <span className="muted">— keeps everything already there (background removal, backgrounds, effects, cuts)</span></label>
-      <label><input type="radio" name="how" checked={how === "replace"} onChange={() => setHow("replace")} /> Replace the whole timeline <span className="muted">— like opening the blueprint as a new project (Undo brings it back)</span></label>
+      <label><input type="radio" name="how" checked={how === "add"} onChange={() => setHow("add")} /> <span><b>Add to my timeline</b> <span className="muted">— keeps everything already there (background removal, backgrounds, effects, cuts)</span></span></label>
+      <label><input type="radio" name="how" checked={how === "replace"} onChange={() => setHow("replace")} /> <span><b>Replace the whole timeline</b> <span className="muted">— like opening the blueprint as a new project (Undo brings it back)</span></span></label>
       {how === "add" && <>
         <label className="sub">Apply to
           <select value={canClip ? scope : "all"} onChange={e => setScope(e.target.value as "all" | "clip")} disabled={!canClip} aria-label="Where to apply">
@@ -91,7 +91,7 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
             <option value="clip">only the selected clip{laid ? ` (${laid.tStart.toFixed(1)}–${laid.tEnd.toFixed(1)} s; its times start at the clip's start)` : ""}</option>
           </select></label>
         {!canClip && <span className="muted sub">Cut the footage and select a clip on the timeline to apply a blueprint to just that clip.</span>}
-        <label className="sub"><input type="checkbox" checked={applyOutput} onChange={e => setApplyOutput(e.target.checked)} /> also use the blueprint's output settings (codec, quality, size)</label>
+        <label className="sub"><input type="checkbox" checked={applyOutput} onChange={e => setApplyOutput(e.target.checked)} /> <span>also use the blueprint's output settings (codec, quality, size)</span></label>
       </>}
       <label className="strength">Strength of the pasted effects
         <span className="strength-row"><input type="range" min={0} max={150} value={strength} onChange={e => setStrength(+e.target.value)} onDoubleClick={() => setStrength(100)} aria-label="Strength of the pasted effects" /><b>{strength}%</b></span>
@@ -109,7 +109,7 @@ function BlueprintTab({ ctx }: { ctx: Ctx }) {
 
 export function Report({ rep, onSelect }: { rep: Validation; onSelect: (id: string) => void }) {
   return (<div className="report">
-    <div className={`status ${rep.ok ? "ok" : "bad"}`}>{rep.ok ? <><Icon n="check" size={14} /> {rep.repaired ? "Accepted after automatic repair" : "Valid"} — {rep.plan.length} operation(s) ready</> : <><Icon n="x" size={14} /> {rep.errors.length} error(s)</>}{rep.warnings.length ? ` · ${rep.warnings.length} warning(s)` : ""}</div>
+    <div className={`status ${rep.ok ? "ok" : "bad"}`}>{rep.ok ? <><Icon n="check" size={14} /> {rep.repaired ? "Accepted after automatic repair" : "Valid"} — {rep.plan.length} {rep.plan.length === 1 ? "effect" : "effects"} ready</> : <><Icon n="x" size={14} /> {rep.errors.length} {rep.errors.length === 1 ? "problem" : "problems"} to fix</>}{rep.warnings.length ? ` · ${rep.warnings.length} ${rep.warnings.length === 1 ? "note" : "notes"}` : ""}</div>
     {[...rep.errors, ...rep.warnings].map((i, k) => <div key={k} className={`issue ${i.level}`} onClick={() => i.op_id && onSelect(i.op_id)} role={i.op_id ? "button" : undefined}>
       <b>{i.code}</b> {i.op_id && <code>{i.op_id}</code>} {i.message}</div>)}
     {rep.ok && rep.plan.length > 0 && <details><summary>Execution order</summary>{rep.plan.map(p => <div className="plan" key={p.id}>{p.order}. <code>{p.id}</code> {p.type} {p.start.toFixed(2)}–{p.end.toFixed(2)}s{p.alpha_source ? ` ← alpha from ${p.alpha_source}` : ""}</div>)}</details>}
@@ -120,13 +120,14 @@ function EffectsTab({ ctx }: { ctx: Ctx }) {
   const groups: Record<string, [string, any][]> = {};
   Object.entries(ctx.schema.operations).forEach(([k, s]) => (groups[s.category] ??= []).push([k, s]));
   return (<>
-    <h3>Effects</h3><p className="muted">Adds an operation at the playhead (5 s; a Garbage / Keep Mask covers the whole clip). Edit it in the properties panel.</p>
+    <h3>Effects</h3><p className="muted">Click an effect to add it at the playhead (5 seconds, or to the end of a shorter video; a Garbage / Keep Mask covers the whole clip). Then adjust it in the Properties panel on the right.</p>
     {!ctx.video && <div className="issue warning">Import a video first.</div>}
     {Object.entries(groups).map(([cat, list]) => (<div key={cat}><h4>{cat}</h4>
       {list.map(([k, s]) => (<button key={k} className="item" disabled={!s.supported || !ctx.video} title={s.supported ? s.description : s.unsupported_reason}
-        onClick={() => { const [a0, b0] = span(ctx); const whole = k === "matte_mask";   // a mask corrects the key for the whole clip unless you shorten it
+        onClick={() => { if (k === "background_replacement") { addBackground(ctx); return; }
+          const [a0, b0] = span(ctx); const whole = k === "matte_mask";   // a mask corrects the key for the whole clip unless you shorten it
           const [a, b] = whole ? [0, ctx.duration || ctx.video?.duration || b0] : [a0, b0]; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, s, a, b); id = r.id; return r.bp; }); setTimeout(() => ctx.setSel(id), 0); }}>
-        <Icon n={s.supported ? "plus" : "x"} size={14} /> {s.title}{!s.supported && <em> · needs model</em>}</button>))}</div>))}
+        <Icon n={s.supported ? "plus" : "x"} size={14} /> {s.title}{!s.supported && <em> · {/separate operation/i.test(s.unsupported_reason ?? "") ? "included in the background key" : "not available"}</em>}</button>))}</div>))}
   </>);
 }
 

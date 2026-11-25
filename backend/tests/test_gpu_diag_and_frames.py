@@ -66,3 +66,13 @@ def test_the_same_live_frame_comes_back_instantly_and_a_change_does_not(tmp_path
     assert a.status_code == b.status_code == other.status_code == 200
     assert a.content == b.content and again < first * 0.6 + 0.02            # a repeat is served from the cache
     assert other.content != a.content                                          # any change renders a new picture
+
+
+def test_two_renders_at_once_do_not_share_the_text_file(prep, tmp_path):
+    """a live frame and a preview video render in parallel: each needs its own text file (one cleaning up must not break the other)"""
+    op = {"id": "t", "type": "text_overlay", "start": 0, "parameters": {"text": "Hello"}}
+    p = prep(bp(ops=[op]))
+    a = compile_plan(p.plan, "in.mp4", "a.mp4", RenderOptions(), str(tmp_path)).work_files
+    b = compile_plan(p.plan, "in.mp4", "b.mp4", RenderOptions(), str(tmp_path)).work_files
+    ta, tb = [f for f in a if f.endswith(".txt")], [f for f in b if f.endswith(".txt")]
+    assert ta and tb and set(ta).isdisjoint(tb)

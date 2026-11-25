@@ -99,6 +99,7 @@ const pngChunks = (buf) => { const n = []; let i = 8; while (i + 8 <= buf.length
     check(text.includes(`${expect.luma}%`) && text.includes(`${expect.hi}%`) && text.includes(`${expect.lo}%`), "scope readouts equal an independent measurement of the same frame", `UI: ${text.replace(/\n/g, " | ")}  expected luma ${expect.luma}% hi ${expect.hi}% lo ${expect.lo}%`);
 
     // live scopes while the video plays (requires CORS-enabled canvas reads of the video)
+    await page.click('header >> text=Apply to full video'); await page.waitForSelector("video.media", { timeout: 60000 }); await page.waitForTimeout(600);   // editing renders one frame; playback needs the applied video
     await page.click('button[title^="Play / pause"]'); await page.waitForTimeout(900);
     check((await page.locator(".side-content .muted").first().innerText()).includes("playing video") && await page.locator(".side-content .issue").count() === 0 && await lit() > 300, "scopes follow the playing video without a cross-origin error");
     await page.click('button[title^="Play / pause"]');

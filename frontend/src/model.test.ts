@@ -336,3 +336,15 @@ describe("describeChange", () => {
     expect(m.describeChange(a, a, title)).toBe("Change");
   });
 });
+
+import { tickLabel } from "./Timeline";
+import { humanLabel } from "./Properties";
+describe("readable labels", () => {
+  it("ruler ticks read as minutes:seconds", () => {
+    expect(tickLabel(0)).toBe("0:00"); expect(tickLabel(1.5)).toBe("0:01.5"); expect(tickLabel(90)).toBe("1:30"); expect(tickLabel(3725)).toBe("1:02:05");
+  });
+  it("parameter names drop the unit suffix (it is shown once beside the label)", () => {
+    expect(humanLabel("gain_db", "dB")).toBe("Gain"); expect(humanLabel("fade_in_s", "s")).toBe("Fade in"); expect(humanLabel("saturation")).toBe("Saturation");
+    expect(humanLabel("light_pattern_asset_id")).toBe("Light pattern picture / video");
+  });
+});

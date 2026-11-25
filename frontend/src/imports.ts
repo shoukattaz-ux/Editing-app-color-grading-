@@ -32,6 +32,23 @@ export function addBackground(ctx: Ctx, assetId?: string, at?: number) {
   const d = ctx.duration || ctx.video?.duration || 5;
   const a = m.snap(Math.min(at ?? ctx.t, Math.max(0, d - 1)), ctx.video?.fps ?? 30), b = Math.min(d, m.snap(a + Math.min(5, d), ctx.video?.fps ?? 30));
   let id = "";
+  // only ONE background can be active at a time: if one already covers this time, change it instead of stacking a second one (which would be a conflict)
+  const here = ctx.bp.operations.find(o => o.type === "background_replacement" && o.enabled !== false && o.start < b && (o.end ?? d) > a);
+  const fpsv = ctx.video?.fps ?? 30;
+  if (here && at !== undefined && a > here.start + 1 / fpsv) {
+    // dropped at a later point: the old background ends there and the new one takes over from that point (never two at once)
+    const end = Math.max(b, here.end ?? d);
+    ctx.edit(bp => { const cut = m.setOpTime(bp, here.id, here.start, a); const r = m.addOp(cut, spec, a, end); id = r.id; return m.setParam(r.bp, r.id, assetId ? "asset_id" : "color", assetId ?? "#101820"); });
+    setTimeout(() => ctx.setSel(id), 0);
+    ctx.toast("New background from this point on; the previous one ends here");
+    return;
+  }
+  if (here) {
+    ctx.edit(bp => m.setParam(m.setParam(bp, here.id, "asset_id", assetId ?? undefined), here.id, "color", assetId ? undefined : (here.parameters?.color ?? "#101820")), `bg:${here.id}`);
+    setTimeout(() => ctx.setSel(here.id), 0);
+    ctx.toast(assetId ? `Background changed to ${assetId}` : "Background set to a solid colour (pick it in Properties)");
+    return;
+  }
   ctx.edit(bp => { const r = m.addOp(bp, spec, a, b); id = r.id; return m.setParam(r.bp, r.id, assetId ? "asset_id" : "color", assetId ?? "#101820"); });
   setTimeout(() => ctx.setSel(id), 0);
 }

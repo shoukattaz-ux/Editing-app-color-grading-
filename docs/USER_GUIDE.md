@@ -115,7 +115,14 @@ If no face is found the operation does nothing and the export log says so.
 Export ▸ Codec ▸ **ProRes 422 10-bit** (container switches to .mov, audio becomes uncompressed PCM). Profiles: Proxy, LT, 422, 422 HQ. Note: the processing pipeline is 8-bit, so ProRes gives a high-quality, edit-friendly intermediate file but does not add colour precision beyond 8 bits.
 
 ## Shortcuts
-C cut at playhead · Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete effect or clip · Ctrl+wheel on the timeline zooms.
+C cut at playhead · Space play/pause · ←/→ frame step · Home / End jump to start / end · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete effect or clip · Ctrl+wheel on the timeline zooms · Esc closes a dialog or popup (otherwise clears the selection). While a dialog is open, no other shortcut acts on the timeline behind it.
+
+## Small things that help
+* Adding or changing an effect switches the preview to **Edited**, so you see the result at once (Original always shows the untouched source).
+* **One background at a time:** adding a background while one is already on the timeline at that time changes that one instead of stacking a second one (two at once would be a conflict). Dropping a background card at a later point on the Background track starts the new background there and ends the previous one.
+* The status bar at the bottom says what the project needs ("No effects yet", "3 effects ready · 1 note", "1 problem"); click it to see the details in the Blueprint panel.
+* Messages in the corner close by themselves; click one to close it sooner.
+* The timeline ruler shows minutes:seconds (0:01.5 = one and a half seconds); the timecode next to the play button shows hours:minutes:seconds:frames.
 
 ## Tips & limits
 * Greenscreen: raise *similarity* if green remains, raise *blend* for softer edges, use *edge_erode* 1–2 to remove fringe, *spill_strength* for green cast on hair/skin.
