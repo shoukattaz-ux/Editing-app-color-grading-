@@ -45,6 +45,12 @@ def resolve(params: dict, auto: dict | None = None) -> dict:
         base[k] = round(cm * float(cam[k]), 4) if cam else 0.0
         if params.get(k) is not None: base[k] = float(params[k])
     base["fringe"] = float(params.get("fringe") or 0.0)
+    # light pattern on the subject (ripples / caustics): pure look controls, not measured
+    base["light_pattern"] = float(params.get("light_pattern") or 0.0)
+    base["light_pattern_scale"] = float(params.get("light_pattern_scale") or 1.0)
+    base["light_pattern_speed"] = float(params.get("light_pattern_speed") if params.get("light_pattern_speed") is not None else 1.0)
+    base["light_pattern_falloff"] = float(params.get("light_pattern_falloff") if params.get("light_pattern_falloff") is not None else 0.6)
+    base["light_pattern_asset_id"] = params.get("light_pattern_asset_id")
     return base
 
 

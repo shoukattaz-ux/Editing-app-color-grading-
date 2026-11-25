@@ -455,6 +455,34 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         colour = g.add([col], ",".join(chain))
         return g.add([g.add([colour], "format=rgba"), a], "alphamerge,format=rgba")
 
+    def light_pattern_stream(L: dict) -> str:
+        """a gray W x H stream: bright web / ripples on a darker ground, moving. Generated at a quarter of the size (smooth, and 16x cheaper), or the user's own picture / loop."""
+        aid = L.get("light_pattern_asset_id")
+        if aid:
+            return g.add([f"{asset_idx(aid)}:v"], f"fps={fps:g}" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",scale={W}:{H}:flags=bicubic,format=gray")
+        w4, h4 = max(2, W // 4), max(2, H // 4)
+        f = 2 * 3.14159265 * 5.0 / (w4 * max(0.3, L["light_pattern_scale"]))          # ~5 cells across at scale 1
+        sp = L["light_pattern_speed"]
+        u, v = f"(X*{f:.6f})", f"(Y*{f:.6f})"
+        w1 = f"abs(sin({u}*0.9+{v}*0.5+1.8*sin({v}*0.7+T*{sp * 1.3:.4f})))"
+        w2 = f"abs(sin({u}*0.5-{v}*0.9+1.8*sin({u}*0.6+T*{sp * 1.1:.4f})))"
+        w3 = f"abs(sin({u}*1.1-{v}*0.2+1.4*sin({v}*0.9-T*{sp * 0.9:.4f})))"
+        expr = f"min(255,255*1.4*(pow(1-{w1},8)+pow(1-{w2},8)+pow(1-{w3},8)))".replace(",", "\\,")
+        return g.add([], f"nullsrc=s={w4}x{h4}:r={fps:g},format=gray" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",geq=lum='{expr}',scale={W}:{H}:flags=bicubic,format=gray")
+
+    def light_on_subject(fg: str, L: dict) -> str:
+        """project the light pattern onto the SUBJECT'S colour (its matte is untouched): lit where the web is bright, a little darker between,
+        weaker towards the bottom of the frame because the light comes from above"""
+        k = float(L.get("light_pattern", 0.0))
+        if k <= 0: return fg
+        col, alpha = splitn(fg, 2)
+        a = g.add([alpha], "alphaextract")
+        pat = g.add([light_pattern_stream(L)], "format=gbrp")
+        colour = g.add([col], "format=gbrp")
+        fall = float(L.get("light_pattern_falloff", 0.6))
+        lit = g.add([colour, pat], f"blend=all_expr='clip(A*(1+{0.34 * min(1.5, k):.4f}*(1-{fall:.4f}*Y/H)*(2.2*B/255-0.585))\\,0\\,255)':shortest=1")
+        return g.add([g.add([lit], "format=rgba"), a], "alphamerge,format=rgba")
+
     def fringe_block(src: str, px: float) -> str:
         """lens colour fringing: green slightly magnified, red more, blue not at all, so they separate towards the frame edge by `px` pixels"""
         k = px * scale_px / (W / 2.0)
@@ -554,7 +582,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if look is not None:                                       # the look's master Amount also scales how strongly the subject is integrated into the scene
             la = max(0.0, float(L.params.get("amount", 1.0)))
             if la != 1.0:
-                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow", "match_softness", "subject_grain", "background_grain", "match_blacks")}}
+                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow", "match_softness", "subject_grain", "background_grain", "match_blacks", "light_pattern")}}
         rp = r.params if r else {}
         moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
         sp = rp if (r and rp["shadow"] > 0) else (look if look and look.get("shadow", 0) > 0 else None)      # a look's measured shadow applies only if the background has none of its own
@@ -574,6 +602,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
                 if "contact" in taps: ctl = contact_layer(taps["contact"], rp, fl["y"])
             if look:
                 fg = subject_camera(fg, look)
+                fg = light_on_subject(fg, look)
                 bgs, fg = integrate(bgs, fg, look)
                 if look.get("background_grain", 0) > 0:
                     bgs = g.add([bgs], f"{cs.rgb_to_yuv()},noise=alls={look['background_grain'] * 14:.2f}:allf=t+u,{cs.yuv_to_rgb('rgba')}")

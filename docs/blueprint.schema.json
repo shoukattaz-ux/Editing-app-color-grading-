@@ -1183,6 +1183,38 @@
                       "minimum": -0.25,
                       "maximum": 0.25
                     },
+                    "light_pattern": {
+                      "description": "[needs background_replacement] LIGHT PATTERN: moving ripple light (caustics, like sun through water) projected onto the SUBJECT only, so it is lit by the same light as the scene. 0 = off. The pattern is generated; or use your own with light_pattern_asset_id.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.0
+                    },
+                    "light_pattern_scale": {
+                      "description": "[light_pattern] Size of the ripples (1 = about nine cells across the frame; larger = bigger, calmer ripples).",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 3.0,
+                      "default": 1.0
+                    },
+                    "light_pattern_speed": {
+                      "description": "[light_pattern] How fast the ripples move (0 = a still pattern).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 3.0,
+                      "default": 1.0
+                    },
+                    "light_pattern_falloff": {
+                      "description": "[light_pattern] How much weaker the light is towards the bottom of the frame (it comes from above): 0 = even, 1 = nothing at the bottom.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.6
+                    },
+                    "light_pattern_asset_id": {
+                      "description": "[light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples.",
+                      "type": "string"
+                    },
                     "fringe": {
                       "description": "Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture.",
                       "type": "number",

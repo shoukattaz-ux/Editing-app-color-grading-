@@ -186,6 +186,32 @@ function HairDetail({ op, edit, note }: { op: Op; edit: Edit; note?: { used: num
     </section>);
 }
 
+/** Light pattern: moving ripple light (caustics) projected onto the subject only */
+function LightPattern({ op, edit }: { op: Op; edit: Edit }) {
+  const pr = op.parameters ?? {};
+  const num = (k: string, d: number) => (typeof pr[k] === "number" ? (pr[k] as number) : d);
+  const set = (k: string, v: number) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
+  const preset = (o: Record<string, number>) => edit(b => Object.entries(o).reduce((acc, [k, v]) => m.setParam(acc, op.id, k, v), b), `p:${op.id}:lightpreset`);
+  const on = num("light_pattern", 0) > 0;
+  const sl = (k: string, label: string, d: number, min: number, max: number, step: number, fmt: (v: number) => string) => (
+    <label className="field"><span className="fl">{label} <em>{fmt(num(k, d))}</em></span>
+      <input type="range" min={min} max={max} step={step} value={num(k, d)} onChange={e => set(k, +e.target.value)} aria-label={label} /></label>);
+  return (
+    <section className="lightpattern">
+      <div className="master-head"><h4>Light on the subject (ripples)</h4><span className="muted small">{on ? `${Math.round(num("light_pattern", 0) * 100)}%` : "off"}</span></div>
+      <p className="muted small">A scene lights the person too. This projects moving ripple light (caustics, like sun through water) onto the <b>subject only</b>, strongest at the top and fading towards the bottom. The picture behind is untouched. Needs a background replacement.</p>
+      <div className="btn-row">
+        <Btn label={on ? "Off" : "Underwater ripples"} kind={on ? undefined : "primary"} onClick={() => (on ? set("light_pattern", 0) : preset({ light_pattern: 0.6, light_pattern_scale: 1.3, light_pattern_speed: 1, light_pattern_falloff: 0.55 }))} title="Sun-through-water light moving over the subject" />
+      </div>
+      {sl("light_pattern", "Strength", 0, 0, 1, 0.01, v => `${Math.round(v * 100)}%`)}
+      {on && <>
+        {sl("light_pattern_scale", "Ripple size", 1, 0.3, 3, 0.05, v => v.toFixed(2))}
+        {sl("light_pattern_speed", "Speed", 1, 0, 3, 0.05, v => v.toFixed(2))}
+        {sl("light_pattern_falloff", "Fade towards the bottom", 0.6, 0, 1, 0.01, v => `${Math.round(v * 100)}%`)}
+        <p className="muted small">Your own pattern (a picture or looping video: bright web on a dark ground): choose it under <b>light pattern asset id</b> below. The studio look's Master amount scales this too.</p></>}
+    </section>);
+}
+
 /** Camera match: make the subject look as if the same camera shot it and the background */
 function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
   const v = (op.parameters?.camera_match as number | undefined) ?? 0;
@@ -329,6 +355,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
+      {op.type === "studio_look" && <LightPattern op={op} edit={edit} />}
       {op.type === "studio_look" && <CameraMatch op={op} edit={edit} note={cameraNotes?.[op.id]} />}
       {(op.type === "background_removal" || op.type === "chroma_key") && <KeyDoctor op={op} bp={bp} schema={schema} edit={edit} setT={setT} run={keyDoctor} dur={dur} />}
       {op.type === "background_removal" && op.parameters?.mode === "screen" && <HairDetail op={op} edit={edit} note={hairNotes?.[op.id]} />}

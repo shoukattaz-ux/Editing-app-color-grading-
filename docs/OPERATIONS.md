@@ -182,6 +182,11 @@ Timeline track: **effects**
 | `subject_grain` | number |  | 0.0 … 2.0 | [needs background_replacement] Film grain / sensor noise added to the subject only (1.0 = about 4.6 levels of noise). Automatic with camera_match when the background is grainier. |
 | `background_grain` | number |  | 0.0 … 2.0 | [needs background_replacement] Grain added to the background only, so a clean picture gets the noise of the footage. Automatic with camera_match when the footage is grainier. |
 | `match_blacks` | number |  | -0.25 … 0.25 | [needs background_replacement] Move the SUBJECT's black point to the scene's: + lifts blacks (a milky / faded background), - deepens them. Automatic with camera_match. |
+| `light_pattern` | number | `0.0` | 0.0 … 1.0 | [needs background_replacement] LIGHT PATTERN: moving ripple light (caustics, like sun through water) projected onto the SUBJECT only, so it is lit by the same light as the scene. 0 = off. The pattern is generated; or use your own with light_pattern_asset_id. |
+| `light_pattern_scale` | number | `1.0` | 0.3 … 3.0 | [light_pattern] Size of the ripples (1 = about nine cells across the frame; larger = bigger, calmer ripples). |
+| `light_pattern_speed` | number | `1.0` | 0.0 … 3.0 | [light_pattern] How fast the ripples move (0 = a still pattern). |
+| `light_pattern_falloff` | number | `0.6` | 0.0 … 1.0 | [light_pattern] How much weaker the light is towards the bottom of the frame (it comes from above): 0 = even, 1 = nothing at the bottom. |
+| `light_pattern_asset_id` | asset |  |  | [light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples. |
 | `fringe` | number | `0.0` | 0.0 … 4.0 px at 1080p | Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture. |
 
 ## `video_enhancement` — Video Enhancement
