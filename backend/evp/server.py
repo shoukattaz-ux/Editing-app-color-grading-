@@ -54,7 +54,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
     app = FastAPI(title="EVP backend", version=__version__)
     app.state.evp = st
     # The UI is served from file:// or a dev server; every route except /health requires the per-launch secret token.
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges"])
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges", "x-evp-plate"])
 
     def auth(request: Request):
         t = request.headers.get("x-evp-token") or request.query_params.get("token")
@@ -288,7 +288,8 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             raise HTTPException(422, {"errors": [str(e)]})
         except RuntimeError as e:
             raise HTTPException(500, str(e))
-        return Response(png, media_type="image/png")
+        notes = {k: ref.plate for k, ref in prep.plan.mattes.items() if getattr(ref, "plate", None)}      # clean plate use per key: {used, rejected}
+        return Response(png, media_type="image/png", headers={"x-evp-plate": json.dumps(notes)} if notes else None)
 
     class RenderReq(BaseModel):
         blueprint: Any

@@ -484,6 +484,17 @@
                       "maximum": 10.0,
                       "default": 0.0
                     },
+                    "clean_plate_asset_id": {
+                      "description": "[screen] CLEAN PLATE: a recording (or picture) of the EMPTY screen with the same camera, framing and lighting. The keyer then knows the screen pixel by pixel (wrinkles, folds, hot spots, shadow bands) instead of guessing, which gives much cleaner edges. Only the slow brightness drift is corrected; if it does not fit a frame (camera moved) that frame uses the normal estimate.",
+                      "type": "string"
+                    },
+                    "clean_plate_strength": {
+                      "description": "[screen] How much of the clean plate to use (1 = fully, 0 = ignore it).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 1.0
+                    },
                     "temporal_smooth": {
                       "description": "[screen] Calm edge flicker on still parts of the picture; moving edges pass through unsmoothed.",
                       "type": "number",

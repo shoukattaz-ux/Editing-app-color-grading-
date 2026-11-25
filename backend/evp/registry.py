@@ -157,6 +157,8 @@ _reg(OpSpec("background_removal", "Background Removal", "Keying", STAGE_KEY, "ef
              "fill_holes": Param(B, False, desc="[screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands."),
              "edge_shrink": Param(N, 0.0, 0.0, 5.0, unit="px", desc="[screen] Pull the matte edge inward to remove a remaining fringe."),
              "edge_soften": Param(N, 0.0, 0.0, 10.0, unit="px", desc="[screen] Soften the matte edge."),
+             "clean_plate_asset_id": Param(A, None, asset_types=("image", "video"), desc="[screen] CLEAN PLATE: a recording (or picture) of the EMPTY screen with the same camera, framing and lighting. The keyer then knows the screen pixel by pixel (wrinkles, folds, hot spots, shadow bands) instead of guessing, which gives much cleaner edges. Only the slow brightness drift is corrected; if it does not fit a frame (camera moved) that frame uses the normal estimate."),
+             "clean_plate_strength": Param(N, 1.0, 0.0, 1.0, desc="[screen] How much of the clean plate to use (1 = fully, 0 = ignore it)."),
              "temporal_smooth": Param(N, 0.5, 0.0, 1.0, desc="[screen] Calm edge flicker on still parts of the picture; moving edges pass through unsmoothed."),
              "model": Param(E, "rvm", enum=("rvm",), desc="[ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable."),
              "detail": Param(E, "fast", enum=("fast", "balanced", "high"), desc="[ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture."),

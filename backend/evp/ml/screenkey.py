@@ -16,6 +16,7 @@ import numpy as np
 import cv2
 
 CH = {"red": 0, "green": 1, "blue": 2}
+PLATE_FLOOR = 0.04      # smallest screen excess (green - max(red, blue)) divided by when a clean plate describes the screen
 
 
 def _dom(f: np.ndarray, c: int) -> np.ndarray:
@@ -29,8 +30,12 @@ def _hex_channel(hexc: str) -> int:
 
 
 class ScreenKeyer:
-    def __init__(self, p: dict):
+    def __init__(self, p: dict, plate: np.ndarray | None = None):
         self.p = p
+        self.plate = plate                        # clean plate (RGB 0..1) or None; resized to the frame on first use
+        self.plate_frames = 0                     # frames where the plate fitted and was used
+        self.plate_rejected = 0                   # frames where it did not fit (camera moved ...) and the keyer's own estimate was used
+        self._plate_fit: np.ndarray | None = None
         self.prev_a: np.ndarray | None = None
         self.K: np.ndarray | None = None          # tracked screen colour (0..1)
         self.c: int | None = None                 # dominant channel of the screen: 1 = green, 2 = blue
@@ -77,10 +82,17 @@ class ScreenKeyer:
         ok = den > 0.02
         B_small = np.where(ok, num / np.maximum(den, 1e-4), K[None, None, :]).astype(np.float32)
         B = cv2.resize(B_small, (w, h), interpolation=cv2.INTER_LINEAR)
-        Dloc = np.maximum(_dom(B, c), 0.1)
-        d = dom / Dloc
         n0, n1 = float(p["similarity"]), float(p["blend"]) * 0.5
-        a = np.clip((1.0 - d - n0) / max(1e-3, 1.0 - n0 - n1), 0.0, 1.0).astype(np.float32)
+
+        def alpha_from(Bm: np.ndarray, floor: float = 0.1) -> np.ndarray:
+            d = dom / np.maximum(_dom(Bm, c), floor)
+            return np.clip((1.0 - d - n0) / max(1e-3, 1.0 - n0 - n1), 0.0, 1.0).astype(np.float32)
+        Bpl = None
+        if self.plate is not None:                    # (a partial clean_plate_strength is handled by the caller: it mixes a plate keyer with a plain one)
+            Bpl = self._plate_model(f, small, S, B, sig, c, C0, chroma)
+            if Bpl is not None: B = Bpl
+        # a measured plate can be trusted in dark parts of the screen where a guessed model cannot: a lower floor there keeps the matte clean in shadows
+        a = alpha_from(B, PLATE_FLOOR if (self.plate is not None and Bpl is not None) else 0.1)
         f_clean = self._despill(f, c, p) if p.get("spill_suppression", True) else f      # borrowed colours must not carry spill
         core = cv2.erode((a > 0.995).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(np.float32)      # safely inside the subject: no mixed pixels
         near, got = self._nearest_solid(f_clean, core, h, w)
@@ -109,6 +121,32 @@ class ScreenKeyer:
             edge = (a < 0.97) & (a > 0.02)
             fg[..., c] = np.where(edge, np.minimum(fg[..., c], cap), fg[..., c])
         return a, np.clip(fg, 0, 1).astype(np.float32)
+
+    def _plate_model(self, f, small, S, B_est, sig, c, C0, chroma):
+        """screen model from the clean plate: plate x a smooth gain field (the slow drift between plate and live footage). Used only if it explains
+        the screen pixels of THIS frame better than the keyer's own estimate does (else the camera moved or the plate is of another scene)."""
+        h, w = f.shape[:2]
+        if self._plate_fit is None or self._plate_fit.shape[:2] != (h, w):
+            self._plate_fit = cv2.resize(self.plate, (w, h), interpolation=cv2.INTER_AREA if self.plate.shape[1] > w else cv2.INTER_LINEAR).astype(np.float32)
+        pl = self._plate_fit
+        sh, sw = small.shape[:2]
+        pl_small = cv2.resize(pl, (sw, sh), interpolation=cv2.INTER_AREA)
+        ratio = small / np.maximum(pl_small, 0.03)
+        num = cv2.GaussianBlur(ratio * S[..., None], (0, 0), sig)
+        den = cv2.GaussianBlur(S, (0, 0), sig)[..., None]
+        glob = np.median(ratio[S > 0.5], 0) if (S > 0.5).sum() > 8 else np.ones(3, np.float32)
+        R = np.clip(np.where(den > 0.02, num / np.maximum(den, 1e-4), glob[None, None, :]), 0.25, 4.0).astype(np.float32)
+        B_pl = np.clip(pl * cv2.resize(R, (w, h), interpolation=cv2.INTER_LINEAR), 0, 1)
+        scr = chroma(f) > 0.6 * C0                                   # pixels that are clearly screen in this frame
+        if scr.sum() < 200:
+            return None
+        e_pl = float(np.abs(f[scr] - B_pl[scr]).mean())
+        e_est = float(np.abs(f[scr] - B_est[scr]).mean())
+        if e_pl > 1.25 * e_est + 0.01:                              # does not fit this frame: fall back, do not make the key worse
+            self.plate_rejected += 1
+            return None
+        self.plate_frames += 1
+        return B_pl.astype(np.float32)
 
     @staticmethod
     def _nearest_solid(f_clean: np.ndarray, solid: np.ndarray, h: int, w: int):

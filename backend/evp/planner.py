@@ -42,7 +42,8 @@ class Plan:
     def describe(self) -> list[dict]:
         return [{"order": i + 1, "id": o.id, "type": o.type, "start": o.start, "end": o.end,
                  "stage": OPERATIONS[o.type].stage,
-                 "alpha_source": self.alpha_source.get(o.id), "auto": self.look_auto.get(o.id)} for i, o in enumerate(self.steps)]
+                 "alpha_source": self.alpha_source.get(o.id), "auto": self.look_auto.get(o.id),
+                 "plate": getattr(self.mattes.get(o.id), "plate", None)} for i, o in enumerate(self.steps)]
 
 
 def _overlap(a: Operation, b: Operation) -> bool:
@@ -164,6 +165,8 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
             if side or bottom:
                 rep.warn("SUBJECT_EDGE_VISIBLE", f"Background '{o.id}': with subject_scale {sc:g}, subject_x {sx:g}, subject_y {sy:g} the footage's own frame edge becomes visible "
                          f"({'left/right' if side else 'bottom'}) where the person touches it (shoulders, torso). Use subject_scale >= {1 + 2 * abs(sx):g} or reframe.", o.id)
+        if o.type == "background_removal" and o.params.get("clean_plate_asset_id") and o.params.get("mode") != "screen":
+            rep.warn("CLEAN_PLATE_IGNORED", f"'{o.id}': a clean plate is only used by mode 'screen'; it is ignored in mode '{o.params.get('mode')}'", o.id)
         if o.type == "chroma_key" or o.type == "background_removal":
             kc = o.params["key_color"]
             if o.params.get("mode", "chroma") == "chroma" and o.params["spill_suppression"] and _dominant(kc) is None:

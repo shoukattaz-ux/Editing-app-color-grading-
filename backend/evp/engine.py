@@ -188,13 +188,15 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
     from .ml.matting import generate_matte, matte_key
     for k in keyers:
         n = k.end_frame - k.start_frame
-        full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n, plan.edl)}.mkv"
+        aid = k.params.get("clean_plate_asset_id") if k.params.get("mode") == "screen" else None
+        plate = plan.blueprint.assets[aid].resolved if aid and aid in plan.blueprint.assets else None
+        full = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, k, W, H, fps, k.start_frame, n, plan.edl, plate)}.mkv"
         if frame is None or full.is_file():
             cb = (lambda i, _n, d=done, op=k: progress(d + i, total, op.id, "AI matting" if op.params.get("mode") == "ai" else "Green-screen keying (processor)")) if progress else None
-            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
+            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, k.start_frame, n, cache_dir, cb, cancel, edl=plan.edl, plate=plate)
         else:
             f = min(max(frame, k.start_frame), k.end_frame - 1)
-            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, f, 1, cache_dir, warmup=6, edl=plan.edl)
+            plan.mattes[k.id] = generate_matte(source, k, W, H, fps, f, 1, cache_dir, warmup=6, edl=plan.edl, plate=plate)
         done += n
 
 

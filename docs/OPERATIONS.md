@@ -56,6 +56,8 @@ Timeline track: **effects** · provides an alpha layer for `background_replaceme
 | `fill_holes` | boolean | `False` |  | [screen] Fill tiny enclosed see-through spots inside the subject (key noise on green-ish clothing). Off by default: in dense hair it can fill real gaps between strands. |
 | `edge_shrink` | number | `0.0` | 0.0 … 5.0 px | [screen] Pull the matte edge inward to remove a remaining fringe. |
 | `edge_soften` | number | `0.0` | 0.0 … 10.0 px | [screen] Soften the matte edge. |
+| `clean_plate_asset_id` | asset |  |  | [screen] CLEAN PLATE: a recording (or picture) of the EMPTY screen with the same camera, framing and lighting. The keyer then knows the screen pixel by pixel (wrinkles, folds, hot spots, shadow bands) instead of guessing, which gives much cleaner edges. Only the slow brightness drift is corrected; if it does not fit a frame (camera moved) that frame uses the normal estimate. |
+| `clean_plate_strength` | number | `1.0` | 0.0 … 1.0 | [screen] How much of the clean plate to use (1 = fully, 0 = ignore it). |
 | `temporal_smooth` | number | `0.5` | 0.0 … 1.0 | [screen] Calm edge flicker on still parts of the picture; moving edges pass through unsmoothed. |
 | `model` | enum | `rvm` | rvm | [ai] Matting model. rvm = Robust Video Matting (GPL-3.0), hair-level detail, temporally stable. |
 | `detail` | enum | `fast` | fast, balanced, high | [ai] Network resolution. fast is the most robust on busy/patterned backgrounds; balanced/high resolve finer hair on plain backgrounds but are slower and can pick up background texture. |

@@ -139,6 +139,22 @@ function MaskTools({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** clean plate: what it is, import it, and whether it actually fitted the footage */
+function CleanPlateTools({ op, edit, importAsset, note }: { op: Op; edit: Edit; importAsset?: () => Promise<string | null>; note?: { used: number; rejected: number } }) {
+  const has = !!op.parameters?.clean_plate_asset_id;
+  const pick = async () => { const id = importAsset ? await importAsset() : null; if (id) edit(b => m.setParam(b, op.id, "clean_plate_asset_id", id)); };
+  return (
+    <section className="cleanplate">
+      <h4>Clean plate</h4>
+      <p className="muted small">Record 3–5 seconds of the <b>empty</b> green screen with the same camera, framing, zoom, focus and lights, then use it here. The key then knows every wrinkle, fold, hot spot and shadow of the screen instead of guessing, so edges around hair and the face come out cleaner.</p>
+      <div className="btn-row"><Btn icon="plus" label={has ? "Replace clean plate…" : "Import clean plate…"} onClick={pick} disabled={!importAsset} title="A video or a picture of the empty screen" />
+        {has && <Btn label="Remove" onClick={() => edit(b => m.setParam(b, op.id, "clean_plate_asset_id", undefined))} />}</div>
+      {has && note && note.rejected === 0 && note.used > 0 && <div className="issue ok"><Icon n="check" size={14} /> The clean plate fits: used on every checked frame.</div>}
+      {has && note && note.rejected > 0 && <div className="issue warning"><Icon n="warn" size={14} /> The clean plate does not fit {note.rejected} of {note.used + note.rejected} checked frames (camera moved, different framing or lighting). Those frames use the normal estimate. Record the plate again without touching the camera.</div>}
+      {has && !note && <p className="muted small">It is checked against the footage the next time a frame is rendered.</p>}
+    </section>);
+}
+
 /** Master amount: ONE slider that fades the whole effect between the original footage (0 %) and the full effect (100 %), and pushes it further (up to 150 % where the effect allows it). The sliders below keep their own values. */
 function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit }) {
   const max = Math.round((spec.maximum ?? 1.5) * 100);
@@ -158,7 +174,8 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip }: {
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes }: {
+  importAsset?: () => Promise<string | null>; plateNotes?: Record<string, { used: number; rejected: number }>;
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
   onReapply: () => void; onSelect: (id: string | null) => void; onSelectClip: (id: string | null) => void; onCut: () => void; onDeleteClip: () => void;
 }) {
@@ -193,6 +210,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
         </div>
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
+      {op.type === "background_removal" && op.parameters?.mode === "screen" && <CleanPlateTools op={op} edit={edit} importAsset={importAsset} note={plateNotes?.[op.id]} />}
       {spec?.parameters.amount && <MasterAmount op={op} spec={spec.parameters.amount} edit={edit} />}
       {op.type === "color_grading" && <section><h4>Colour wheels</h4><ColorWheels op={op} edit={edit} /></section>}
       <section>

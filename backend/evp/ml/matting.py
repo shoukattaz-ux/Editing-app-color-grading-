@@ -28,6 +28,7 @@ class MatteRef:
     start_frame: int        # first frame (on the output grid) contained in the file
     frames: int
     screen: str | None = None   # "green" | "blue" for mode 'screen' (so the compiler despills the right colour)
+    plate: dict | None = None   # clean plate use: {"used": frames the plate fitted, "rejected": frames it did not fit} (None = no plate)
 
 
 class Cancelled(Exception):
@@ -107,7 +108,7 @@ def solidify(a: np.ndarray, s: float) -> np.ndarray:
     return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
 
 
-def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, edl: list | None = None) -> str:
+def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, edl: list | None = None, plate: str | None = None) -> str:
     st = os.stat(source)
     p = op.params
     d = [os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), start_frame, frames,
@@ -116,27 +117,30 @@ def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, fra
     if p.get("mode") == "screen":
         d += ["screen4", p["auto_screen"], p["key_color"] if not p["auto_screen"] else "", p["similarity"], p["blend"], p["fill_holes"], p["edge_shrink"],
               p["edge_soften"], p["temporal_smooth"], p["spill_suppression"], p["spill_strength"]]
+        if plate:
+            from .cleanplate import plate_identity
+            d += plate_identity(plate) + [p.get("clean_plate_strength", 1.0)]
     return hashlib.sha1(json.dumps(d).encode()).hexdigest()[:20]
 
 
 def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
                    progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
-                   warmup: int = 0, edl: list | None = None) -> MatteRef:
-    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
+                   warmup: int = 0, edl: list | None = None, plate: str | None = None) -> MatteRef:
+    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl, plate)}.mkv"
     with fsutil.exclusive(out):                                   # same cached result requested twice at once: the second waits and reuses it
-        return _generate_matte(source, op, W, H, fps, start_frame, frames, cache_dir, progress, cancel, warmup, edl)
+        return _generate_matte(source, op, W, H, fps, start_frame, frames, cache_dir, progress, cancel, warmup, edl, plate)
 
 
 def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
                     progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
-                    warmup: int = 0, edl: list | None = None) -> MatteRef:
+                    warmup: int = 0, edl: list | None = None, plate: str | None = None) -> MatteRef:
     """Run RVM over [start_frame, start_frame+frames) of the normalised timeline. Cached on disk."""
-    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
+    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl, plate)}.mkv"
     fgr_out = out.with_name(out.stem + "_fgr.mkv") if op.params["edge_color_fix"] else None
     side = out.with_suffix(".json")
     if out.is_file() and (fgr_out is None or fgr_out.is_file()):
-        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames,
-                        json.loads(side.read_text(encoding="utf-8")).get("screen") if side.is_file() else None)
+        sd = json.loads(side.read_text(encoding="utf-8")) if side.is_file() else {}
+        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames, sd.get("screen"), sd.get("plate"))
     out.parent.mkdir(parents=True, exist_ok=True)
     p = op.params
     ds = min(1.0, DETAIL_TARGET[p["detail"]] / max(W, H))
@@ -150,10 +154,16 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
     fenc = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                              "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(ftmp)],
                             stdin=subprocess.PIPE, stderr=subprocess.PIPE) if fgr_out else None
-    keyer = None
+    keyer = keyer2 = None
     if p.get("mode") == "screen":
         from .screenkey import ScreenKeyer
-        keyer = ScreenKeyer(p)
+        pl = None
+        if plate:
+            from .cleanplate import load_plate
+            pl = load_plate(plate, W, H)
+        ps = float(p.get("clean_plate_strength", 1.0))
+        keyer = ScreenKeyer(p, pl if ps > 0 else None)
+        keyer2 = ScreenKeyer(p, None) if (pl is not None and 0.0 < ps < 1.0) else None      # partial strength: mix the plate key with the plain key
     else:
         model = _model()
     n = 0
@@ -161,7 +171,12 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
         for rgb in decode(source, W, H, fps, first, total, edl, flags="lanczos"):
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
-            if keyer is not None: a, fg = keyer(rgb)
+            if keyer is not None:
+                a, fg = keyer(rgb)
+                if keyer2 is not None:
+                    a2, fg2 = keyer2(rgb)
+                    a = (ps * a + (1.0 - ps) * a2).astype(np.float32)
+                    if fg is not None and fg2 is not None: fg = (ps * fg + (1.0 - ps) * fg2).astype(np.float32)
             else: a, fg = model(rgb, ds)
             n += 1
             if first + n - 1 < start_frame:
@@ -182,9 +197,10 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
             raise RuntimeError("AI matting produced no frames (could not decode the source in this range)")
         if fenc: fsutil.replace(ftmp, fgr_out)
         scr = keyer.screen_name if keyer is not None else None
-        if scr: side.write_text(json.dumps({"screen": scr}), encoding="utf-8")
+        pinfo = {"used": keyer.plate_frames, "rejected": keyer.plate_rejected} if (keyer is not None and keyer.plate is not None) else None
+        if scr: side.write_text(json.dumps({"screen": scr, **({"plate": pinfo} if pinfo else {})}), encoding="utf-8")
         fsutil.replace(tmp, out)
-        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr)
+        return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, written, scr, pinfo)
     except BaseException:
         if ftmp: fsutil.unlink(ftmp)
         for pr in (enc, fenc):

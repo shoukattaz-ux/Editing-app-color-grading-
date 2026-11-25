@@ -41,8 +41,11 @@ export class Api {
       const d = b?.detail; const msg = typeof d === "string" ? d : d?.errors ? d.errors.map((e: any) => e.message ?? e).join("; ") : `HTTP ${r.status}`;
       throw new ApiError(msg, r.status, b);
     }
+    if (raw) { const n = r.headers.get("x-evp-plate"); if (n && this.onPlate) { try { this.onPlate(JSON.parse(n)); } catch { /* ignore */ } } }
     return raw ? r.blob() : r.json();
   }
+  /** clean plate use per keying operation, reported by the engine with every preview frame: { opId: { used, rejected } } */
+  onPlate?: (n: Record<string, { used: number; rejected: number }>) => void;
   mediaUrl(path: string) { return `${this.base}/api/media/project?path=${encodeURIComponent(path)}&token=${this.token}`; }
   sourceUrl() { return `${this.base}/api/media/source?token=${this.token}`; }
   schema(): Promise<Schema> { return this.req("GET", "/api/schema"); }
