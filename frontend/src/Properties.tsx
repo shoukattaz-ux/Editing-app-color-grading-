@@ -139,6 +139,52 @@ function MaskTools({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** Key doctor: measure the key on sample frames, say what is wrong, offer real fixes */
+function KeyDoctor({ op, bp, schema, edit, setT, run, dur }: { op: Op; bp: Blueprint; schema: Schema; edit: Edit; setT: (t: number) => void; run?: (id: string) => Promise<any>; dur: number }) {
+  const [res, setRes] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const [applied, setApplied] = useState<Set<string>>(new Set());
+  const check = async () => {
+    if (!run) return; setBusy(true); setErr(""); setApplied(new Set());
+    try { setRes(await run(op.id)); } catch (e: any) { setErr(e.message ?? String(e)); setRes(null); }
+    setBusy(false);
+  };
+  const apply = (f: any) => {
+    const fx = f.fix; if (!fx) return;
+    edit(b => {
+      let cur = b;
+      for (const [k, v] of Object.entries(fx.set ?? {})) cur = m.setParam(cur, op.id, k, v);
+      for (const add of fx.add_ops ?? []) {
+        const spec = schema.operations[add.type]; if (!spec) continue;
+        const r = m.addOp(cur, spec, op.start, op.end ?? dur); cur = r.bp;
+        for (const [k, v] of Object.entries(add.params)) cur = m.setParam(cur, r.id, k, v);
+      }
+      return cur;
+    }, `doctor:${op.id}:${f.id}`);
+    setApplied(s => new Set(s).add(f.id));
+  };
+  const fixable = (res?.findings ?? []).filter((f: any) => f.fix && (f.fix.set || f.fix.add_ops) && !applied.has(f.id));
+  return (
+    <section className="doctor">
+      <div className="master-head"><h4>Key doctor</h4>{res && <span className={"score " + (res.score >= 85 ? "good" : res.score >= 60 ? "mid" : "bad")} title="100 = nothing to fix">{res.score}/100</span>}</div>
+      <p className="muted small">Measures the footage on sample frames and tells you what is wrong with the key: uneven screen, a screen that does not fill the frame, see-through spots, green spill, edge too hard or too wide, flicker. Each finding comes with a fix you can apply.</p>
+      <div className="btn-row"><Btn icon="wand" kind="primary" label={busy ? "Checking…" : res ? "Check again" : "Check this key"} onClick={check} disabled={busy || !run} />
+        {fixable.length > 1 && <Btn label={`Apply all fixes (${fixable.length})`} onClick={() => fixable.forEach(apply)} />}</div>
+      {err && <div className="issue error"><Icon n="warn" size={14} /> {err}</div>}
+      {res && <p className="muted small"><b>{res.summary}</b> ({res.frames_checked} frames checked)</p>}
+      {res?.findings.map((f: any) => (
+        <div key={f.id} className={`finding ${f.severity}`}>
+          <div className="ft"><Icon n={f.severity === "info" ? "check" : "warn"} size={13} /> <b>{f.title}</b></div>
+          <p>{f.detail}</p>
+          <div className="btn-row">
+            {f.time !== null && <Btn label={`Show frame (${f.time.toFixed(1)} s)`} icon="eye" onClick={() => setT(Math.max(0, f.time))} title="Move the playhead to the worst frame, then use View → Matte" />}
+            {f.fix && (f.fix.set || f.fix.add_ops) && <Btn kind="primary" label={applied.has(f.id) ? "Applied ✓" : f.fix.label} disabled={applied.has(f.id)} onClick={() => apply(f)} />}
+            {f.fix?.advice === "clean_plate" && <span className="muted small">→ use the Clean plate section below</span>}
+          </div>
+        </div>))}
+    </section>);
+}
+
 /** clean plate: what it is, import it, and whether it actually fitted the footage */
 function CleanPlateTools({ op, edit, importAsset, note }: { op: Op; edit: Edit; importAsset?: () => Promise<string | null>; note?: { used: number; rejected: number } }) {
   const has = !!op.parameters?.clean_plate_asset_id;
@@ -174,7 +220,8 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes }: {
+export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor }: {
+  keyDoctor?: (opId: string) => Promise<any>;
   importAsset?: () => Promise<string | null>; plateNotes?: Record<string, { used: number; rejected: number }>;
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
   onReapply: () => void; onSelect: (id: string | null) => void; onSelectClip: (id: string | null) => void; onCut: () => void; onDeleteClip: () => void;
@@ -210,6 +257,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
         </div>
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
+      {(op.type === "background_removal" || op.type === "chroma_key") && <KeyDoctor op={op} bp={bp} schema={schema} edit={edit} setT={setT} run={keyDoctor} dur={dur} />}
       {op.type === "background_removal" && op.parameters?.mode === "screen" && <CleanPlateTools op={op} edit={edit} importAsset={importAsset} note={plateNotes?.[op.id]} />}
       {spec?.parameters.amount && <MasterAmount op={op} spec={spec.parameters.amount} edit={edit} />}
       {op.type === "color_grading" && <section><h4>Colour wheels</h4><ColorWheels op={op} edit={edit} /></section>}

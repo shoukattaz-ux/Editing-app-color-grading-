@@ -8,14 +8,15 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/wheels-scopes.cjs && node e2e/restore-gpu.cjs && node e2e/merge.cjs && node e2e/media-bin.cjs && node e2e/master.cjs && node e2e/export-folder.cjs && node e2e/key-tools.cjs && node e2e/clean-plate.cjs",
+    "e2e": "node e2e/wheels-scopes.cjs && node e2e/restore-gpu.cjs && node e2e/merge.cjs && node e2e/media-bin.cjs && node e2e/master.cjs && node e2e/export-folder.cjs && node e2e/key-tools.cjs && node e2e/clean-plate.cjs && node e2e/key-doctor.cjs",
     "e2e:restore": "node e2e/restore-gpu.cjs",
     "e2e:merge": "node e2e/merge.cjs",
     "e2e:media": "node e2e/media-bin.cjs",
     "e2e:master": "node e2e/master.cjs",
     "e2e:export": "node e2e/export-folder.cjs",
     "e2e:key": "node e2e/key-tools.cjs",
-    "e2e:plate": "node e2e/clean-plate.cjs"
+    "e2e:plate": "node e2e/clean-plate.cjs",
+    "e2e:doctor": "node e2e/key-doctor.cjs"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -357,6 +357,55 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         else: raise HTTPException(404, "unknown action")
         return j.to_json()
 
+    # ---------------- key doctor
+    class DoctorReq(BaseModel):
+        blueprint: Any
+        op_id: str
+
+    @app.post("/api/key/doctor", dependencies=[api()])
+    def key_doctor(b: DoctorReq):
+        """measure the footage and the key of one keying operation: what is wrong and how to fix it (see evp/keydoctor.py)"""
+        st.need_project()
+        if not st.source: raise HTTPException(409, "No source video")
+        prep = _prep(b.blueprint)
+        if not prep.plan:
+            raise HTTPException(422, {"errors": [i.message for i in prep.report.errors]})
+        op = next((o for o in prep.plan.steps if o.id == b.op_id), None)
+        if op is None: raise HTTPException(404, "unknown operation")
+        if op.type not in ("chroma_key", "background_removal"): raise HTTPException(422, {"errors": ["The key doctor checks chroma key / background removal operations"]})
+        from .blueprint import apply_params
+        from .keydoctor import diagnose
+        base = apply_params("background_removal", {})[0]
+        params = {**base, **{k: v for k, v in op.params.items() if k in base}}
+        o = prep.plan.blueprint.output
+        res = diagnose(st.source, params, op.start_frame, op.end_frame, o.fps, o.width, o.height, prep.plan.edl)
+        def covered(add: dict) -> bool:                              # an existing garbage rectangle already covers (>= 90 %) the strip the doctor would add
+            q = add["params"]
+            for mk in prep.plan.masks.get(op.id, []):
+                m = mk.params
+                if m["mode"] != "garbage" or m["shape"] != "rect" or m.get("invert"): continue
+                ix = max(0.0, min(q["x"] + q["width"], m["x"] + m["width"]) - max(q["x"], m["x"]))
+                iy = max(0.0, min(q["y"] + q["height"], m["y"] + m["height"]) - max(q["y"], m["y"]))
+                if q["width"] * q["height"] > 0 and ix * iy / (q["width"] * q["height"]) >= 0.9: return True
+            return False
+        kept = []
+        for f in res["findings"]:
+            fx = f.get("fix") or {}
+            adds = fx.get("add_ops") or []
+            if adds and all(covered(a) for a in adds): continue        # already handled by a mask you drew
+            if fx.get("set"):                                           # only offer settings this operation really has
+                had_mode = "mode" in fx["set"]
+                fx["set"] = {k: v for k, v in fx["set"].items() if k in op.params}
+                if not fx["set"]:
+                    f["fix"] = ({"label": "Add a Background Removal operation in AI mode", "advice": "use_ai_removal"} if had_mode
+                                else {"label": "Use Background Removal in mode 'screen' for this control", "advice": "use_screen_key"})
+            kept.append(f)
+        res["findings"] = kept
+        if not any(f["severity"] != "info" for f in kept):
+            res["summary"] = "The key looks healthy: nothing needs fixing."
+            res["score"] = max(res["score"], 90)
+        return res
+
     # ---------------- AI device (which graphics card / processor runs the AI models)
     class AiDevice(BaseModel):
         device: str

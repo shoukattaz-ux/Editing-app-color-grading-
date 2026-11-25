@@ -29,6 +29,8 @@ export interface JobState { id: string; kind: string; state: string; progress: n
 export interface GpuStatus { state: "active" | "ready" | "cpu"; label: string; detail: string; percent: number | null; engines: Record<string, number>; vram_mb: number | null; system_percent: number | null; adapter: string | null; provider: string | null; measurable: boolean; encoder: string | null; encoder_on_gpu: boolean | null; fell_back: boolean; job: string | null }
 export interface MediaItem { path: string; name: string; kind: "image" | "video" | "lut"; exists: boolean; size?: number; mtime?: number; width?: number; height?: number; duration?: number; fps?: number; has_audio?: boolean; current?: boolean }
 export interface MediaBin { sources: MediaItem[]; assets: MediaItem[] }
+export interface KeyFinding { id: string; severity: "problem" | "warn" | "info"; title: string; detail: string; time: number | null; fix: { label: string; set?: Record<string, any>; add_ops?: { type: string; params: Record<string, any> }[]; advice?: string } | null; measure: Record<string, any> }
+export interface KeyDoctorResult { findings: KeyFinding[]; score: number; frames_checked: number; summary: string }
 export interface AiDevice { choice: string; running_on: string; provider: string; wanted: string; actual: string | null; fell_back: boolean; options: { value: string; label: string }[] }
 export interface ReportConfig { endpoint: string; bucket: string; access_key_id_masked: string; has_secret: boolean; enabled: boolean; auto_send: boolean; configured: boolean; pending: number; last: { ok?: boolean; error?: string; when?: number } }
 
@@ -79,6 +81,7 @@ export class Api {
   /** width null = full output resolution (used by the 1:1 loupe) */
   frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960, view?: string): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width, ...(view ? { view } : {}) }, true); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
+  keyDoctor(blueprint: Blueprint, opId: string): Promise<KeyDoctorResult> { return this.req("POST", "/api/key/doctor", { blueprint, op_id: opId }); }
   mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }
   thumbUrl(src: "asset" | "source", path: string, w = 192) { return `${this.base}/api/media/thumb?src=${src}&path=${encodeURIComponent(path)}&w=${w}&token=${this.token}`; }
   removeAsset(path: string) { return this.req("POST", "/api/project/asset/remove", { path }); }

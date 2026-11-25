@@ -204,3 +204,9 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .masktools .chip:hover{background:#ffffff12}
 
 .cleanplate{border:1px solid #ffffff1f;border-radius:10px;padding:10px 12px;margin:12px 0}.cleanplate h4{margin:0 0 4px}
+
+.doctor{border:1px solid #ffffff1f;border-radius:10px;padding:10px 12px;margin:12px 0}
+.doctor .score{font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px}.score.good{background:#16a34a55}.score.mid{background:#f59e0b55}.score.bad{background:#ef444466}
+.finding{border-left:3px solid #8b93a1;background:#ffffff08;border-radius:6px;padding:7px 10px;margin:8px 0}.finding.problem{border-color:#ef4444}.finding.warn{border-color:#f59e0b}.finding.info{border-color:#3b82f6}
+.finding .ft{display:flex;align-items:center;gap:6px}.finding p{margin:5px 0;font-size:12px;line-height:1.45;opacity:.9}
+.finding .btn-row{flex-wrap:wrap}.finding .btn{white-space:normal;height:auto;min-height:28px;text-align:left;max-width:100%;padding-top:4px;padding-bottom:4px}
