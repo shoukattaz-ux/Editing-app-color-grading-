@@ -695,6 +695,6 @@ def pick_encoder(codec: str, choice: str) -> str:
     soft = "libx264" if codec == "h264" else "libx265"
     if choice == "cpu": return soft
     if choice == "auto":
-        names = ("h264_nvenc", "h264_qsv", "h264_videotoolbox") if codec == "h264" else ("hevc_nvenc", "hevc_qsv", "hevc_videotoolbox")
+        names = ("h264_nvenc", "h264_amf", "h264_qsv", "h264_videotoolbox") if codec == "h264" else ("hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_videotoolbox")
         return next((n for n in names if n in encoders() and _try_encoder(n)), soft)
     return choice if choice in encoders() else soft

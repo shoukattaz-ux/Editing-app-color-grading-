@@ -121,3 +121,11 @@ C cut at playhead · Space play/pause · ←/→ frame step · Ctrl+Z / Ctrl+Shi
 * Greenscreen: raise *similarity* if green remains, raise *blend* for softer edges, use *edge_erode* 1–2 to remove fringe, *spill_strength* for green cast on hair/skin.
 * Playback of *Edited* is a proxy; colours/edges can only be judged exactly in the live frame or the final export.
 * Pause/resume uses POSIX signals: available on macOS/Linux, not on Windows.
+
+## Auto-save and coming back to exactly where you were
+* Every change is written to disk within a second (toolbar: "Auto-saved 14:02"), together with the screen you were on (playhead, open panel, zoom, selection, panel sizes). Closing the window, a crash or a power cut loses nothing; closing the window also waits (max 2 s) for the last write.
+* The project is under **Recent projects** on the start screen (newest work first) with a badge "auto-saved" when it holds work you never saved. **Continue where you left off** opens it in one click, in the exact state you left. A banner offers **Save now** (makes a numbered version) or **Back to last saved version**.
+* Not restored: the Undo history (it starts fresh) and a half-finished render (renders are restarted from the Export dialog).
+
+## GPU indicator
+The toolbar chip shows what the graphics card is doing: **GPU active · 41%** (green, pulsing), **GPU ready · idle** (blue), **GPU not used** (amber, hover or click for the reason). On Windows the percentage is measured, the same counters as Task Manager, summed over this app and its video encoder only, together with the video memory it holds. Other systems show the configured device only. AMD (AMF), NVIDIA (NVENC) and Intel (QSV) hardware video encoders are used automatically for export when "auto" is chosen and the card passes a test encode.

@@ -130,3 +130,18 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .menu{position:absolute;top:calc(100% + 6px);left:0;z-index:70;min-width:290px;background:var(--bg3);border:1px solid var(--line);border-radius:10px;padding:6px;box-shadow:0 14px 40px #000a;-webkit-app-region:no-drag}
 .menu button{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:9px 10px;cursor:pointer}
 .menu button:hover{background:var(--bg4)}
+
+.continue{display:flex;align-items:center;gap:8px;width:100%;margin:6px 0 10px;padding:9px 12px;border-radius:8px;border:1px solid var(--accent,#3b82f6);background:color-mix(in srgb,var(--accent,#3b82f6) 14%,transparent);color:inherit;cursor:pointer;text-align:left}
+.continue:hover{background:color-mix(in srgb,var(--accent,#3b82f6) 24%,transparent)}
+.badge{font-style:normal;font-size:10px;margin-left:8px;padding:1px 6px;border-radius:999px;background:#3b82f633;border:1px solid #3b82f6aa}
+
+.autosave{font-size:11px;opacity:.7;margin-left:8px;white-space:nowrap}
+.gpuchip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;border:1px solid #ffffff22;background:#ffffff0d;color:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.gpuchip .dot{width:8px;height:8px;border-radius:50%;background:#8b93a1}
+.gpuchip.active{border-color:#22c55e88;background:#22c55e1f}.gpuchip.active .dot{background:#22c55e;box-shadow:0 0 0 0 #22c55e99;animation:gpupulse 1.2s infinite}
+.gpuchip.ready{border-color:#3b82f666}.gpuchip.ready .dot{background:#3b82f6}
+.gpuchip.cpu{border-color:#f59e0b88;background:#f59e0b1a}.gpuchip.cpu .dot{background:#f59e0b}
+@keyframes gpupulse{70%{box-shadow:0 0 0 7px #22c55e00}100%{box-shadow:0 0 0 0 #22c55e00}}
+.gpupop{right:0;left:auto;min-width:300px;max-width:380px;padding:10px 12px;white-space:normal}
+.gpupop p{margin:6px 0;font-size:12px;line-height:1.45}
+.gpubar{height:6px;border-radius:3px;background:#ffffff1a;margin-top:6px}.gpubar span{display:block;height:100%;border-radius:3px;background:#22c55e;transition:width .4s}

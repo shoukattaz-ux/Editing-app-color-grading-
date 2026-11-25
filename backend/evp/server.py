@@ -111,12 +111,13 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         p = st.need_project()
         return {"path": str(p.root), "name": p.data["name"], "version": p.data["version"], "source": p.data.get("source"),
                 "video": st.video.__dict__ if st.video else None, "blueprint": p.data["blueprint"], "ui": p.data.get("ui", {}),
-                "missing": p.missing(), "recovery_available": p.recovery_available()}
+                "missing": p.missing(), "recovery_available": p.recovery_available(),
+                "restored": p.restored_at is not None, "restored_at": p.restored_at, "saved_blueprint": p.saved_blueprint}
 
     @app.post("/api/project/new", dependencies=[api()])
     def new_project(b: NewProject):
         st.project = Project.create(b.parent, b.name)
-        if b.source: _set_source(b.source)
+        if b.source: _set_source(b.source); st.project.save(snapshot=False)      # the video link is on disk from the first second
         st.recent.add(str(st.project.root), b.name)
         return _project_json()
 
@@ -144,7 +145,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         while (parent / (name + ".evproj")).exists() and n < 500:
             n += 1; name = f"{base} {n}"
         st.project = Project.create(parent, name)
-        if b.source: _set_source(b.source)
+        if b.source: _set_source(b.source); st.project.save(snapshot=False)
         st.recent.add(str(st.project.root), name)
         return _project_json()
 
@@ -153,7 +154,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
 
     @app.post("/api/project/open", dependencies=[api()])
     def open_project(b: PathBody):
-        st.project = Project.open(b.path)
+        st.project = Project.open(b.path, restore=True)       # reopens exactly where the last session ended, even after a crash
         st.load_video()
         st.recent.add(str(st.project.root), st.project.data["name"])
         return _project_json()
@@ -185,7 +186,19 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         p = st.need_project()
         p.update(blueprint=b.blueprint, ui=b.ui)
         p.autosave()
+        if b.ui is not None: p.write_ui(b.ui)
+        st.recent.touch_if_stale(str(p.root), p.data["name"])
         return {"ok": True}
+
+    @app.put("/api/project/ui", dependencies=[api()])
+    def put_ui(ui: dict[str, Any]):
+        """playhead, open tab, zoom, selection ...: tiny, saved often, never counts as an unsaved edit"""
+        st.need_project().write_ui(ui)
+        return {"ok": True}
+
+    @app.post("/api/project/revert", dependencies=[api()])
+    def revert():
+        st.need_project().revert_to_saved(); st.load_video(); return _project_json()
 
     @app.post("/api/project/save", dependencies=[api()])
     def save(b: BP | None = None):
@@ -339,6 +352,13 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         try: device.set_choice(b.device)
         except ValueError as e: raise HTTPException(422, str(e))
         return device.describe()
+
+    @app.get("/api/gpu", dependencies=[api()])
+    def gpu_status():
+        """is the graphics card working right now? (measured on Windows; configured device elsewhere)"""
+        from .ml.device import describe
+        from .ml.gpumon import monitor
+        return monitor().snapshot(describe(), [{"state": j.state, "encoder": j._encoder_name(), "current": j.current} for j in st.jobs.jobs.values()])
 
     # ---------------- problem reports (Cloudflare R2)
     class ReportCfg(BaseModel):

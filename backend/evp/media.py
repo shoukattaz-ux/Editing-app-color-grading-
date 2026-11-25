@@ -99,7 +99,7 @@ def encoders() -> set[str]:
 def hardware_report() -> dict:
     """CPU + usable hardware encoders (a 1-frame test encode proves the device actually works)."""
     hw = []
-    for name in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "hevc_qsv", "h264_videotoolbox", "hevc_videotoolbox"):
+    for name in ("h264_nvenc", "hevc_nvenc", "h264_amf", "hevc_amf", "h264_qsv", "hevc_qsv", "h264_videotoolbox", "hevc_videotoolbox"):
         if name in encoders() and _try_encoder(name):
             hw.append(name)
     return {"cpu_count": os.cpu_count(), "ffmpeg": proc.run([ffmpeg_bin(), "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.splitlines()[0],

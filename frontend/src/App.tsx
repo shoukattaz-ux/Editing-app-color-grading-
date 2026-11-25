@@ -5,6 +5,7 @@ import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
 import { Timeline } from "./Timeline";
+import { GpuChip } from "./Gpu";
 import { Properties } from "./Properties";
 import { Sidebar, TABS, Tab, Ctx } from "./Sidebar";
 import { Btn, Empty, Icon, fmtEta, resolutionOptions } from "./ui";
@@ -47,6 +48,8 @@ function Editor({ api }: { api: Api }) {
   useEffect(() => { if (window.evp?.isElectron) document.body.classList.add("electron"); }, []);
   const [pathDlg, setPathDlg] = useState<{ title: string; kind: string; resolve: (p: string | null) => void } | null>(null);
   const [saved, setSaved] = useState<Blueprint | null>(null);
+  const restoreView = useRef(false);
+  const [autoAt, setAutoAt] = useState<number | null>(null);
   const [layout, setLayout] = useState({ left: 320, right: 330, bottom: 260 });
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -68,9 +71,16 @@ function Editor({ api }: { api: Api }) {
   }, []);
 
   const load = useCallback((p: ProjectState) => {
-    setProject(p); setHist(m.reset(p.blueprint)); setSaved(p.blueprint); setSelRaw(null); setSelClipRaw(null); setT(0); setProxy(null); setReport(null);
-    setMode("original"); setTab(p.video ? "blueprint" : "media");
-    if (p.recovery_available) toast("Unsaved changes from a previous session were found — see the banner above the timeline.", "err");
+    const ui = (p.ui ?? {}) as Record<string, any>;               // the exact view you left: playhead, tab, zoom, selection, panel sizes
+    setProject(p); setHist(m.reset(p.blueprint));
+    setSaved(p.restored && p.saved_blueprint ? p.saved_blueprint : p.blueprint);     // restored-but-unsaved work counts as unsaved (title dot, Save)
+    setSelRaw(typeof ui.sel === "string" ? ui.sel : null); setSelClipRaw(typeof ui.selClip === "string" ? ui.selClip : null);
+    setT(typeof ui.t === "number" && ui.t >= 0 ? ui.t : 0); setProxy(null); setReport(null);
+    setZoom(typeof ui.zoom === "number" && ui.zoom > 0 ? ui.zoom : 60);
+    if (ui.layout && typeof ui.layout.left === "number") setLayout(l => ({ ...l, ...ui.layout }));
+    setMode("original"); setTab((ui.tab as Tab) || (p.video ? "blueprint" : "media"));
+    restoreView.current = ui.mode === "edited" && !!p.video;
+    if (p.restored) toast("Restored your work exactly as you left it", "ok");
   }, [toast]);
 
   useEffect(() => { if (t > tl.duration) setT(Math.max(0, tl.duration - 1 / tl.fps)); }, [tl.duration]);
@@ -97,14 +107,35 @@ function Editor({ api }: { api: Api }) {
     if (!project) return;
     if (first.current) { first.current = false; }
     const h1 = setTimeout(() => api.validate(bp).then(setReport).catch(() => {}), 400);
-    const h2 = setTimeout(() => { if (bp !== saved) api.putBlueprint(bp).catch(() => {}); }, 1200);
+    const h2 = setTimeout(() => { if (bp !== saved) api.putBlueprint(bp, uiState).then(() => setAutoAt(Date.now())).catch(() => {}); }, 350);      // auto-save: nothing waits for the Save button
     return () => { clearTimeout(h1); clearTimeout(h2); };
   }, [bp, project?.path]);
+
+  // the view (playhead, tab, zoom, selection, panels) is saved too, so reopening shows the same screen
+  const uiState = useMemo(() => ({ t, tab, mode, zoom, sel, selClip, layout }), [t, tab, mode, zoom, sel, selClip, layout]);
+  const latest = useRef({ bp, saved, uiState, has: false });
+  latest.current = { bp, saved, uiState, has: !!project };
+  useEffect(() => {
+    if (!project) return;
+    const h = setTimeout(() => { api.putUi(uiState).catch(() => {}); }, 600);
+    return () => clearTimeout(h);
+  }, [uiState, project?.path]);
+  useEffect(() => {
+    const flush = async () => {
+      const c = latest.current; if (!c.has) return;
+      try { if (c.bp !== c.saved) await api.putBlueprint(c.bp, c.uiState); else await api.putUi(c.uiState); } catch { /* nothing more can be done */ }
+    };
+    (window as any).__evpFlush = flush;                                   // the desktop shell awaits this before it closes the window
+    const onHide = () => { const c = latest.current; if (c.has) api.flushNow(c.bp !== c.saved ? c.bp : undefined, c.uiState); };
+    const onVis = () => { if (document.visibilityState === "hidden") onHide(); };
+    window.addEventListener("pagehide", onHide); document.addEventListener("visibilitychange", onVis);
+    return () => { window.removeEventListener("pagehide", onHide); document.removeEventListener("visibilitychange", onVis); delete (window as any).__evpFlush; };
+  }, [api]);
 
   const dirty = project && bp !== saved;
   const save = useCallback(async () => {
     if (!project) return;
-    try { const r = await api.save(bp); setSaved(bp); setProject(p => p && { ...p, version: r.version }); toast(`Saved (version ${r.version})`); } catch (e: any) { toast(e.message, "err"); }
+    try { const r = await api.save(bp); setSaved(bp); setProject(p => p && { ...p, version: r.version, restored: false }); toast(`Saved (version ${r.version})`); } catch (e: any) { toast(e.message, "err"); }
   }, [api, bp, project, toast]);
 
   // ---- proxy render / execute
@@ -121,6 +152,9 @@ function Editor({ api }: { api: Api }) {
       await pollJob(r.job!, j => { if (j.state === "done") { setProxy({ bp: target, path: r.output }); setMode("edited"); toast("Preview ready"); } else if (j.state === "failed") toast("Preview failed: " + j.error, "err"); });
     } catch (e: any) { toast(e.message, "err"); }
   }, [api, bp, pollJob, toast]);
+  useEffect(() => {          // reopened on the edited preview: show it again (cached previews come back instantly)
+    if (project && restoreView.current) { restoreView.current = false; updateProxy(project.blueprint); }
+  }, [project?.path, project?.version]);
   const executeBlueprint = useCallback(async (nb: Blueprint) => {
     // keep imported blueprint's own asset list; existing project assets with same id are replaced by the blueprint's definition
     edit(() => nb); setSel(null); setTab("effects");
@@ -167,6 +201,7 @@ function Editor({ api }: { api: Api }) {
       <header className="toolbar" style={{ gridColumn: "1 / -1" }}>
         <span className="logo"><Icon n="film" size={18} /> EVP</span>
         <b className="pname">{project.name}{dirty ? " •" : ""}</b>
+        <span className="autosave" title="Every change is written to disk within a second, so closing or a crash loses nothing. Save creates a numbered version you can go back to.">{!dirty ? "Saved" : autoAt ? `Auto-saved ${new Date(autoAt).toLocaleTimeString()}` : "Auto-saving…"}</span>
         <span className="sep" />
         <span className="menu-wrap">
           <Btn icon="plus" label="Import" onClick={() => setImportMenu(v => !v)} title="Import a video, a background picture or a LUT" />
@@ -183,6 +218,7 @@ function Editor({ api }: { api: Api }) {
         <Btn icon="bolt" label="Execute Blueprint" kind="primary" onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
         <Btn icon="eye" label="Render preview" onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Render the 640px proxy preview" />
         <Btn icon="export" label="Export" onClick={() => setExportOpen(true)} disabled={!video} />
+        <GpuChip api={api} working={!!job && ACTIVE.includes(job.state)} />
         <Btn icon="gear" onClick={() => setSettingsOpen(true)} title="Settings: problem reports" />
       </header>
 
@@ -193,10 +229,10 @@ function Editor({ api }: { api: Api }) {
       <div className="vhandle" onPointerDown={drag("left", 1)} />
 
       <main className="center">
-        {project.recovery_available && (
-          <div className="recovery"><Icon n="warn" /> Unsaved edits from an earlier session were recovered.
-            <Btn label="Restore them" kind="primary" onClick={async () => { try { load(await api.recover()); toast("Recovered"); } catch (e: any) { toast(e.message, "err"); } }} />
-            <Btn label="Discard" onClick={async () => { await api.discardAutosave(); setProject(p => p && { ...p, recovery_available: false }); }} /></div>)}
+        {project.restored && dirty && (
+          <div className="recovery"><Icon n="check" /> Restored your work exactly as you left it{project.restored_at ? ` (${new Date(project.restored_at * 1000).toLocaleString()})` : ""}. It was auto-saved but not yet saved as a version.
+            <Btn label="Save now" kind="primary" onClick={save} />
+            <Btn label="Back to last saved version" onClick={async () => { try { load(await api.revert()); toast("Went back to the last saved version"); } catch (e: any) { toast(e.message, "err"); } }} /></div>)}
         <Preview playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
           stale={stale} onUpdateProxy={() => updateProxy()} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
@@ -364,7 +400,7 @@ function SettingsDialog({ api, onClose, toast }: { api: Api; onClose: () => void
 }
 
 function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: ProjectState) => void; toast: Ctx["toast"]; askPath: Ctx["askPath"] }) {
-  const [recent, setRecent] = useState<{ path: string; name: string }[]>([]);
+  const [recent, setRecent] = useState<{ path: string; name: string; modified?: number; unsaved?: boolean }[]>([]);
   const [defs, setDefs] = useState<{ projects_dir: string } | null>(null);
   const [over, setOver] = useState(false); const [busy, setBusy] = useState(false);
   const [adv, setAdv] = useState(false);
@@ -415,7 +451,8 @@ function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: Projec
         <section className="wcard recent">
           <h3>Recent projects</h3>
           {recent.length === 0 && <p className="muted">Nothing yet. Your projects will appear here.</p>}
-          <div className="recent-list">{recent.map(r => <button className="item" key={r.path} onClick={() => go(() => api.openProject(r.path))}><Icon n="folder" size={15} /><span><b>{r.name}</b><em>{short(r.path)}</em></span></button>)}</div>
+          {recent[0] && <button className="continue" disabled={busy} onClick={() => go(() => api.openProject(recent[0].path))}><Icon n="bolt" size={15} /> Continue where you left off: <b>{recent[0].name}</b></button>}
+          <div className="recent-list">{recent.map(r => <button className="item" key={r.path} onClick={() => go(() => api.openProject(r.path))}><Icon n="folder" size={15} /><span><b>{r.name}{r.unsaved && <i className="badge" title="Auto-saved work that was never saved as a version. Opening it restores exactly that state.">auto-saved</i>}</b><em>{r.modified ? new Date(r.modified * 1000).toLocaleString() + " · " : ""}{short(r.path)}</em></span></button>)}</div>
         </section>
       </div>
       <footer className="foot">{defs ? `New projects are saved in ${defs.projects_dir}` : ""}</footer>

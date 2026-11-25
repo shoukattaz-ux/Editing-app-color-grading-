@@ -58,7 +58,9 @@ class Project:
         return p
 
     @classmethod
-    def open(cls, root: str | Path) -> "Project":
+    def open(cls, root: str | Path, restore: bool = False) -> "Project":
+        """restore=True: if the last session ended with edits that were auto-saved but never saved, open THOSE (the exact state you left).
+        The auto-save file is kept until you save or revert, so a second crash cannot lose the work either."""
         root = Path(root).resolve()
         pf = root / "project.json"
         if not pf.is_file(): raise ProjectError(f"Not a project folder (no project.json): {root}")
@@ -66,11 +68,47 @@ class Project:
         except json.JSONDecodeError as e: raise ProjectError(f"project.json is corrupted: {e}. Try restoring a version from versions/.")
         if data.get("format_version", 0) > FORMAT_VERSION:
             raise ProjectError("Project was created by a newer version of this application")
-        return cls(root, data)
+        p = cls(root, data)
+        p.saved_blueprint = data.get("blueprint")
+        p.restored_at = None
+        if restore and p.recovery_available():
+            try:
+                a = json.loads(p.autosave_file.read_text(encoding="utf-8"))
+                if isinstance(a, dict) and isinstance(a.get("blueprint"), dict):
+                    p.data = a; p.restored_at = p.autosave_file.stat().st_mtime
+            except (json.JSONDecodeError, OSError):
+                pass                                            # a half-written auto-save (power cut mid-write): the last saved state is used
+        ui = p.read_ui()
+        if ui is not None: p.data["ui"] = ui
+        return p
+
+    saved_blueprint: dict | None = None
+    restored_at: float | None = None
+
+    # --- view state (playhead, tab, zoom, selection ...) is kept apart from the document so it can be saved often and cheaply
+    @property
+    def ui_file(self): return self.root / "ui.json"
+
+    def read_ui(self) -> dict | None:
+        try:
+            d = json.loads(self.ui_file.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def write_ui(self, ui: dict) -> None:
+        self.data["ui"] = ui
+        _atomic_write(self.ui_file, ui)
+
+    def revert_to_saved(self) -> None:
+        """drop the auto-saved edits and go back to the last saved version"""
+        self.autosave_file.unlink(missing_ok=True)
+        self.data = json.loads(self.project_file.read_text(encoding="utf-8"))
+        self.saved_blueprint = self.data.get("blueprint"); self.restored_at = None
 
     def recovery_available(self) -> bool:
         a, p = self.autosave_file, self.project_file
-        return a.is_file() and a.stat().st_mtime > p.stat().st_mtime + 0.001
+        return a.is_file() and a.stat().st_mtime >= p.stat().st_mtime      # save() deletes the auto-save, so a surviving file newer-or-equal is real unsaved work
 
     def recover(self) -> None:
         self.data = json.loads(self.autosave_file.read_text(encoding="utf-8"))
@@ -95,6 +133,7 @@ class Project:
             _atomic_write(self.versions_dir / f"v{self.data['version']:05d}.json", self.data)
             for old in sorted(self.versions_dir.glob("v*.json"))[:-50]: old.unlink()
         self.autosave_file.unlink(missing_ok=True)
+        self.saved_blueprint = self.data.get("blueprint"); self.restored_at = None
         return self.data["version"]
 
     def autosave(self) -> None:
@@ -164,13 +203,36 @@ class RecentProjects:
     def __init__(self, config_file: Path):
         self.f = Path(config_file)
 
-    def list(self) -> list[dict]:
+    def _raw(self) -> list[dict]:
         try: items = json.loads(self.f.read_text(encoding="utf-8"))
         except Exception: return []
-        return [i for i in items if Path(i["path"]).is_dir()]
+        return [i for i in items if isinstance(i, dict) and isinstance(i.get("path"), str)]
+
+    def list(self) -> list[dict]:
+        """newest activity first; each entry says when it was last touched and whether it holds work that was never saved"""
+        out = []
+        for i in self._raw():
+            root = Path(i["path"])
+            if not root.is_dir(): continue
+            pf, af = root / "project.json", root / "autosave.json"
+            try: pm = pf.stat().st_mtime
+            except OSError: continue
+            try: am = af.stat().st_mtime
+            except OSError: am = 0.0
+            out.append({**i, "modified": max(pm, am, float(i.get("opened", 0))), "unsaved": am > 0 and am >= pm})
+        out.sort(key=lambda r: r["modified"], reverse=True)
+        return out
+
+    def touch_if_stale(self, path: str, name: str, every: float = 30.0) -> None:
+        """a project being worked on stays in Recent (and at the top) even if it was never 'opened' this session; cheap: at most every 30 s"""
+        cur = next((i for i in self._raw() if i["path"] == str(path)), None)
+        if cur is None or time.time() - float(cur.get("opened", 0)) > every: self.add(path, name)
 
     def add(self, path: str, name: str) -> None:
-        items = [i for i in self.list() if i["path"] != str(path)]
+        items = [i for i in self._raw() if i["path"] != str(path)]
         items.insert(0, {"path": str(path), "name": name, "opened": time.time()})
         self.f.parent.mkdir(parents=True, exist_ok=True)
-        self.f.write_text(json.dumps(items[:15]), encoding="utf-8")
+        tmp = self.f.with_suffix(self.f.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(items[:15])); fh.flush(); os.fsync(fh.fileno())
+        fsutil.replace(tmp, self.f)

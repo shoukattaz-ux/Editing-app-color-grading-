@@ -116,8 +116,8 @@ def test_recovery_flow_over_api(client, proj, tmp_path):
     client.put("/api/project/blueprint", headers=H, json={"blueprint": b})      # autosave only, no save
     c2 = TestClient(create_app("tok", str(tmp_path / "d3")))
     p = c2.post("/api/project/open", headers=H, json={"path": proj["path"]}).json()
-    assert p["recovery_available"] and p["blueprint"]["operations"] == []
-    assert c2.post("/api/project/recover", headers=H).json()["blueprint"] == b
+    assert p["restored"] and p["blueprint"] == b and p["saved_blueprint"]["operations"] == []      # opens in the exact state it was left in
+    assert c2.post("/api/project/revert", headers=H).json()["blueprint"]["operations"] == []         # and one click goes back to the saved version
 
 
 def test_missing_source_is_reported_not_crashed(client, tmp_path, media):

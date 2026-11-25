@@ -233,8 +233,13 @@ class Job:
     def to_json(self) -> dict:
         return {"id": self.id, "kind": self.kind, "state": self.state, "progress": round(self.progress, 4),
                 "eta_seconds": self.eta, "current": self.current, "error": self.error, "output": self.out_path,
-                "log": self.log[-200:], "hardware_fallback": self.fallback_used,
+                "log": self.log[-200:], "hardware_fallback": self.fallback_used, "encoder": self._encoder_name(),
                 "operations": [o.id for o in self.plan.steps]}
+
+    def _encoder_name(self) -> str | None:
+        a = self.compiled.args if self.compiled else None
+        try: return a[a.index("-c:v") + 1] if a and "-c:v" in a else None
+        except (IndexError, ValueError): return None
 
     def _log(self, s: str):
         self.log.append(s)

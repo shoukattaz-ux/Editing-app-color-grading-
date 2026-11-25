@@ -163,7 +163,16 @@ async function createWindow() {
   if (st.maximized) win.maximize();
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (e) => e.preventDefault());
-  win.on("close", saveState);
+  let flushed = false;
+  win.on("close", (e) => {
+    saveState();
+    if (flushed || win.webContents.isDestroyed()) return;
+    // closing never loses work: the page writes its latest edits and view to the engine first (at most 2 s), then the window closes
+    e.preventDefault(); flushed = true;
+    const timeout = new Promise((r) => setTimeout(r, 2000));
+    const flush = win.webContents.executeJavaScript("window.__evpFlush ? window.__evpFlush() : null").catch(() => {});
+    Promise.race([flush, timeout]).finally(() => { if (!win.isDestroyed()) win.close(); });
+  });
   win.once("ready-to-show", () => win.show());
   const index = app.isPackaged ? path.join(root(), "frontend", "index.html") : path.join(__dirname, "..", "frontend", "dist", "index.html");
   await win.loadFile(index);

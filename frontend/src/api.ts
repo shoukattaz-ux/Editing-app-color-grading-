@@ -22,9 +22,10 @@ export class ApiError extends Error { constructor(msg: string, public status: nu
 export interface Issue { level: string; code: string; message: string; op_id?: string | null; path?: string | null }
 export interface Validation { ok: boolean; errors: Issue[]; warnings: Issue[]; plan: { order: number; id: string; type: string; start: number; end: number; alpha_source: string | null }[]; video: VideoInfo | null; repaired?: Blueprint | null }
 export interface VideoInfo { duration: number; fps: number; width: number; height: number; has_audio: boolean; codec: string }
-export interface ProjectState { path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean }
+export interface ProjectState { path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean; restored?: boolean; restored_at?: number | null; saved_blueprint?: Blueprint | null }
 export interface JobState { id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }
 
+export interface GpuStatus { state: "active" | "ready" | "cpu"; label: string; detail: string; percent: number | null; engines: Record<string, number>; vram_mb: number | null; system_percent: number | null; adapter: string | null; provider: string | null; measurable: boolean; encoder: string | null; encoder_on_gpu: boolean | null; fell_back: boolean; job: string | null }
 export interface AiDevice { choice: string; running_on: string; provider: string; wanted: string; actual: string | null; fell_back: boolean; options: { value: string; label: string }[] }
 export interface ReportConfig { endpoint: string; bucket: string; access_key_id_masked: string; has_secret: boolean; enabled: boolean; auto_send: boolean; configured: boolean; pending: number; last: { ok?: boolean; error?: string; when?: number } }
 
@@ -45,7 +46,7 @@ export class Api {
   system(): Promise<any> { return this.req("GET", "/api/system"); }
   defaults(): Promise<{ projects_dir: string }> { return this.req("GET", "/api/defaults"); }
   quickProject(source?: string, name?: string): Promise<ProjectState> { return this.req("POST", "/api/project/quick", { source: source || null, name: name || null }); }
-  recent(): Promise<{ path: string; name: string }[]> { return this.req("GET", "/api/project/recent"); }
+  recent(): Promise<{ path: string; name: string; modified?: number; unsaved?: boolean }[]> { return this.req("GET", "/api/project/recent"); }
   newProject(parent: string, name: string, source?: string): Promise<ProjectState> { return this.req("POST", "/api/project/new", { parent, name, source: source || null }); }
   openProject(path: string): Promise<ProjectState> { return this.req("POST", "/api/project/open", { path }); }
   setSource(path: string): Promise<ProjectState> { return this.req("POST", "/api/project/source", { path }); }
@@ -53,6 +54,16 @@ export class Api {
   save(blueprint: Blueprint, ui?: any): Promise<{ version: number }> { return this.req("POST", "/api/project/save", { blueprint, ui }); }
   saveAs(parent: string, name: string): Promise<ProjectState> { return this.req("POST", "/api/project/save_as", { parent, name }); }
   recover(): Promise<ProjectState> { return this.req("POST", "/api/project/recover"); }
+  putUi(ui: unknown) { return this.req("PUT", "/api/project/ui", ui); }
+  revert(): Promise<ProjectState> { return this.req("POST", "/api/project/revert"); }
+  /** last-chance write while the window is closing: keepalive lets the request outlive the page */
+  flushNow(blueprint: unknown, ui: unknown) {
+    const h = { "x-evp-token": this.token, "content-type": "application/json" };
+    try {
+      if (blueprint) fetch(this.base + "/api/project/blueprint", { method: "PUT", headers: h, body: JSON.stringify({ blueprint, ui }), keepalive: true }).catch(() => {});
+      else fetch(this.base + "/api/project/ui", { method: "PUT", headers: h, body: JSON.stringify(ui), keepalive: true }).catch(() => {});
+    } catch { /* closing anyway */ }
+  }
   discardAutosave() { return this.req("POST", "/api/project/discard_autosave"); }
   versions(): Promise<{ file: string; version: number; modified: number; operations: number }[]> { return this.req("GET", "/api/project/versions"); }
   restore(file: string): Promise<ProjectState> { return this.req("POST", "/api/project/restore", { file }); }
@@ -62,6 +73,7 @@ export class Api {
   /** width null = full output resolution (used by the 1:1 loupe) */
   frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width }, true); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
+  gpu(): Promise<GpuStatus> { return this.req("GET", "/api/gpu"); }
   aiDevice(): Promise<AiDevice> { return this.req("GET", "/api/ai-device"); }
   setAiDevice(device: string): Promise<AiDevice> { return this.req("PUT", "/api/ai-device", { device }); }
   reportConfig(): Promise<ReportConfig> { return this.req("GET", "/api/report/config"); }
