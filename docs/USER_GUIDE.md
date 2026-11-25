@@ -170,6 +170,16 @@ If the person stands on a floor in the new scene, select the **Background Replac
 * **Contact shadow:** a tight dark blob right under the feet, made from the lowest slice of the silhouette, so it follows every step. Its softness adjusts (hard light = tight, diffuse light = wide). It works together with the existing cast shadow (the softer, offset shadow).
 Both are built from the subject itself, so they follow every movement (a jump lifts the contact shadow away and the reflection shows the gap). The **floor line** is found automatically (the lowest point of the subject's matte on the middle frame, followed through Subject scale / position) or set by hand; the panel reports where it found it. If the subject touches the bottom of the frame (cut at the waist) there is no floor in view and both effects are skipped, with a note. Limits: one floor line for the whole clip (a moving camera or a person who walks towards the camera changes where the floor is); the reflection is a flat mirror image, not a rendering of a curved or bumpy floor.
 
+## Colour lights: cyan from the left, magenta from the right (portrait / stage look)
+On a **Studio Look** (with a Background Replacement behind the subject) open **Colour lights** and press **Cyan / magenta portrait**. Two coloured lights fall on the **subject only**, each from a side, and fade across it; where they meet in the middle the colours mix. A glow also hugs the outline on the side facing each light (jaw, cheek, hair, fins).
+
+- **Light A / Light B:** pick each colour and which side it comes from (left, right, top, bottom, or off to use a single light).
+- **How far it reaches:** 0 = only the near edge, 1 = across the whole subject. **Edge glow:** the rim along the outline facing the light.
+- **Light strength** and the Studio Look's **Master amount** scale everything.
+- The light is added to the subject layer before it is placed over the background, so it can never appear on the background. The subject's bounds are measured on the middle frame, so "from the left" really starts at the subject's left edge.
+
+In a blueprint: `colour_light`, `colour_light_color_a`, `colour_light_side_a`, `colour_light_color_b`, `colour_light_side_b`, `colour_light_reach`, `colour_light_edge`. Limits: the light is placed by position and outline, not by the real 3D shape of the face (no real relighting of the nose or cheeks); the subject's bounds are measured once, so a subject that walks across the whole frame keeps the light of its middle-frame position; very bright skin has little room to take a colour (the light adds, it does not recolour), so for strong colours darken the subject a little in the grade first.
+
 ## Light pattern: ripples, solid or particles, in your colours
 A scene lights the person too. On a **Studio Look** (with a Background Replacement behind the subject) open **Light pattern** and press **Underwater ripples**; then shape it:
 

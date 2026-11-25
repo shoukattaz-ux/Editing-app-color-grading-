@@ -232,6 +232,43 @@ function LightPattern({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** Colour lights: stage-style coloured lights from the sides, on the subject only */
+function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
+  const pr = op.parameters ?? {};
+  const num = (k: string, d: number) => (typeof pr[k] === "number" ? (pr[k] as number) : d);
+  const str = (k: string, d: string) => (typeof pr[k] === "string" ? (pr[k] as string) : d);
+  const set = (k: string, v: number | string | undefined) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
+  const preset = (o: Record<string, number | string>) => edit(b => Object.entries(o).reduce((acc, [k, v]) => m.setParam(acc, op.id, k, v), b), `p:${op.id}:colourpreset`);
+  const on = num("colour_light", 0) > 0;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const sides = ["left", "right", "top", "bottom", "off"] as const;
+  const light = (id: "a" | "b", title: string, dc: string, ds: string) => (
+    <div className="cl-light" key={id}>
+      <label className="field"><span className="fl">{title}</span>
+        <span className="slider-row"><input type="color" value={str(`colour_light_color_${id}`, dc)} onChange={e => set(`colour_light_color_${id}`, e.target.value)} aria-label={`${title} colour`} />
+          <select value={str(`colour_light_side_${id}`, ds)} onChange={e => set(`colour_light_side_${id}`, e.target.value)} aria-label={`${title} side`}>
+            {sides.map(sd => <option key={sd} value={sd}>{sd === "off" ? "off" : `from the ${sd}`}</option>)}</select></span></label>
+    </div>);
+  const sl = (k: string, label: string, d: number) => (
+    <label className="field"><span className="fl">{label} <em>{pct(num(k, d))}</em></span>
+      <input type="range" min={0} max={1} step={0.01} value={num(k, d)} onChange={e => set(k, +e.target.value)} aria-label={label} /></label>);
+  return (
+    <section className="colourlights">
+      <div className="master-head"><h4>Colour lights</h4><span className="muted small">{on ? pct(num("colour_light", 0)) : "off"}</span></div>
+      <p className="muted small">Stage-style coloured lights on the <b>subject only</b>: for example cyan from the left and magenta from the right, with a glow along the edge facing each light (jaw, cheek, hair, fins). The background is never touched. It is placed by position and outline, not by the real 3D shape. Needs a background replacement.</p>
+      <div className="btn-row">
+        <Btn label={on ? "Off" : "Cyan / magenta portrait"} kind={on ? undefined : "primary"} onClick={() => (on ? set("colour_light", 0) : preset({ colour_light: 0.8, colour_light_color_a: "#19b8ff", colour_light_side_a: "left", colour_light_color_b: "#b01cff", colour_light_side_b: "right", colour_light_reach: 0.6, colour_light_edge: 0.7 }))} title="Cool cyan key from the left, magenta from the right" />
+      </div>
+      {sl("colour_light", "Light strength", 0)}
+      {on && <>
+        {light("a", "Light A", "#19b8ff", "left")}
+        {light("b", "Light B", "#b01cff", "right")}
+        {sl("colour_light_reach", "How far it reaches", 0.5)}
+        {sl("colour_light_edge", "Edge glow", 0.6)}
+        <p className="muted small">Where the two lights meet in the middle they mix. The studio look's Master amount scales this too.</p></>}
+    </section>);
+}
+
 /** Camera match: make the subject look as if the same camera shot it and the background */
 function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
   const v = (op.parameters?.camera_match as number | undefined) ?? 0;
@@ -375,6 +412,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
       </section>
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
+      {op.type === "studio_look" && <ColourLights op={op} edit={edit} />}
       {op.type === "studio_look" && <LightPattern op={op} edit={edit} />}
       {op.type === "studio_look" && <CameraMatch op={op} edit={edit} note={cameraNotes?.[op.id]} />}
       {(op.type === "background_removal" || op.type === "chroma_key") && <KeyDoctor op={op} bp={bp} schema={schema} edit={edit} setT={setT} run={keyDoctor} dur={dur} />}

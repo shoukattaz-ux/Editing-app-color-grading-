@@ -192,6 +192,13 @@ Timeline track: **effects**
 | `light_pattern_spread` | number | `0.15` | 0.0 … 1.0 | [light_pattern] How far the light spreads: 0 = crisp lines / hard edges, 1 = a wide soft glow. |
 | `light_pattern_warp` | number | `1.0` | 0.0 … 2.0 | [light_pattern, ripples / solid] How strongly the pattern bends and wobbles (0 = straight regular lines, 2 = heavily distorted water). |
 | `light_pattern_on` | enum | `subject` | subject, background, both | [light_pattern] Where the light falls. subject (default) = only on the keyed subject: it can never appear on the background, even with a wide spread. background = only on the picture behind. both = on both. |
+| `colour_light` | number | `0.0` | 0.0 … 1.0 | [needs background_replacement] COLOUR LIGHTS: stage-style coloured lights on the SUBJECT only (e.g. cyan from the left and magenta from the right, like a studio portrait with gels), fading across the subject, with a glow that hugs the edge facing each light. 0 = off. Never lands on the background. |
+| `colour_light_color_a` | color | `#19b8ff` |  | [colour_light] Colour of light A (default cyan-blue). |
+| `colour_light_side_a` | enum | `left` | left, right, top, bottom, off | [colour_light] Which side light A comes from (off = unused). |
+| `colour_light_color_b` | color | `#b01cff` |  | [colour_light] Colour of light B (default magenta-purple). |
+| `colour_light_side_b` | enum | `right` | left, right, top, bottom, off | [colour_light] Which side light B comes from (off = unused). |
+| `colour_light_reach` | number | `0.5` | 0.0 … 1.0 | [colour_light] How far each light reaches across the subject (0 = only the near edge, 1 = across the whole subject, where the two colours mix). |
+| `colour_light_edge` | number | `0.6` | 0.0 … 1.0 | [colour_light] Extra glow along the subject's outline on the side facing each light (rim light on jaw, cheek and hair). 0 = none. |
 | `light_pattern_asset_id` | asset |  |  | [light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples. |
 | `fringe` | number | `0.0` | 0.0 … 4.0 px at 1080p | Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture. |
 

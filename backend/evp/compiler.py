@@ -517,6 +517,46 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         lit = light_blend(g.add([col], "format=gbrp"), L)
         return g.add([g.add([lit], "format=rgba"), a], "alphamerge,format=rgba")
 
+    def colour_lights(fg: str, L: dict, box: dict | None = None) -> str:
+        """stage-style COLOUR LIGHTS on the SUBJECT only: up to two coloured lights, each from a side, that fade across the subject, plus a glow that hugs the edge facing each light.
+        Done on the subject layer before it is placed over the background and its matte is untouched, so no light can land outside the subject."""
+        k = float(L.get("colour_light", 0.0))
+        if k <= 0: return fg
+        lights = [(L.get("colour_light_side_a", "left"), L.get("colour_light_color_a")), (L.get("colour_light_side_b", "right"), L.get("colour_light_color_b"))]
+        lights = [(sd_, _rgb01(c)) for sd_, c in lights if sd_ and sd_ != "off" and c and _rgb01(c)]
+        if not lights: return fg
+        col, alpha = splitn(fg, 2)
+        a1, a2, a3, a4 = splitn(g.add([alpha], "alphaextract"), 4)
+        gate0 = g.add([a4], "lut=y='clip((val-40)*2.4\\,0\\,255)'")                  # near-transparent edge specks of the key get no light at all
+        reach = 0.3 + 0.6 * float(L.get("colour_light_reach", 0.5))
+        edge = float(L.get("colour_light_edge", 0.6))
+        blurred = g.add([a2], f"gblur=sigma={max(1.0, (0.006 + 0.02 * float(L.get('colour_light_reach', 0.5))) * W):.2f}")
+        ring = g.add([a1, blurred], "blend=all_expr='clip((A-B)*3\\,0\\,255)':shortest=1")        # inner band along the outline
+        w4, h4 = max(2, W // 4), max(2, H // 4)
+        layers = []
+        for side, c in lights:
+            b = box or {"x0": 0.0, "x1": 1.0, "y0": 0.0, "y1": 1.0}                   # the subject's bounds (measured), else the whole frame
+            bw, bh = max(0.05, b["x1"] - b["x0"]), max(0.05, b["y1"] - b["y0"])
+            d = {"left": f"((X/W-{b['x0']:.4f})/{bw:.4f})", "right": f"(({b['x1']:.4f}-X/W)/{bw:.4f})", "top": f"((Y/H-{b['y0']:.4f})/{bh:.4f})", "bottom": f"(({b['y1']:.4f}-Y/H)/{bh:.4f})"}[side]
+            expr = f"255*pow(clip(1-max(0,{d})/{reach:.4f},0,1),1.6)".replace(",", "\\,")
+            w = g.add([], f"nullsrc=s={w4}x{h4}:r={fps:g},format=gray" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",geq=lum='{expr}',scale={W}:{H}:flags=bicubic,format=gray")
+            w_a, w_b = splitn(w, 2)
+            layers.append((w_a, w_b, c))
+        # a ring copy per light
+        rings = splitn(ring, len(layers))
+        gates = splitn(gate0, len(layers)) if len(layers) > 1 else [gate0]
+        mixed = []
+        for (w_a, w_b, c), rg, gt in zip(layers, rings, gates):
+            e = g.add([rg, w_b], "blend=all_expr='A*B/255':shortest=1")
+            tot = g.add([w_a, e], f"blend=all_expr='clip(A*{0.8 * min(1.5, k):.4f}+B*{1.6 * min(1.5, k) * edge:.4f}\\,0\\,255)':shortest=1")
+            tot = g.add([tot, gt], "blend=all_expr='A*B/255':shortest=1")
+            t1, t2, t3 = splitn(tot, 3)
+            chans = {pl: g.add([t], f"lut=y='clip(val*{c[pl_i]:.4f},0,255)'") for pl, t, pl_i in ((0, t1, 1), (1, t2, 2), (2, t3, 0))}   # planes G, B, R
+            mixed.append(g.add([chans[0], chans[1], chans[2]], "mergeplanes=0x001020:gbrp"))
+        light = mixed[0] if len(mixed) == 1 else g.add([mixed[0], mixed[1]], "blend=all_mode=addition:shortest=1")
+        lit = g.add([g.add([col], "format=gbrp"), light], "blend=all_mode=screen:shortest=1")
+        return g.add([g.add([lit], "format=rgba"), a3], "alphamerge,format=rgba")
+
     def light_on_background(bgs: str, L: dict) -> str:
         if float(L.get("light_pattern", 0.0)) <= 0 or L.get("light_pattern_on", "subject") == "subject": return bgs
         return g.add([light_blend(g.add([bgs], "format=gbrp"), L)], "format=rgba")
@@ -620,7 +660,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if look is not None:                                       # the look's master Amount also scales how strongly the subject is integrated into the scene
             la = max(0.0, float(L.params.get("amount", 1.0)))
             if la != 1.0:
-                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow", "match_softness", "subject_grain", "background_grain", "match_blacks", "light_pattern")}}
+                look = {**look, **{key: look.get(key, 0.0) * la for key in ("ambient_match", "light_wrap", "depth", "subject_exposure", "shadow", "match_softness", "subject_grain", "background_grain", "match_blacks", "light_pattern", "colour_light")}}
         rp = r.params if r else {}
         moved = bool(r) and (rp["subject_scale"] != 1 or rp["subject_x"] != 0 or rp["subject_y"] != 0)
         sp = rp if (r and rp["shadow"] > 0) else (look if look and look.get("shadow", 0) > 0 else None)      # a look's measured shadow applies only if the background has none of its own
@@ -641,6 +681,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if look:
                 fg = subject_camera(fg, look)
                 fg = light_on_subject(fg, look)
+                fg = colour_lights(fg, look, plan.light_box.get(r.id) if r else None)
                 bgs, fg = integrate(bgs, fg, look)
                 bgs = light_on_background(bgs, look)
                 if look.get("background_grain", 0) > 0:

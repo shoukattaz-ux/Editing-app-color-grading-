@@ -143,6 +143,30 @@ def ensure_floor(plan: Plan, source: str, cache_dir: str) -> None:
         plan.floor[r.id] = res
 
 
+def ensure_light_box(plan: Plan, source: str, cache_dir: str) -> None:
+    """colour lights: where is the subject? Its matte bounds on the middle frame, mapped through subject_scale / x / y, so a light from the left really starts at the subject's left edge."""
+    import hashlib, json as _json, io
+    import numpy as np
+    from PIL import Image
+    plan.light_box = {}
+    for r in [o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) and plan.look_for[o.id].params.get("colour_light", 0) > 0]:
+        sig = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o.type in ("chroma_key", "background_removal", "matte_mask")]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, r.id, r.start_frame, r.end_frame, repr(sorted((k, v) for k, v in r.params.items() if k.startswith("subject_"))), sig, plan.edl, "box1"], default=str).encode()).hexdigest()[:24]
+        f = Path(cache_dir) / "floor" / f"box_{key}.json"
+        if f.is_file():
+            plan.light_box[r.id] = _json.loads(f.read_text(encoding="utf-8")); continue
+        t = ((r.start_frame + r.end_frame) // 2) / plan.blueprint.output.fps
+        a = np.asarray(Image.open(io.BytesIO(render_frame(plan, source, t, 360, cache_dir, _measuring=True, view="alpha"))).convert("L")).astype(np.float32) / 255.0
+        h, w = a.shape
+        cols, rows = np.where((a > 0.5).mean(0) > 0.004)[0], np.where((a > 0.5).mean(1) > 0.004)[0]
+        if len(cols) == 0 or len(rows) == 0: continue
+        s, dx, dy = float(r.params.get("subject_scale", 1.0)), float(r.params.get("subject_x", 0.0)), float(r.params.get("subject_y", 0.0))
+        left, top = (1.0 - s) / 2.0 + dx, ((1.0 - s) if r.params.get("subject_anchor", "bottom") == "bottom" else (1.0 - s) / 2.0) + dy
+        res = {"x0": round(left + cols.min() / w * s, 4), "x1": round(left + (cols.max() + 1) / w * s, 4), "y0": round(top + rows.min() / h * s, 4), "y1": round(top + (rows.max() + 1) / h * s, 4)}
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res), encoding="utf-8")
+        plan.light_box[r.id] = res
+
+
 def ensure_references(plan: Plan, source: str, cache_dir: str) -> None:
     """studio_look with a reference picture: render the frame without the correction, measure it against the reference, keep the curves."""
     looks = [o for o in plan.steps if o.type == "studio_look" and o.params.get("reference_asset_id") and o.params["reference_strength"] > 0]
@@ -323,7 +347,7 @@ class Job:
                 try:
                     ensure_auto(self.plan, self.source, self.work_dir)          # measuring renders first, then the real (full-range) analyses
                     ensure_references(self.plan, self.source, self.work_dir)
-                    ensure_floor(self.plan, self.source, self.work_dir)
+                    ensure_floor(self.plan, self.source, self.work_dir); ensure_light_box(self.plan, self.source, self.work_dir)
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
                 except (Cancelled, FaceCancelled, UpCancelled):
                     self.state = self.current = "cancelled"; return
@@ -405,7 +429,7 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
         # measuring renders look at another frame and leave THEIR mattes/analyses in the plan, so they run first and this frame's go last
         ensure_auto(plan, source, wd)
         ensure_references(plan, source, wd)
-        ensure_floor(plan, source, wd)
+        ensure_floor(plan, source, wd); ensure_light_box(plan, source, wd)
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     if view and not any(o.type in ("chroma_key", "background_removal") for o in plan.steps):
         raise ValueError("There is no keying (chroma key / background removal) in this project, so there is no matte to show")

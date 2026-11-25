@@ -57,6 +57,13 @@ def resolve(params: dict, auto: dict | None = None) -> dict:
     base["light_pattern_spread"] = float(params.get("light_pattern_spread") if params.get("light_pattern_spread") is not None else 0.15)
     base["light_pattern_warp"] = float(params.get("light_pattern_warp") if params.get("light_pattern_warp") is not None else 1.0)
     base["light_pattern_on"] = params.get("light_pattern_on") or "subject"
+    base["colour_light"] = float(params.get("colour_light") or 0.0)
+    base["colour_light_color_a"] = params.get("colour_light_color_a") or "#19b8ff"
+    base["colour_light_side_a"] = params.get("colour_light_side_a") or "left"
+    base["colour_light_color_b"] = params.get("colour_light_color_b") or "#b01cff"
+    base["colour_light_side_b"] = params.get("colour_light_side_b") or "right"
+    base["colour_light_reach"] = float(params.get("colour_light_reach") if params.get("colour_light_reach") is not None else 0.5)
+    base["colour_light_edge"] = float(params.get("colour_light_edge") if params.get("colour_light_edge") is not None else 0.6)
     return base
 
 

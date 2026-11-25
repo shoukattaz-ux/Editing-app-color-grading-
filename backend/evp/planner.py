@@ -24,6 +24,7 @@ class Plan:
     mattes: dict = field(default_factory=dict)                    # op id -> ml.matting.MatteRef (filled by the engine)
     face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
     upscales: dict = field(default_factory=dict)                  # op id -> ml.upscale.UpscaleRef (filled by the engine)
+    light_box: dict = field(default_factory=dict)                 # replacement id -> the placed subject's bounds {x0,x1,y0,y1} as frame fractions (for colour lights; filled by the engine)
     floor: dict = field(default_factory=dict)                     # replacement id -> {"y": floor line (fraction of the frame height), "cut": subject touches the frame bottom} (filled by the engine)
     masks: dict[str, list] = field(default_factory=dict)          # keyer id -> the garbage / keep masks that correct its matte
 
@@ -102,7 +103,7 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
                [r for r in ops if r.type == "background_replacement"]
         reps = [r for r in reps if _overlap(r, lk)]
         if not reps:
-            if lk.params.get("camera_match", 0) > 0 or lk.params.get("light_pattern", 0) > 0 or any(lk.params.get(k) for k in ("match_softness", "subject_grain", "background_grain", "match_blacks")):
+            if lk.params.get("camera_match", 0) > 0 or lk.params.get("light_pattern", 0) > 0 or lk.params.get("colour_light", 0) > 0 or any(lk.params.get(k) for k in ("match_softness", "subject_grain", "background_grain", "match_blacks")):
                 rep.warn("CAMERA_MATCH_NO_BACKGROUND", f"'{lk.id}': camera match and the light pattern work on the SUBJECT in front of a background, so they need a background_replacement; they do nothing without one (fringe still works)", lk.id)
             rep.warn("STUDIO_NO_BACKGROUND", f"'{lk.id}' has no background_replacement to integrate the subject into; only its global grade (contrast, tint, glow, vignette, clarity, grain) is applied", lk.id)
             continue
