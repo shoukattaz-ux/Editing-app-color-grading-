@@ -122,6 +122,14 @@ def matte_key(source: str, op, W: int, H: int, fps: float, start_frame: int, fra
 def generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
                    progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
                    warmup: int = 0, edl: list | None = None) -> MatteRef:
+    out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
+    with fsutil.exclusive(out):                                   # same cached result requested twice at once: the second waits and reuses it
+        return _generate_matte(source, op, W, H, fps, start_frame, frames, cache_dir, progress, cancel, warmup, edl)
+
+
+def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
+                    progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
+                    warmup: int = 0, edl: list | None = None) -> MatteRef:
     """Run RVM over [start_frame, start_frame+frames) of the normalised timeline. Cached on disk."""
     out = Path(cache_dir) / "mattes" / f"matte_{matte_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     fgr_out = out.with_name(out.stem + "_fgr.mkv") if op.params["edge_color_fix"] else None

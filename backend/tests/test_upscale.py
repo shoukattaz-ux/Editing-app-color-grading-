@@ -257,3 +257,55 @@ def test_model_choice_validation(prep):
     p = prep(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 1, "parameters": {"model": "quality", "denoise": 0.9}}]))
     assert p.report.ok and "PARAM_IGNORED" in [w.code for w in p.report.warnings]
     assert not prep(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 1, "parameters": {"model": "magic"}}])).report.ok
+
+
+def test_concurrent_requests_build_the_converted_network_once(tmp_path, monkeypatch):
+    """Windows report: 'FileNotFoundError WinError 2 ... realesr-general-x4v3_dn050.onnx.part -> .onnx'. The preview frame and the preview
+    video asked for the network at the same time; both wrote the same '.part' file and the second rename found it already gone."""
+    import threading, time
+    from evp.ml import upscale, srvgg, models
+    from evp import fsutil
+    monkeypatch.setattr(models, "models_dir", lambda: tmp_path); monkeypatch.setattr(upscale, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(upscale, "ensure_model", lambda n: tmp_path / "w.pth")
+    monkeypatch.setattr(srvgg, "load_state_dict", lambda p: {}); monkeypatch.setattr(srvgg, "dni", lambda a, b, t: a)
+    built = []
+    def slow_build(sd, out, upscale=4):          # the OLD behaviour: one shared '<out>.part' name, slow enough to overlap
+        built.append(1); part = type(out)(str(out) + ".part"); part.write_bytes(b"x"); time.sleep(0.2); fsutil.replace(part, out)
+    monkeypatch.setattr(srvgg, "build_onnx", slow_build)
+    errs, res = [], []
+    def go():
+        try: res.append(upscale.onnx_path("general", 0.5))
+        except Exception as e: errs.append(e)
+    ts = [threading.Thread(target=go) for _ in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert not errs, errs
+    assert len(built) == 1 and len(set(res)) == 1
+
+
+def test_converted_network_temp_names_are_unique(tmp_path, monkeypatch):
+    onnx = __import__("pytest").importorskip("onnx")
+    import numpy as np
+    from evp.ml import srvgg
+    seen = []
+    real = onnx.save
+    monkeypatch.setattr(onnx, "save", lambda m, p: (seen.append(str(p)), real(m, p))[1])
+    sd = {"body.0.weight": np.zeros((48, 3, 3, 3), np.float32), "body.0.bias": np.zeros(48, np.float32)}
+    srvgg.build_onnx(sd, tmp_path / "a.onnx"); srvgg.build_onnx(sd, tmp_path / "b.onnx")
+    assert len(set(seen)) == 2 and all(s.endswith(".part") and s.count(".") >= 3 for s in seen)
+    assert (tmp_path / "a.onnx").is_file() and not list(tmp_path.glob("*.part"))
+
+
+def test_same_cached_output_is_never_generated_twice_at_once(tmp_path):
+    import threading, time
+    from evp import fsutil
+    active, peak, done = [0], [0], []
+    def work():
+        with fsutil.exclusive(tmp_path / "x.mkv"):
+            active[0] += 1; peak[0] = max(peak[0], active[0]); time.sleep(0.05); active[0] -= 1; done.append(1)
+    ts = [threading.Thread(target=work) for _ in range(5)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert peak[0] == 1 and len(done) == 5
+    other = []
+    with fsutil.exclusive(tmp_path / "a.mkv"):
+        t = threading.Thread(target=lambda: [fsutil.exclusive(tmp_path / "b.mkv").__enter__(), other.append(1)]); t.start(); t.join(2)
+    assert other == [1]                                       # different outputs do not block each other

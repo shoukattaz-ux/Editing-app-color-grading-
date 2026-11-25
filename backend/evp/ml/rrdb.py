@@ -87,7 +87,7 @@ def build_onnx(sd: dict[str, np.ndarray], out: str | Path) -> int:
     m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)])
     m.ir_version = 8
     onnx.checker.check_model(m)
-    tmp = Path(str(out) + ".part")
+    tmp = fsutil.temp_part(out)
     onnx.save(m, str(tmp))
-    fsutil.replace(tmp, out)
+    fsutil.replace_or_existing(tmp, out)
     return scale

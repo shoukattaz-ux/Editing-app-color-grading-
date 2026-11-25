@@ -40,6 +40,7 @@ class UpscaleRef:
 
 _SESS: dict = {}
 _LOCK = threading.Lock()
+_BUILD_LOCK = threading.Lock()      # the preview frame and the preview video both ask for the converted network at the same moment
 
 
 # model name -> (weights in the model store, network family, network scale, CPU microseconds per input pixel)
@@ -59,16 +60,18 @@ def onnx_path(model: str, denoise: float = 0.0) -> Path:
     else:
         p = models_dir() / f"{Path(MODELS_FILE(weights)).stem}.onnx"
     if not p.is_file():
-        from .srvgg import load_state_dict, dni
-        sd = load_state_dict(ensure_model(weights))
-        if model == "general" and d:
-            sd = dni(sd, load_state_dict(ensure_model("esrgan_wdn")), d / 100.0)
-        if family == "srvgg":
-            from .srvgg import build_onnx
-            build_onnx(sd, p)
-        else:
-            from .rrdb import build_onnx as build_rrdb
-            build_rrdb(sd, p)
+        with _BUILD_LOCK:
+            if p.is_file(): return p                                   # another request finished it while this one waited
+            from .srvgg import load_state_dict, dni
+            sd = load_state_dict(ensure_model(weights))
+            if model == "general" and d:
+                sd = dni(sd, load_state_dict(ensure_model("esrgan_wdn")), d / 100.0)
+            if family == "srvgg":
+                from .srvgg import build_onnx
+                build_onnx(sd, p)
+            else:
+                from .rrdb import build_onnx as build_rrdb
+                build_rrdb(sd, p)
     return p
 
 
@@ -206,6 +209,14 @@ def upscale_key(source: str, op, W, H, fps, start_frame, frames, edl=None) -> st
 def generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fps: float, start_frame: int, frames: int,
                      cache_dir: str, progress: Callable[[int, int], None] | None = None,
                      cancel: threading.Event | None = None, warmup: int = 0, edl: list | None = None) -> UpscaleRef:
+    out = Path(cache_dir) / "upscale" / f"up_{upscale_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
+    with fsutil.exclusive(out):                                   # same cached result requested twice at once: the second waits and reuses it
+        return _generate_upscale(source, op, src_w, src_h, W, H, fps, start_frame, frames, cache_dir, progress, cancel, warmup, edl)
+
+
+def _generate_upscale(source: str, op, src_w: int, src_h: int, W: int, H: int, fps: float, start_frame: int, frames: int,
+                      cache_dir: str, progress: Callable[[int, int], None] | None = None,
+                      cancel: threading.Event | None = None, warmup: int = 0, edl: list | None = None) -> UpscaleRef:
     import subprocess
     out = Path(cache_dir) / "upscale" / f"up_{upscale_key(source, op, W, H, fps, start_frame, frames, edl)}.mkv"
     if out.is_file():
