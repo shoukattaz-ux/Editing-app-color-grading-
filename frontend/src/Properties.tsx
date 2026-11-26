@@ -300,6 +300,7 @@ function AutoEnhance({ op, edit, note }: { op: Op; edit: Edit; note?: EnhanceNot
   const pr = op.parameters ?? {};
   const v = typeof pr.auto_enhance === "number" ? pr.auto_enhance : 0;
   const style = typeof pr.enhance_style === "string" ? pr.enhance_style : "crisp";
+  const where = typeof pr.apply_to === "string" ? pr.apply_to : "both";
   const set = (k: string, x: number | string) => edit(b => m.setParam(b, op.id, k, x), `p:${op.id}:${k}`);
   const full = note?.full, ms = note?.measured;
   const f = (x: number, d = 2) => (x >= 0 ? "+" : "") + x.toFixed(d);
@@ -314,6 +315,12 @@ function AutoEnhance({ op, edit, note }: { op: Op; edit: Edit; note?: EnhanceNot
           <Btn key={k} label={l} kind={style === k ? "primary" : undefined} onClick={() => set("enhance_style", k)}
             title={k === "natural" ? "Gentle: keeps the mood of the shot" : k === "crisp" ? "Clean, bright and a little cool: a clear-day look" : "More colour and punch"} />)}
       </div>
+      <div className="btn-row" role="group" aria-label="Apply to">
+        {([["both", "Both"], ["subject", "Subject only"], ["background", "Background only"]] as const).map(([k, l]) =>
+          <Btn key={k} label={l} kind={where === k ? "primary" : undefined} onClick={() => set("apply_to", k)}
+            title={k === "both" ? "The whole picture" : k === "subject" ? "Only the person / object you keyed: the background never changes" : "Only the picture behind the subject: the subject never changes"} />)}
+      </div>
+      {where !== "both" && <p className="muted small">Applies to the {where === "subject" ? "subject (your keyed person or object)" : "background behind the subject"} only, and measures only that part. Needs a removed background with a background replacement; this whole Color Grading (your own sliders too) follows this choice.</p>}
       {v > 0 && !note && <p className="muted small">Measuring the clip on the next preview frame…</p>}
       {v > 0 && ms && full && <ul className="cm-list">
         <li><b>Measured:</b> middle brightness {Math.round(ms.p50 * 100)}%, whites {Math.round((ms.white ?? ms.p99) * 100)}%, darkest {Math.round(ms.p1 * 100)}%, cast {ms.r > ms.b * 1.02 ? "warm" : ms.b > ms.r * 1.02 ? "cool" : "neutral"}</li>

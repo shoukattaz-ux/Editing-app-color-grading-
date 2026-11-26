@@ -718,6 +718,9 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         def build(src: str) -> str:
             bgs, fg = bg_stream(r, k), make_keyed(src, k)
             if moved: fg = place_subject(fg, rp)
+            for gop in (plan.grade_for.get(r.id, []) if r else []):     # Color Gradings set to 'subject only' / 'background only'
+                if gop.params.get("apply_to") == "subject": fg = grade_part(fg, gop)
+                else: bgs = grade_part(bgs, gop)
             sh = rfl = ctl = None
             fl = floor_for(r)
             want = [n for n, on in (("shadow", shadow), ("reflect", bool(fl) and rp["reflection"] > 0), ("contact", bool(fl) and rp["contact_shadow"] > 0)) if on]
@@ -796,6 +799,42 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if cv: f.append("curves=" + ":".join(cv))
         return f
 
+    def grade_block(src: str, op: Operation) -> str:
+        """one Color Grading applied to a stream in the main picture format (the whole frame, or only the subject / the background inside a composite)"""
+        p = op.params
+        if float(p.get("auto_enhance", 0) or 0) > 0 and plan.enhance.get(op.id):
+            import copy as _copy
+            from .enhance import apply as enhance_apply
+            op_e = _copy.copy(op); op_e.params = enhance_apply(p, plan.enhance[op.id])        # the measured corrections x the master slider + your own sliders
+            main = grade_filters(op_e)
+        else:
+            main = grade_filters(op)
+        lut_id = p["lut_asset_id"]
+        if lut_id and p["lut_intensity"] >= 1:
+            main.append(f"lut3d=file='{esc_path(bp.assets[lut_id].resolved)}'")
+            lut_id = None
+        pre = pre_cmd[0]
+        lut_k = p["lut_intensity"]
+        lut_path = esc_path(bp.assets[lut_id].resolved) if lut_id else None
+        def lut_partial(src: str) -> str:     # partial-strength LUT: blend graded vs LUT'd
+            a, b = g.split(src)
+            return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={lut_k:.3f}")  # first input is the "top" layer
+        if abs(float(p.get("amount", 1.0)) - 1.0) > 1e-6:
+            def whole(x: str) -> str:
+                s_ = g.add([x], ",".join([*pre, *cs.wrap_rgb(main)])) if main else x
+                return lut_partial(s_) if lut_id else s_
+            return amount_block(src, op, whole)
+        out = apply_ranged(src, main, op, pre)
+        return ranged_block(out, op, lut_partial) if lut_id else out
+
+    def grade_part(x: str, op: Operation) -> str:
+        """a Color Grading on an RGBA layer (the subject or the background): only the colour is graded, the alpha (the cut-out) is untouched"""
+        col, alpha = splitn(x, 2)
+        a = g.add([alpha], "alphaextract")
+        graded = grade_block(g.add([col], cs.rgb_to_yuv()), op)
+        return g.add([g.add([graded], cs.yuv_to_rgb("rgba")), a], "alphamerge,format=rgba")
+
+    in_composite = {o.id for ops in plan.grade_for.values() for o in ops}
     audio_filters: list[str] = []
     for op in plan.steps:
         t, p = op.type, op.params
@@ -817,31 +856,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         elif t == "background_replacement":
             cur = composite(cur, next(o for o in plan.steps if o.id == plan.alpha_source[op.id]), op)
         elif t == "color_grading":
-            if float(p.get("auto_enhance", 0) or 0) > 0 and plan.enhance.get(op.id):
-                import copy as _copy
-                from .enhance import apply as enhance_apply
-                op_e = _copy.copy(op); op_e.params = enhance_apply(p, plan.enhance[op.id])        # the measured corrections x the master slider + your own sliders
-                main = grade_filters(op_e)
-            else:
-                main = grade_filters(op)
-            lut_id = p["lut_asset_id"]
-            if lut_id and p["lut_intensity"] >= 1:
-                main.append(f"lut3d=file='{esc_path(bp.assets[lut_id].resolved)}'")
-                lut_id = None
-            pre = pre_cmd[0]
-            lut_k = p["lut_intensity"]
-            lut_path = esc_path(bp.assets[lut_id].resolved) if lut_id else None
-            def lut_partial(src: str) -> str:     # partial-strength LUT: blend graded vs LUT'd
-                a, b = g.split(src)
-                return g.add([g.add([b], ",".join(cs.wrap_rgb([f"lut3d=file='{lut_path}'"]))), a], f"blend=all_mode=normal:all_opacity={lut_k:.3f}")  # first input is the "top" layer
-            if abs(float(p.get("amount", 1.0)) - 1.0) > 1e-6:
-                def whole(src: str) -> str:
-                    s_ = g.add([src], ",".join([*pre, *cs.wrap_rgb(main)])) if main else src
-                    return lut_partial(s_) if lut_id else s_
-                cur = amount_block(cur, op, whole)
-            else:
-                cur = apply_ranged(cur, main, op, pre)
-                if lut_id: cur = ranged_block(cur, op, lut_partial)
+            if op.id in in_composite: continue                  # applied to the subject / the background inside the composite
+            cur = grade_block(cur, op)
         elif t == "studio_look":
             if plan.measuring: continue
             L = resolve_look(p, plan.look_auto.get(op.id))

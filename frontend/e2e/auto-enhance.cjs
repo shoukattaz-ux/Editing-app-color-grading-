@@ -49,6 +49,10 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
       return [await f(off), await f(on)]; }, [base, be.token, await bpNow()]);
     const lum = c => (c[0] + c[1] + c[2]) / 3, rb = c => c[0] / c[2];
     check(lum(stats[1]) > lum(stats[0]) + 8 && rb(stats[1]) < rb(stats[0]) - 0.05, "the rendered clip is brighter and less warm", `${stats[0].map(Math.round)} -> ${stats[1].map(Math.round)}`);
+    await page.click(".autoenhance button:has-text('Subject only')"); await page.waitForTimeout(800);
+    check((await bpNow()).operations.find(o => o.type === "color_grading").parameters.apply_to === "subject", "Apply to: Subject only is stored");
+    check(/only, and measures only that part/.test(await page.locator(".autoenhance").innerText()), "the card explains what Subject only means");
+    await page.click(".autoenhance button:has-text('Both')"); await page.waitForTimeout(600);
     await page.click(".autoenhance button:has-text('Off')"); await page.waitForTimeout(800);
     check((await bpNow()).operations.find(o => o.type === "color_grading").parameters.auto_enhance === 0, "Off turns it off");
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));

@@ -94,6 +94,7 @@ _AMOUNT_KEY = Param(N, 1.0, 0.0, 1.0, unit="x", desc="Master amount: how much of
 
 _COLOR_PARAMS = {
     "auto_enhance": Param(N, 0.0, 0.0, 1.5, desc="AUTO ENHANCE master slider: the clip is measured (haze, colour cast, exposure, contrast, colourfulness) and the matching corrections - dehaze, blacks, whites, highlights, exposure, contrast, white balance, vibrance, clarity, texture - are applied together. 0 = off, 1 = the measured correction, 1.5 = pushed further. Your own sliders in this Color Grading add on top."),
+    "apply_to": Param(E, "both", enum=("both", "subject", "background"), desc="Where this grade (and its auto_enhance) applies: both = the whole picture; subject = only the keyed person / object (its cut-out is untouched, the background never changes); background = only the picture behind the subject. subject / background need a background_replacement."),
     "enhance_style": Param(E, "crisp", enum=("natural", "crisp", "vivid"), desc="[auto_enhance] natural = gentle, keeps the mood; crisp = clean, cool and sharp (a clear-day look); vivid = more colour and punch."),
     "preset": Param(E, "none", enum=("none", "cinematic_teal_orange", "warm_film", "cool_blue", "bleach_bypass", "faded_matte", "high_contrast_bw"),
                     desc="Starting look; individual controls are applied on top."),

@@ -18,6 +18,7 @@ class Plan:
     measuring: bool = False                                       # engine is measuring the composite: studio looks are skipped
     transparent_key: str | None = None                            # id of the keyer whose matte becomes the output's alpha channel (transparent export)
     look_curves: dict = field(default_factory=dict)               # studio_look id -> [r, g, b] curve points matched to its reference picture (filled by the engine)
+    grade_for: dict[str, list] = field(default_factory=dict)       # replacement id -> Color Gradings applied to its subject / background only
     look_for: dict[str, Operation] = field(default_factory=dict)  # replacement id -> the studio_look that integrates the subject into it
     total_frames: int = 0
     edl: list | None = None                                       # [(src_a, src_b)] pieces on the output grid; None = uncut source
@@ -97,6 +98,17 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
             rep.warn("MASK_NO_KEY", f"'{mk.id}': there is no chroma key / background removal at this time for the mask to correct; it does nothing", mk.id)
             continue
         for k in pool: plan.masks.setdefault(k.id, []).append(mk)
+
+    # --- Color Gradings for the SUBJECT only / the BACKGROUND only: applied inside the composite of the background they overlap
+    for cg in (o for o in ops if o.type == "color_grading" and o.params.get("apply_to", "both") in ("subject", "background")):
+        reps = [r for r in ops if r.type == "background_replacement" and _overlap(r, cg)]
+        if not reps:
+            rep.warn("GRADE_NEEDS_BACKGROUND", f"'{cg.id}': 'apply to {cg.params['apply_to']} only' needs a background replacement (a removed background) to tell the subject from the background; it is applied to the whole picture", cg.id)
+            continue
+        for r in reps:
+            plan.grade_for.setdefault(r.id, []).append(cg)
+        if not any(r.start_frame <= cg.start_frame and r.end_frame >= cg.end_frame for r in reps):
+            rep.warn("GRADE_RANGE_DIFFERS", f"'{cg.id}': the {cg.params['apply_to']} is only graded where the background replacement runs", cg.id)
 
     # --- studio looks: bind to the background replacement they integrate the subject into (if any)
     for lk in (o for o in ops if o.type == "studio_look"):

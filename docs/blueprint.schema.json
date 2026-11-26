@@ -839,6 +839,16 @@
                       "maximum": 1.5,
                       "default": 0.0
                     },
+                    "apply_to": {
+                      "description": "Where this grade (and its auto_enhance) applies: both = the whole picture; subject = only the keyed person / object (its cut-out is untouched, the background never changes); background = only the picture behind the subject. subject / background need a background_replacement.",
+                      "type": "string",
+                      "enum": [
+                        "both",
+                        "subject",
+                        "background"
+                      ],
+                      "default": "both"
+                    },
                     "enhance_style": {
                       "description": "[auto_enhance] natural = gentle, keeps the mood; crisp = clean, cool and sharp (a clear-day look); vivid = more colour and punch.",
                       "type": "string",

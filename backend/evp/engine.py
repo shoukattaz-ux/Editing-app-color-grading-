@@ -120,8 +120,10 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
 
 
 def ensure_enhance(plan: Plan, source: str, cache_dir: str) -> None:
-    """auto enhance: measure the shot under each Color Grading that uses it - three frames of its range, from the source as cut. Cached."""
+    """auto enhance: measure what each Color Grading will change - three frames of its range. With a removed background that is the finished
+    picture (without this grade), or only its subject / only its background when the grade is set to those; otherwise the source as cut. Cached."""
     import hashlib, json as _json
+    import numpy as np
     from .enhance import analyze
     from .ml.frames import decode
     plan.enhance = {}
@@ -129,18 +131,45 @@ def ensure_enhance(plan: Plan, source: str, cache_dir: str) -> None:
     if not ops: return
     out = plan.blueprint.output
     w = min(480, out.width) // 2 * 2; h = max(2, int(round(out.height * w / out.width)) // 2 * 2)
+    keyed = any(o.type in ("chroma_key", "background_removal") for o in plan.steps)
     for op in ops:
-        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, op.start_frame, op.end_frame, plan.edl, w, "enh6"], default=str).encode()).hexdigest()[:24]
+        part = op.params.get("apply_to", "both")
+        rep = next((r for r in plan.steps if r.type == "background_replacement" and op in plan.grade_for.get(r.id, [])), None)
+        part = part if rep is not None else "both"
+        others = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o is not op]
+        mtimes = [Path(a.resolved).stat().st_mtime_ns for a in plan.blueprint.assets.values() if a.resolved and Path(a.resolved).is_file()]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, op.start_frame, op.end_frame, plan.edl, w, part, keyed and others, keyed and mtimes, "enh7"], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "look" / f"enhance_{key}.json"
         if f.is_file():
             plan.enhance[op.id] = _json.loads(f.read_text(encoding="utf-8")); continue
         n = max(1, op.end_frame - op.start_frame)
-        frames = []
-        for q in (0.2, 0.5, 0.8):
-            fr = op.start_frame + min(n - 1, int(n * q))
-            frames += list(decode(source, w, h, out.fps, fr, 1, plan.edl))
+        times = [(op.start_frame + min(n - 1, int(n * q))) for q in (0.2, 0.5, 0.8)]
+        frames, masks = [], None
+        if not keyed:
+            for fr in times: frames += list(decode(source, w, h, out.fps, fr, 1, plan.edl))
+        else:
+            import cv2
+            dec = lambda png: cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)[:, :, ::-1]
+            saved_steps, saved_for = plan.steps, plan.grade_for
+            plan.steps = [o for o in saved_steps if o is not op]                 # measure the picture WITHOUT this grade (no double counting)
+            plan.grade_for = {k: [o for o in v if o is not op] for k, v in saved_for.items()}
+            try:
+                masks = [] if part != "both" else None
+                for fr in times:
+                    t = fr / out.fps
+                    frames.append(np.ascontiguousarray(dec(render_frame(plan, source, t, w, cache_dir, _measuring=True))))
+                    if part != "both":                                          # where is the subject? render it over magenta
+                        saved = dict(rep.params)
+                        rep.params.update(asset_id=None, color="#ff00ff", shadow=0.0, reflection=0.0, contact_shadow=0.0)
+                        try: pink = dec(render_frame(plan, source, t, w, cache_dir, _measuring=True))
+                        finally: rep.params.clear(); rep.params.update(saved)
+                        subj = np.abs(pink.astype(int) - [255, 0, 255]).sum(2) > 120
+                        masks.append(subj if part == "subject" else ~subj)
+            finally:
+                plan.steps, plan.grade_for = saved_steps, saved_for
         if not frames: continue
-        res = analyze(frames)
+        try: res = analyze(frames, masks)
+        except ValueError: continue
         f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res), encoding="utf-8")
         plan.enhance[op.id] = res
 

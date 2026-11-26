@@ -12,16 +12,23 @@ import numpy as np
 STYLES = ("natural", "crisp", "vivid")
 
 
-def analyze(frames: list[np.ndarray]) -> dict:
-    """frames: RGB uint8 (any size). Returns plain numbers (JSON) describing the shot."""
+def analyze(frames: list[np.ndarray], masks: list[np.ndarray] | None = None) -> dict:
+    """frames: RGB uint8 (any size); masks (optional, bool HxW): measure only those pixels (the subject, or the background).
+    Returns plain numbers (JSON) describing the shot."""
     import cv2
     st = {k: [] for k in ("p1", "p5", "p50", "p95", "p99", "clip", "haze", "r", "g", "b", "sat", "neutral_share", "white")}
-    for fr in frames:
+    for i, fr in enumerate(frames):
         f = fr.astype(np.float32) / 255.0
+        sel = masks[i] if masks is not None else None
+        if sel is not None and sel.sum() < 200: continue                       # (the part is not in this frame)
+        if sel is not None:
+            dark_all = cv2.erode(f.min(2), np.ones((7, 7), np.uint8))
+            f = f[sel][None, :, :]                                            # a 1 x N "picture" of only the measured pixels
+            dark_sel = dark_all[sel][None, :]
         y = 0.2126 * f[..., 0] + 0.7152 * f[..., 1] + 0.0722 * f[..., 2]
         for k, q in (("p1", 1), ("p5", 5), ("p50", 50), ("p95", 95), ("p99", 99)): st[k].append(float(np.percentile(y, q)))
         st["clip"].append(float((y > 0.97).mean()))
-        dark = cv2.erode(f.min(2), np.ones((7, 7), np.uint8))                 # "dark channel": a clear picture has very dark pixels nearly everywhere
+        dark = dark_sel if sel is not None else cv2.erode(f.min(2), np.ones((7, 7), np.uint8))   # "dark channel": a clear picture has very dark pixels nearly everywhere
         st["haze"].append(float(np.percentile(dark, 25)))
         mx, mn = f.max(2), f.min(2)
         chroma = (mx - mn) / np.maximum(mx, 1e-3)
@@ -33,6 +40,7 @@ def analyze(frames: list[np.ndarray]) -> dict:
         for i, k in enumerate("rgb"): st[k].append(float(m[i]))
         st["neutral_share"].append(share)
         st["white"].append(float(np.percentile(y[neutral], 90)) if share > 0.02 else float(np.percentile(y, 97)))    # how white the whites are
+    if not st["p50"]: raise ValueError("nothing to measure")
     return {k: float(np.median(v)) for k, v in st.items()}
 
 
