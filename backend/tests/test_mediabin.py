@@ -96,3 +96,18 @@ def test_remove_deletes_only_the_project_copy(client, proj, media, tmp_path):
 def test_requires_token(client, proj):
     assert client.get("/api/project/media").status_code == 401
     assert client.get("/api/media/thumb", params={"src": "asset", "path": "assets/x.png"}).status_code == 401
+
+
+def test_an_earlier_source_video_can_be_removed_from_the_bin_but_not_the_current_one(client, proj, media, tmp_path):
+    other = tmp_path / "other.mp4"; shutil.copy(media["video"], other)
+    client.post("/api/project/source", headers=H, json={"path": str(other)})           # the first video becomes an earlier source
+    paths = [s["path"] for s in bin_(client)["sources"]]
+    first = next(p for p in paths if not p.endswith("other.mp4"))
+    assert len(paths) == 2
+    cur = client.post("/api/project/source/forget", headers=H, json={"path": str(other)})
+    assert cur.status_code == 409 and "editing now" in cur.text                          # the video being edited stays
+    assert client.post("/api/project/source/forget", headers=H, json={"path": first}).status_code == 200
+    assert [s["path"] for s in bin_(client)["sources"]] == [str(other.resolve())]
+    import os
+    assert os.path.isfile(first)                                                          # only the reference went, never the file
+    assert client.post("/api/project/source/forget", headers=H, json={"path": first}).status_code == 404

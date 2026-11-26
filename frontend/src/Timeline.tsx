@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Blueprint, Op, Schema } from "./model";
 import * as m from "./model";
 import type { Issue, VideoInfo } from "./api";
-import { Btn, Icon } from "./ui";
+import { Btn, Icon, openContextMenu } from "./ui";
 import { MEDIA_MIME, MediaDrag } from "./Media";
 
 const TRACKS: { id: string; label: string; icon: string }[] = [
@@ -20,7 +20,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; t: number; setT: (t: number) => void; sel: string | null; setSel: (id: string | null) => void;
   selClip: string | null; setSelClip: (id: string | null) => void;
   edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void; issues: Issue[]; zoom: number; setZoom: (z: number) => void; sourceName: string;
-  onCut: () => void; onDeleteClip: () => void;
+  onCut: () => void; onDeleteClip: (id?: string) => void;
 }) {
   const fps = layout.fps, dur = layout.duration || 10;
   const clipDrag = useRef<{ id: string; side: "start" | "end"; x0: number; edge0: number } | null>(null);
@@ -32,6 +32,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
   const srcDur = video?.duration ?? 0;
   const downClip = (e: React.PointerEvent, c: m.LaidClip) => {
     e.stopPropagation(); setSel(null); setSelClip(c.id);
+    if (e.button !== 0) return;                                  // right-click: select only (the menu opens), never start a trim
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const side = e.clientX - r.left < 8 ? "start" : r.right - e.clientX < 8 ? "end" : null;
     if (!side) return;
@@ -69,6 +70,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
 
   const down = (e: React.PointerEvent, op: Op) => {
     e.stopPropagation(); setSel(op.id); setSelClip(null);
+    if (e.button !== 0) return;                                  // right-click: select only (the menu opens), never start a drag
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const mode = e.clientX - r.left < 7 ? "start" : r.right - e.clientX < 7 ? "end" : "move";
     drag.current = { id: op.id, mode, x0: e.clientX, op };
@@ -94,7 +96,7 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
         </div>
         <span className="sep" />
         <Btn icon="scissors" label="Cut" title="Cut the footage at the playhead (C)" disabled={!video} onClick={onCut} />
-        <Btn icon="trash" label="Delete clip" kind="danger" title="Delete the selected clip; later footage and effects move earlier (Del)" disabled={!selClip || layout.clips.length < 2} onClick={onDeleteClip} />
+        <Btn icon="trash" label="Delete clip" kind="danger" title="Delete the selected clip; later footage and effects move earlier (Del)" disabled={!selClip || layout.clips.length < 2} onClick={() => onDeleteClip()} />
         <span className="sep" />
         <Btn icon="split" label="Split effect" title="Split the selected effect at the playhead" disabled={!sel} onClick={() => { if (!sel) return; const r = m.splitOp(bp, sel, t, fps); if (r.ids) { edit(() => r.bp); setSel(r.ids[1]); } }} />
         <Btn icon="trash" label="Delete effect" title="Delete the selected effect (Del)" disabled={!sel} onClick={() => { if (sel) { edit(b => m.deleteOp(b, sel)); setSel(null); } }} />
@@ -128,7 +130,16 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
                   {tr.id === "video" && video && layout.clips.map((c, i) => (
                     <div key={c.id} className={`clip source footage ${selClip === c.id ? "sel" : ""}`} style={{ left: c.tStart * zoom, width: Math.max(10, (c.tEnd - c.tStart) * zoom - 1), top: 4 }}
                       title={`${c.label || sourceName} · source ${m.formatTime(c.srcStart, fps).slice(3)} – ${m.formatTime(c.srcEnd, fps).slice(3)} · drag an edge to trim`}
-                      onPointerDown={e => downClip(e, c)} onPointerMove={moveClipDrag} onPointerUp={() => { clipDrag.current = null; }}>
+                      onPointerDown={e => downClip(e, c)} onPointerMove={moveClipDrag} onPointerUp={() => { clipDrag.current = null; }}
+                      onContextMenu={e => { setSel(null); setSelClip(c.id); const inside = t > c.tStart + 1 / fps && t < c.tEnd - 1 / fps; const n = layout.clips.length;
+                        openContextMenu(e, [
+                          { label: "Cut at playhead", icon: "scissors", disabled: !inside, hint: inside ? "Split this clip at the playhead (C)" : "Move the playhead inside this clip first", onClick: onCut },
+                          { label: "Duplicate clip", icon: "copy", onClick: () => { if (!video) return; const r = m.duplicateClip(bp, c.id, video.duration, fps); if (r.id) { edit(() => r.bp); setSelClip(r.id); } } },
+                          { label: "Move earlier", disabled: i === 0, onClick: () => video && edit(b => m.moveClip(b, c.id, -1, video.duration, fps)) },
+                          { label: "Move later", disabled: i === n - 1, onClick: () => video && edit(b => m.moveClip(b, c.id, 1, video.duration, fps)) },
+                          { sep: true, label: "" },
+                          { label: n < 2 ? "Delete clip (the only clip stays)" : "Delete clip", icon: "trash", danger: true, disabled: n < 2, hint: n < 2 ? "A project keeps at least one clip. Cut it first, then delete the part you do not want." : "Later footage and effects move earlier (Del)", onClick: () => onDeleteClip(c.id) },
+                        ]); }}>
                       <i className="handle l" /><Icon n="film" size={12} /><span>{layout.cut ? (c.label || `${sourceName} · ${m.formatTime(c.srcStart, fps).slice(3, 8)}–${m.formatTime(c.srcEnd, fps).slice(3, 8)}`) : sourceName}</span><i className="handle r" />
                     </div>))}
                   {tr.id === "video" && layout.cut && layout.clips.slice(1).map(c => <i key={"cut" + c.id} className="cutmark" style={{ left: c.tStart * zoom - 1 }} />)}
@@ -139,7 +150,15 @@ export function Timeline({ bp, schema, video, layout, t, setT, sel, setSel, selC
                       <div key={op.id} className={`clip op ${sel === op.id ? "sel" : ""} ${op.enabled === false ? "off" : ""} ${errIds.has(op.id) ? "err" : ""}`}
                         style={{ left: op.start * zoom, width: Math.max(10, (end - op.start) * zoom), top: 4 + lane * 28, background: CAT_COLOR[spec?.category ?? ""] ?? "#667" }}
                         title={`${spec?.title ?? op.type} · ${op.start.toFixed(2)}–${end.toFixed(2)}s`}
-                        onPointerDown={e => down(e, op)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; }}>
+                        onPointerDown={e => down(e, op)} onPointerMove={moveDrag} onPointerUp={() => { drag.current = null; }}
+                        onContextMenu={e => { setSel(op.id); setSelClip(null); const inside = t > op.start + 1 / fps && t < end - 1 / fps;
+                          openContextMenu(e, [
+                            { label: "Duplicate", icon: "copy", onClick: () => { const r = m.duplicateOp(bp, op.id); if (r.id) { edit(() => r.bp); setSel(r.id); } } },
+                            { label: "Split at playhead", icon: "split", disabled: !inside, hint: inside ? "" : "Move the playhead inside this effect first", onClick: () => { const r = m.splitOp(bp, op.id, t, fps); if (r.ids) { edit(() => r.bp); setSel(r.ids[1]); } } },
+                            { label: op.enabled === false ? "Turn on" : "Turn off (keep it, skip it)", icon: "eye", onClick: () => edit(b => m.toggleOp(b, op.id)) },
+                            { sep: true, label: "" },
+                            { label: "Delete effect", icon: "trash", danger: true, hint: "Del", onClick: () => { edit(b => m.deleteOp(b, op.id)); setSel(null); } },
+                          ]); }}>
                         <i className="handle l" /><span>{op.label || spec?.title || op.type}</span><i className="handle r" />
                         {kfTimes(op).filter(k => k >= 0 && k <= end - op.start).map(k => <i key={k} className="kfd" style={{ left: k * zoom - 4 }} title={`keyframe at ${(op.start + k).toFixed(2)}s`} />)}
                       </div>);

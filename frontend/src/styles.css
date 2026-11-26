@@ -235,3 +235,8 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .toast{cursor:pointer}
 .check>input[type=checkbox],.check>input[type=radio]{width:auto;flex:none;margin:2px 0 0}.check{align-items:flex-start;line-height:1.4}
 .draft-tag{position:absolute;left:12px;top:10px;z-index:3;font-size:11px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:4px;background:#f59e0bcc;color:#111;pointer-events:auto}
+.ctxmenu{position:fixed;z-index:60;background:var(--bg2,#1b1f27);border:1px solid #ffffff22;border-radius:8px;padding:4px;box-shadow:0 10px 30px #0008;display:flex;flex-direction:column}
+.ctxmenu button{display:flex;align-items:center;gap:8px;background:none;border:0;color:inherit;text-align:left;padding:6px 10px;border-radius:5px;font:inherit;font-size:13px;cursor:pointer;height:30px}
+.ctxmenu button:hover:not(:disabled){background:#3b82f633}.ctxmenu button:disabled{opacity:.45;cursor:default}.ctxmenu button.danger{color:#f87171}
+.ctxsep{height:1px;background:#ffffff1a;margin:3px 4px}
+.mcard.selected{outline:2px solid #3b82f6;outline-offset:1px}

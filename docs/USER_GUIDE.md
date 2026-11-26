@@ -117,6 +117,12 @@ Export ▸ Codec ▸ **ProRes 422 10-bit** (container switches to .mov, audio be
 ## Shortcuts
 C cut at playhead · Space play/pause · ←/→ frame step · Home / End jump to start / end · Ctrl+Z / Ctrl+Shift+Z undo/redo · Ctrl+S save · Del delete effect or clip · Ctrl+wheel on the timeline zooms · Esc closes a dialog or popup (otherwise clears the selection). While a dialog is open, no other shortcut acts on the timeline behind it.
 
+## Right-click menus and deleting things
+* **Timeline, effects:** right-click an effect bar for **Duplicate**, **Split at playhead**, **Turn off** (keep it but skip it) / **Turn on**, and **Delete effect**. Selecting it and pressing **Del** also deletes it.
+* **Timeline, clips (your footage):** right-click a clip for **Cut at playhead**, **Duplicate clip**, **Move earlier / later** and **Delete clip** (later footage and effects move up). The only clip of a project cannot be deleted: cut it first, then delete the part you do not want.
+* **Media panel:** right-click a card for **Use / Edit this video**, **Copy file location** and **Remove**; or click a card and press **Del**. Removing a background or LUT deletes the project's own copy; removing an earlier source video only takes it off the list. Your original files are never touched. The video you are editing now cannot be removed from the list (switch to another video first).
+* If a filter (Videos / Pictures / LUTs) or the search hides your files, the panel says so and offers **Show all**.
+
 ## Small things that help
 * Adding or changing an effect switches the preview to **Edited**, so you see the result at once (Original always shows the untouched source).
 * **One background at a time:** adding a background while one is already on the timeline at that time changes that one instead of stacking a second one (two at once would be a conflict). Dropping a background card at a later point on the Background track starts the new background there and ends the previous one.

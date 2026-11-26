@@ -10,7 +10,7 @@ import { GpuChip } from "./Gpu";
 import { mergeBlueprint, applyStrength, ExecOptions } from "./merge";
 import { Properties } from "./Properties";
 import { Sidebar, TABS, Tab, Ctx } from "./Sidebar";
-import { Btn, Empty, Icon, fmtEta, resolutionOptions } from "./ui";
+import { Btn, ContextMenuHost, Empty, Icon, fmtEta, resolutionOptions } from "./ui";
 
 type Toast = { id: number; msg: string; kind: "ok" | "err" };
 const ACTIVE = ["queued", "running", "paused"];
@@ -337,7 +337,7 @@ function Editor({ api }: { api: Api }) {
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />
       <div style={{ gridColumn: "1 / -1" }}>
         <Timeline onDropMedia={onDropMedia} history={{ canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, undoCount: hist.past.length, redoCount: hist.future.length, undoLabel: labelNext(hist, "undo"), redoLabel: labelNext(hist, "redo"), onUndo: doUndo, onRedo: doRedo }} bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
-          onCut={cutHere} onDeleteClip={() => removeClip()} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
+          onCut={cutHere} onDeleteClip={(id?: string) => removeClip(id)} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
       </div>
       <footer className="status" style={{ gridColumn: "1 / -1" }}>
         {(() => {
@@ -351,7 +351,7 @@ function Editor({ api }: { api: Api }) {
       </footer>
       {settingsOpen && <SettingsDialog api={api} onClose={() => setSettingsOpen(false)} toast={toast} />}
       {exportOpen && <ExportDialog askPath={askPath} api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
-      <Toasts toasts={toasts} onClose={id => setToasts(ts => ts.filter(x => x.id !== id))} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} />
+      <Toasts toasts={toasts} onClose={id => setToasts(ts => ts.filter(x => x.id !== id))} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} /><ContextMenuHost />
     </div>
   );
 }

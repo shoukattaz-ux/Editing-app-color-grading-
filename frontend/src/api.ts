@@ -97,6 +97,7 @@ export class Api {
   mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }
   thumbUrl(src: "asset" | "source", path: string, w = 192) { return `${this.base}/api/media/thumb?src=${src}&path=${encodeURIComponent(path)}&w=${w}&token=${this.token}`; }
   removeAsset(path: string) { return this.req("POST", "/api/project/asset/remove", { path }); }
+  forgetSource(path: string): Promise<{ ok: boolean }> { return this.req("POST", "/api/project/source/forget", { path }); }
   gpu(): Promise<GpuStatus> { return this.req("GET", "/api/gpu"); }
   aiDevice(): Promise<AiDevice> { return this.req("GET", "/api/ai-device"); }
   setAiDevice(device: string): Promise<AiDevice> { return this.req("PUT", "/api/ai-device", { device }); }

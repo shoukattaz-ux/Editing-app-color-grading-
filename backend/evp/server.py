@@ -526,6 +526,16 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         f.unlink()
         return {"ok": True}
 
+    @app.post("/api/project/source/forget", dependencies=[api()])
+    def forget_source(b: AssetPath):
+        """remove an earlier source video from the Media bin (the reference only; the video file is never touched)"""
+        p = st.need_project()
+        if st.source and os.path.normcase(os.path.abspath(b.path)) == os.path.normcase(os.path.abspath(st.source)):
+            raise HTTPException(409, "This is the video you are editing now. Switch to another video first, or start a new project.")
+        if not mediabin.forget_source(p, b.path): raise HTTPException(404, "not in this project's media")
+        p.autosave()
+        return {"ok": True}
+
     # ---------------- media (range requests supported by FileResponse)
     @app.get("/api/media/source", dependencies=[api()])
     def media_source():

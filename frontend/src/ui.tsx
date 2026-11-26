@@ -43,3 +43,34 @@ export function resolutionOptions(video: { width: number; height: number } | nul
   if (current && !list.includes(current)) list.push(current);
   return list;
 }
+
+// ---------------------------------------------------------------------------------------------- right-click menu (shared)
+export interface MenuItem { label: string; icon?: string; onClick?: () => void; danger?: boolean; disabled?: boolean; hint?: string; sep?: boolean }
+let openMenuFn: ((x: number, y: number, items: MenuItem[]) => void) | null = null;
+/** call from onContextMenu: shows the menu at the pointer */
+export function openContextMenu(e: React.MouseEvent, items: MenuItem[]) {
+  e.preventDefault(); e.stopPropagation();
+  openMenuFn?.(e.clientX, e.clientY, items);
+}
+/** mount once (App): renders the open right-click menu; closes on a click elsewhere, Esc, scroll or resize */
+export function ContextMenuHost() {
+  const [m, setM] = React.useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  React.useEffect(() => { openMenuFn = (x, y, items) => setM({ x, y, items }); return () => { openMenuFn = null; }; }, []);
+  React.useEffect(() => {
+    if (!m) return;
+    const close = () => setM(null);
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+    window.addEventListener("pointerdown", close); window.addEventListener("resize", close); window.addEventListener("wheel", close, { passive: true });
+    window.addEventListener("keydown", key, true);
+    return () => { window.removeEventListener("pointerdown", close); window.removeEventListener("resize", close); window.removeEventListener("wheel", close); window.removeEventListener("keydown", key, true); };
+  }, [m]);
+  if (!m) return null;
+  const W = 230, H = m.items.length * 30 + 10;
+  const left = Math.min(m.x, window.innerWidth - W - 8), top = Math.min(m.y, window.innerHeight - H - 8);
+  return (
+    <div className="ctxmenu" role="menu" style={{ left, top, width: W }} onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.preventDefault()}>
+      {m.items.map((it, i) => it.sep ? <div key={i} className="ctxsep" /> :
+        <button key={i} role="menuitem" className={it.danger ? "danger" : ""} disabled={it.disabled} title={it.hint}
+          onClick={() => { setM(null); it.onClick?.(); }}>{it.icon && <Icon n={it.icon} size={14} />}<span>{it.label}</span></button>)}
+    </div>);
+}

@@ -26,6 +26,15 @@ def remember_source(project, path: str) -> None:
     project.data["sources_history"] = ([str(path)] + hist)[:HISTORY_MAX]
 
 
+def forget_source(project, path: str) -> bool:
+    """take a video out of the Media bin's list (only the reference: the file itself is never touched). False if it was not listed."""
+    key = os.path.normcase(os.path.abspath(path))
+    hist = list(project.data.get("sources_history", []))
+    keep = [h for h in hist if os.path.normcase(os.path.abspath(h)) != key]
+    project.data["sources_history"] = keep
+    return len(keep) != len(hist)
+
+
 def _meta_cache(project) -> tuple[Path, dict]:
     f = project.cache_dir / "media_meta.json"
     try: return f, json.loads(f.read_text(encoding="utf-8"))
