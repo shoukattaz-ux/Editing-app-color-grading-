@@ -63,6 +63,13 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     await page.click(".cinematic button:has-text('Moody')"); await page.selectOption('select[aria-label="Cinema bars"]', "2.39"); await page.waitForTimeout(900);
     cg = (await bpNow()).operations.find(o => o.id === cg.id);
     check(cg.parameters.cinematic_style === "moody" && cg.parameters.letterbox === "2.39", "style and cinema bars are stored");
+    // portrait mode: from the Effects list, over the whole clip, renders a frame
+    await page.click("button[aria-label=Effects]"); await page.click(".side button.item:has-text('Portrait Mode')");
+    let pm = null;
+    for (let i = 0; i < 40 && !pm; i++) { await page.waitForTimeout(250); pm = (await bpNow()).operations.find(o => o.type === "portrait_blur"); }
+    check(pm && pm.start === 0 && Math.abs((pm.end ?? 3) - 3) < 0.05, "Portrait Mode is added over the whole clip", JSON.stringify(pm));
+    const pf = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
+    check(pf === 200, "a live frame with Portrait Mode renders (AI person detection + background blur)", String(pf));
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall auto-enhance checks passed");

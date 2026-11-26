@@ -37,7 +37,7 @@ class Plan:
         return [o for o in self.steps if o.type in ("face_tone_correction", "face_relighting")]
 
     def ai_keyers(self) -> list[Operation]:
-        return [o for o in self.steps if o.type == "background_removal" and o.params.get("mode") in ("ai", "screen")]    # keyers that produce a matte file
+        return [o for o in self.steps if (o.type == "background_removal" and o.params.get("mode") in ("ai", "screen")) or o.type == "portrait_blur"]    # ops that need a matte file
 
     @property
     def timeline_duration(self) -> float:

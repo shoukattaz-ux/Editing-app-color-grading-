@@ -848,6 +848,52 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         graded = grade_block(g.add([col], cs.rgb_to_yuv()), op)
         return g.add([g.add([graded], cs.yuv_to_rgb("rgba")), a], "alphamerge,format=rgba")
 
+    def gray3(x: str) -> str:
+        """a gray stream as gbrp with the SAME values in all three planes (no range conversion)"""
+        a, b, c = splitn(x, 3)
+        return g.add([a, b, c], "mergeplanes=0x001020:gbrp")
+
+    def portrait_block(src: str, op: Operation, ref) -> str:
+        """sharp person, blurred real background. The background is blurred by normalised convolution: blur(picture x background-mask) /
+        blur(background-mask), so the person's colours never smear into the blur (no halo around the head)."""
+        p = op.params
+        m = g.add([cached_stream(ref.path, ref, "start_mode=add:color=black:stop_mode=clone")], f"scale={W}:{H},format=gray")
+        ew = max(0.5, (0.5 + 4.0 * float(p["edge"])) * scale_px)
+        m_soft = g.add([m], f"gblur=sigma={ew:.3f}")                      # the sharp / blurred transition
+        m1, m2, m3 = splitn(m_soft, 3)
+        inv = g.add([m1], "negate")                                       # where the background is
+        rgb = g.add([src], cs.yuv_to_rgb("gbrp"))
+        r_a, r_b = splitn(rgb, 2)
+        sig = (1.5 + 26.0 * float(p["blur"])) * scale_px
+
+        def normalised(pic: str, w: str, sigma: str) -> str:
+            w1, wa = splitn(w, 2)
+            pw = g.add([pic, w1], "lut2=c0='x*y/255':c1='x*y/255':c2='x*y/255'")
+            num = g.add([pw], f"gblur=sigma={sigma}")
+            den = g.add([wa], f"gblur=sigma={sigma}")
+            return g.add([num, den], "lut2=c0='if(gt(y\\,0)\\,min(255\\,x*255/y)\\,0)':c1='if(gt(y\\,0)\\,min(255\\,x*255/y)\\,0)':c2='if(gt(y\\,0)\\,min(255\\,x*255/y)\\,0)'")
+
+        fo = float(p["falloff"])
+        inv3 = gray3(inv)
+        if fo > 0.01:
+            i_a, i_b = splitn(inv3, 2)
+            pa, pb = splitn(r_a, 2)
+            far = normalised(pa, i_a, f"{sig:.3f}")
+            near = normalised(pb, i_b, f"{sig * 0.35:.3f}")
+            prox = gray3(g.add([m2], f"gblur=sigma={max(4.0, 0.06 * W):.2f},lut=y='clip(val*{2.5 * fo:.3f}\\,0\\,255)'"))   # close to the person
+            bg = g.add([far, near, prox], "maskedmerge")
+        else:
+            g.parts.append(f"[{m2}]nullsink")
+            bg = normalised(r_a, inv3, f"{sig:.3f}")
+        person = r_b
+        if ref.fgr_path:                                                  # see-through edges (hair strands): the estimated person colour, not the old sharp background
+            fg = g.add([cached_stream(ref.fgr_path, ref, "start_mode=add:stop_mode=clone")], f"scale={W}:{H},format=gbrp")
+            m3, m4 = splitn(m3, 2)
+            w = gray3(g.add([m4], "lut=y='clip((255-val)*4\\,0\\,255)'"))   # 0 inside the person, 1 where it is mostly see-through
+            person = g.add([r_b, fg, w], "maskedmerge")
+        out = g.add([bg, person, gray3(m3)], "maskedmerge")               # the person (mask) over the blurred background
+        return g.add([out], cs.rgb_to_yuv())
+
     in_composite = {o.id for ops in plan.grade_for.values() for o in ops}
     audio_filters: list[str] = []
     for op in plan.steps:
@@ -869,6 +915,10 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             continue                                                      # applied inside the keyer's matte (make_keyed), not a stage of its own
         elif t == "background_replacement":
             cur = composite(cur, next(o for o in plan.steps if o.id == plan.alpha_source[op.id]), op)
+        elif t == "portrait_blur":
+            ref = plan.mattes.get(op.id)
+            if ref is None: raise RuntimeError(f"person detection for '{op.id}' was not generated")
+            cur = ranged_block(cur, op, lambda src, op=op, ref=ref: portrait_block(src, op, ref))
         elif t == "color_grading":
             if op.id in in_composite: continue                  # applied to the subject / the background inside the composite
             cur = grade_block(cur, op)

@@ -179,6 +179,7 @@
               "color_grading",
               "studio_look",
               "video_enhancement",
+              "portrait_blur",
               "text_overlay",
               "audio_gain",
               "face_tone_correction",
@@ -1469,6 +1470,88 @@
                       "minimum": 1,
                       "maximum": 64,
                       "default": 16
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "portrait_blur"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "blur": {
+                      "description": "How strongly the background is blurred (0 = sharp, 1 = very soft, like a wide-open lens).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.6
+                    },
+                    "falloff": {
+                      "description": "Depth: background close to the person is a little less blurred than background far away, like a real lens (0 = the same blur everywhere).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "edge": {
+                      "description": "Softness of the transition between the sharp person and the blurred background (hair edges).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.3
+                    },
+                    "model": {
+                      "description": "Matting model that finds the person.",
+                      "type": "string",
+                      "enum": [
+                        "rvm"
+                      ],
+                      "default": "rvm"
+                    },
+                    "detail": {
+                      "description": "Network resolution of the person detection (fast is the most robust on busy backgrounds).",
+                      "type": "string",
+                      "enum": [
+                        "fast",
+                        "balanced",
+                        "high"
+                      ],
+                      "default": "fast"
+                    },
+                    "matte_threshold": {
+                      "description": "Faint detections below this count as background.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 0.5,
+                      "default": 0.03
+                    },
+                    "solidity": {
+                      "description": "Makes partly see-through parts of the person solid (so a moving hand stays sharp).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.3
+                    },
+                    "despeckle": {
+                      "description": "Ignore small detections that are not connected to the person.",
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "edge_color_fix": {
+                      "description": "Between fine hair strands, use the person's estimated colour instead of the old sharp background, so the blur shows through the gaps.",
+                      "type": "boolean",
+                      "default": true
                     }
                   },
                   "additionalProperties": false

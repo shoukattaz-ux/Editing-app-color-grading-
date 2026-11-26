@@ -268,6 +268,18 @@ _reg(OpSpec("video_enhancement", "Video Enhancement", "Enhance", STAGE_RESTORE, 
              "sharpen": Param(N, 0.0, 0.0, 2.0, desc="Unsharp-mask amount."),
              "stabilize": Param(B, False, desc="Single-pass deshake. Modest results; fully-featured stabilisation is not claimed."),
              "stabilize_strength": Param(I, 16, 1, 64, desc="Max shift in px searched by deshake.")}))
+_reg(OpSpec("portrait_blur", "Portrait Mode (background blur)", "Enhance", STAGE_KEY - 1, "effects",
+            "Keeps the person sharp and blurs the REAL background behind them, like a portrait lens - no green screen needed. "
+            "The person is found by the AI matting model; the background is blurred with the person masked out, so no halo.",
+            {"blur": Param(N, 0.6, 0.0, 1.0, desc="How strongly the background is blurred (0 = sharp, 1 = very soft, like a wide-open lens)."),
+             "falloff": Param(N, 0.5, 0.0, 1.0, desc="Depth: background close to the person is a little less blurred than background far away, like a real lens (0 = the same blur everywhere)."),
+             "edge": Param(N, 0.3, 0.0, 1.0, desc="Softness of the transition between the sharp person and the blurred background (hair edges)."),
+             "model": Param(E, "rvm", enum=("rvm",), desc="Matting model that finds the person."),
+             "detail": Param(E, "fast", enum=("fast", "balanced", "high"), desc="Network resolution of the person detection (fast is the most robust on busy backgrounds)."),
+             "matte_threshold": Param(N, 0.03, 0.0, 0.5, desc="Faint detections below this count as background."),
+             "solidity": Param(N, 0.3, 0.0, 1.0, desc="Makes partly see-through parts of the person solid (so a moving hand stays sharp)."),
+             "despeckle": Param(B, True, desc="Ignore small detections that are not connected to the person."),
+             "edge_color_fix": Param(B, True, desc="Between fine hair strands, use the person's estimated colour instead of the old sharp background, so the blur shows through the gaps.")}))
 _reg(OpSpec("text_overlay", "Text Overlay", "Graphics", STAGE_OVERLAY, "overlay",
             "Draw static text.",
             {"text": Param(S, None, required=True, desc="Text to draw (max 500 chars)."),

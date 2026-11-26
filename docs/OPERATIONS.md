@@ -227,6 +227,24 @@ Timeline track: **effects**
 | `stabilize` | boolean | `False` |  | Single-pass deshake. Modest results; fully-featured stabilisation is not claimed. |
 | `stabilize_strength` | integer | `16` | 1 … 64 | Max shift in px searched by deshake. |
 
+## `portrait_blur` — Portrait Mode (background blur)
+
+Keeps the person sharp and blurs the REAL background behind them, like a portrait lens - no green screen needed. The person is found by the AI matting model; the background is blurred with the person masked out, so no halo.
+
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `blur` | number | `0.6` | 0.0 … 1.0 | How strongly the background is blurred (0 = sharp, 1 = very soft, like a wide-open lens). |
+| `falloff` | number | `0.5` | 0.0 … 1.0 | Depth: background close to the person is a little less blurred than background far away, like a real lens (0 = the same blur everywhere). |
+| `edge` | number | `0.3` | 0.0 … 1.0 | Softness of the transition between the sharp person and the blurred background (hair edges). |
+| `model` | enum | `rvm` | rvm | Matting model that finds the person. |
+| `detail` | enum | `fast` | fast, balanced, high | Network resolution of the person detection (fast is the most robust on busy backgrounds). |
+| `matte_threshold` | number | `0.03` | 0.0 … 0.5 | Faint detections below this count as background. |
+| `solidity` | number | `0.3` | 0.0 … 1.0 | Makes partly see-through parts of the person solid (so a moving hand stays sharp). |
+| `despeckle` | boolean | `True` |  | Ignore small detections that are not connected to the person. |
+| `edge_color_fix` | boolean | `True` |  | Between fine hair strands, use the person's estimated colour instead of the old sharp background, so the blur shows through the gaps. |
+
 ## `text_overlay` — Text Overlay
 
 Draw static text.

@@ -208,6 +208,14 @@ Both are built from the subject itself, so they follow every movement (a jump li
 * Limits: it only changes brightness and colour. It cannot turn a white (clipped) sky blue, and it does not redraw detail the way AI photo apps do (they invent hair strands and reshape faces); for extra real detail add AI Resolution Enhancement.
 * In a blueprint: `{"type": "color_grading", "parameters": {"auto_enhance": 1.0, "enhance_style": "crisp", "apply_to": "subject"}}` (`apply_to`: both / subject / background).
 
+## Portrait mode: sharp person, blurred real background
+**Effects → Portrait Mode (background blur)** (added over the whole clip). The person is found by the same AI matting model the background removal uses (no green screen), stays sharp, and the real background behind them is blurred like a portrait lens.
+* **Blur:** how soft the background gets. **Falloff:** background close to the person is a little less blurred than background far away, like a real lens (0 = the same everywhere). **Edge:** softness of the sharp / blurred transition.
+* No halo: the background is blurred with the person masked out (normalised blur), so their face and hair colours never glow into the blur. Between fine hair strands the person's estimated colour is used, so the blur shows through the gaps.
+* Combine with **Auto enhance** and the **Cinematic look** for the full "phone portrait / film" result. Speed (1080p frame): the first live frame needs the AI person detection (about 2 s); after that each slider change about 1 s.
+* Limits: it knows "person" and "not person", not real distance, so things at the same distance as you (the chair you lean on) are blurred too; the AI finds people best (other subjects may not be found).
+* In a blueprint: `{"type": "portrait_blur", "parameters": {"blur": 0.6, "falloff": 0.5, "edge": 0.3}}`.
+
 ## Cinematic look: a real film grade in one control
 **Color** panel → **Cinematic look** (an auto-enhanced base + the film look over the whole video), or the orange **Cinematic look** card in any Color Grading. What a colourist does for a film look, in one slider (0 – 150 %):
 * filmic tones: slightly lifted, soft blacks and highlights that roll off instead of glaring, a gentle S-curve;
