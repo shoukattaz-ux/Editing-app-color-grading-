@@ -280,3 +280,15 @@ Open a photo (JPG, PNG, WebP or BMP) the same way you open a video: drop it on t
 - **Apply this look to a whole folder**: in the Save dialog choose a folder of photos and press **Edit all**. Every photo gets the effects you have set up (each keeps its own size), saved into a new “edited” folder next to them (or the folder chosen above). A photo that cannot be read is listed and skipped; the others carry on. You can stop the batch at any time.
 - Phone photos keep their rotation. Transparent PNGs are placed on white. Pictures larger than 8192 px on the long side are scaled down.
 - Effects that depend on motion (clean plate, timeline cuts) do not apply to a single picture.
+
+## Ready-made looks
+
+Open **Ready-made** in the left bar for finished, tested sets of effects that you add with one click (**Add to project**). Nothing you already have is removed, and Undo takes them away again. After adding, every setting can still be changed. The same looks also appear at the top of the Effects, Backgrounds and Color panels.
+
+- **Start to finish**: *Club night* (green-screen key with fine hair strands, club backdrop, face restoration and retouch, cinematic grade, finishing look) and the same with a 2x AI upscale (slow without a strong graphics card; it also sets the output size to twice the video).
+- **Green screen**: clean cut-out; cut-out on a dark stage floor with shadow and reflection.
+- **Face**: natural portrait; soft skin glow.
+- **Colour**: cinematic teal and orange, moody night, golden hour, clean and punchy.
+- **Quality**: clean and sharp; 2x AI upscale.
+
+The background of the club looks is a plain dark colour: choose your own picture or video in **Backgrounds** afterwards.

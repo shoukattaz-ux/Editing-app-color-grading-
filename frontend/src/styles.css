@@ -256,3 +256,7 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .batchbox { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line, #2a2f3a); display: grid; gap: 6px; }
 .batchbox h4 { margin: 0; font-size: 13px; }
 .batchbox progress { width: 100%; }
+.readymade { margin-bottom: 14px; }
+.readymade h4 { margin: 10px 0 6px; font-size: 13px; }
+.rm-card { border: 1px solid var(--line, #2a2f3a); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.rm-card p { margin: 4px 0 8px; }

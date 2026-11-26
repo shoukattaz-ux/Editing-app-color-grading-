@@ -8,10 +8,10 @@ import { importAssetFile, importBackground, importVideoFile, addBackground } fro
 import { Btn, Empty, Icon } from "./ui";
 import { ScopesPanel } from "./ScopesPanel";
 
-export type Tab = "media" | "projects" | "blueprint" | "effects" | "backgrounds" | "color" | "scopes" | "assets";
+export type Tab = "media" | "projects" | "blueprint" | "ready" | "effects" | "backgrounds" | "color" | "scopes" | "assets";
 export const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "media", label: "Media", icon: "film" }, { id: "projects", label: "Projects", icon: "folder" }, { id: "blueprint", label: "Blueprint", icon: "bolt" },
-  { id: "effects", label: "Effects", icon: "wand" }, { id: "backgrounds", label: "Backgrounds", icon: "image" }, { id: "color", label: "Color", icon: "color" }, { id: "scopes", label: "Scopes", icon: "scope" }, { id: "assets", label: "Assets", icon: "layers" },
+  { id: "ready", label: "Ready-made", icon: "bolt" }, { id: "effects", label: "Effects", icon: "wand" }, { id: "backgrounds", label: "Backgrounds", icon: "image" }, { id: "color", label: "Color", icon: "color" }, { id: "scopes", label: "Scopes", icon: "scope" }, { id: "assets", label: "Assets", icon: "layers" },
 ];
 export interface Ctx {
   api: Api; project: ProjectState; bp: Blueprint; schema: Schema; video: VideoInfo | null; duration: number; t: number; mode: string; playing: boolean; videoRef: React.RefObject<HTMLVideoElement>; edit: (fn: (b: Blueprint) => Blueprint, key?: string) => void;
@@ -21,7 +21,7 @@ export interface Ctx {
 
 export function Sidebar({ tab, ctx }: { tab: Tab; ctx: Ctx }) {
   return <div className="side-content">{{
-    media: <MediaTab ctx={ctx} />, projects: <ProjectsTab ctx={ctx} />, blueprint: <BlueprintTab ctx={ctx} />, effects: <EffectsTab ctx={ctx} />,
+    media: <MediaTab ctx={ctx} />, projects: <ProjectsTab ctx={ctx} />, blueprint: <BlueprintTab ctx={ctx} />, ready: <ReadyTab ctx={ctx} />, effects: <EffectsTab ctx={ctx} />,
     backgrounds: <BackgroundsTab ctx={ctx} />, color: <ColorTab ctx={ctx} />, scopes: <ScopesPanel ctx={ctx} />, assets: <AssetsTab ctx={ctx} />,
   }[tab]}</div>;
 }
@@ -116,10 +116,42 @@ export function Report({ rep, onSelect }: { rep: Validation; onSelect: (id: stri
   </div>);
 }
 
+/** ready-made looks: tested blueprints added with one click; the same list appears (filtered) in the Effects, Backgrounds and Color panels */
+export function ReadyMade({ ctx, sections, title }: { ctx: Ctx; sections?: string[]; title?: string }) {
+  const [data, setData] = useState<{ sections: string[]; templates: import("./api").ReadyMade[] } | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { ctx.api.templates().then(setData).catch(e => setErr(e.message)); }, [ctx.api]);
+  const add = async (t: import("./api").ReadyMade) => {
+    const nb = JSON.parse(JSON.stringify(t.blueprint));
+    const v = ctx.video;
+    if (t.scale > 1 && v) nb.output = { resolution: `${Math.round(v.width * t.scale / 2) * 2}x${Math.round(v.height * t.scale / 2) * 2}` };    // AI upscale needs a bigger output
+    await ctx.executeBlueprint(nb, { how: "add", applyOutput: t.scale > 1 && !!v, clip: null });
+  };
+  const list = (data?.templates ?? []).filter(t => !sections || sections.includes(t.section));
+  return (<div className="readymade">
+    {title && <h4>{title}</h4>}
+    {err && <p className="muted">Could not load the ready-made looks: {err}</p>}
+    {list.map(t => (<div className="rm-card" key={t.id}>
+      <b>{t.title}</b><p className="muted small">{t.description}</p>
+      {t.needs && <p className="muted small">Works on: {t.needs}</p>}
+      <Btn icon="plus" label="Add to project" kind="primary" disabled={!ctx.video} onClick={() => add(t)} title="Adds these effects; nothing you already have is removed" />
+    </div>))}
+  </div>);
+}
+
+function ReadyTab({ ctx }: { ctx: Ctx }) {
+  return (<>
+    <h3>Ready-made looks</h3>
+    <p className="muted">One click adds a finished, tested set of effects. You can change every setting afterwards, or remove them again with Undo.</p>
+    {["Start to finish", "Green screen", "Face", "Colour", "Quality"].map(s => <ReadyMade key={s} ctx={ctx} sections={[s]} title={s} />)}
+  </>);
+}
+
 function EffectsTab({ ctx }: { ctx: Ctx }) {
   const groups: Record<string, [string, any][]> = {};
   Object.entries(ctx.schema.operations).forEach(([k, s]) => (groups[s.category] ??= []).push([k, s]));
   return (<>
+    <ReadyMade ctx={ctx} sections={["Face", "Quality"]} title="Ready-made looks" />
     <h3>Effects</h3><p className="muted">Click an effect to add it at the playhead (5 seconds, or to the end of a shorter video; a Garbage / Keep Mask covers the whole clip). Then adjust it in the Properties panel on the right.</p>
     {!ctx.video && <div className="issue warning">Import a video first.</div>}
     {Object.entries(groups).map(([cat, list]) => (<div key={cat}><h4>{cat}</h4>
@@ -137,6 +169,7 @@ function BackgroundsTab({ ctx }: { ctx: Ctx }) {
   const hasKey = ctx.bp.operations.some(o => ctx.schema.operations[o.type]?.provides_alpha);
   const add = (assetId?: string) => addBackground(ctx, assetId);
   return (<>
+    <ReadyMade ctx={ctx} sections={["Green screen"]} title="Ready-made looks" />
     <h3>Backgrounds</h3><p className="muted">Replace the removed background with an image, video or colour.</p>
     {!hasKey && <div className="issue warning"><Icon n="warn" size={14} /> No chroma key / background removal operation yet — add one in Effects, or a replacement will be reported as having no alpha source.</div>}
     <div className="btn-row">
@@ -159,6 +192,7 @@ function ColorTab({ ctx }: { ctx: Ctx }) {
     setTimeout(() => ctx.setSel(id), 0);
   };
   return (<>
+    <ReadyMade ctx={ctx} sections={["Colour"]} title="Ready-made looks" />
     <h3>Color grading</h3><p className="muted">Add a grade at the playhead, then fine-tune exposure, curves, LGG, LUT… in the properties panel.</p>
     <div className="btn-row">
       <Btn icon="wand" kind="primary" label="Auto enhance (one slider)" disabled={!ctx.video} title="Measures your clip and fixes haze, dull colour, a colour cast and dim exposure in one go, over the whole video. One master slider sets how strong."

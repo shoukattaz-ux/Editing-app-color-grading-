@@ -428,6 +428,11 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         _BATCHES[bid]["cancel"] = True
         return _BATCHES[bid]
 
+    @app.get("/api/templates", dependencies=[api()])
+    def templates():
+        from .templates import TEMPLATES, SECTIONS
+        return {"sections": list(SECTIONS), "templates": TEMPLATES}
+
     class RenderReq(BaseModel):
         blueprint: Any
         preset: str = "proxy"            # proxy | export

@@ -214,6 +214,7 @@ function Editor({ api }: { api: Api }) {
     if (project && restoreView.current) { restoreView.current = false; setMode("edited"); }       // back on the live frame; no render starts by itself (Apply is instant if this video was rendered before)
   }, [project?.path, project?.version]);
   const executeBlueprint = useCallback(async (nb: Blueprint, o: ExecOptions = { how: "add", applyOutput: false, clip: null }) => {
+    nb = { ...nb, operations: (nb.operations ?? []).map(x => ({ ...x, start: typeof x.start === "number" ? x.start : 0, end: typeof x.end === "number" ? x.end : tl.duration })) };      // 'no start / end' means the whole video; the timeline needs real times
     nb = applyStrength(nb, schema, o.strength ?? 1);               // "Strength" slider of the Blueprint tab: the master Amount of every pasted effect
     let next = nb, msg = "Blueprint applied — showing the current frame. Press Apply to full video to render it all.";
     if (o.how === "add") {
