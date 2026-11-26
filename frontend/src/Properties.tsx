@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useBoxSel, setBoxSel } from "./boxSel";
 import type { Blueprint, Op, OpSpec, ParamSpec, Schema } from "./model";
 import * as m from "./model";
 import type { Api, CameraNote, EnhanceNote, Issue, ModelStatus, VideoInfo } from "./api";
@@ -248,9 +249,21 @@ function LightPattern({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+const BOX_COLOURS = ["#ff2a55", "#19b8ff", "#ffc21a", "#7dff4a", "#b01cff", "#ff7a1a"];
 /** Colour lights: stage-style coloured lights from the sides, on the subject only */
 function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
   const pr = op.parameters ?? {};
+  const boxSel = useBoxSel();
+  const zones: any[] = Array.isArray(pr.colour_zones) ? pr.colour_zones : [];
+  const setZones = (z: any[]) => edit(b => m.setParam(b, op.id, "colour_zones", z.length ? z : undefined), `p:${op.id}:colour_zones`);
+  const patchZone = (i: number, patch: Record<string, any>) => setZones(zones.map((z, k) => (k === i ? { ...z, ...patch } : z)));
+  const addBox = () => {
+    if (zones.length >= 6) return;
+    const n = zones.length, w = 0.22, x0 = Math.min(0.78, 0.2 + 0.12 * n);
+    setZones([...zones, { x0, y0: 0.2, x1: x0 + w, y1: 0.85, color: BOX_COLOURS[n % BOX_COLOURS.length], side: n % 2 ? "right" : "left", reach: 0.6, intensity: 1, soft: 0.3 }]);
+    setBoxSel(n);
+  };
+  const cur = Math.min(boxSel, zones.length - 1), zb = zones[cur];
   const num = (k: string, d: number) => (typeof pr[k] === "number" ? (pr[k] as number) : d);
   const str = (k: string, d: string) => (typeof pr[k] === "string" ? (pr[k] as string) : d);
   const set = (k: string, v: number | string | undefined) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
@@ -291,6 +304,25 @@ function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
         {place === "fixed" && <p className="muted small">Placed from where the subject is on the <b>middle</b> frame and then fixed in the picture, like a stage light. If the subject starts somewhere else, use <b>Follow the subject</b> or <b>My own spot</b>.</p>}
         {sl("colour_light_reach", "How far it reaches", 0.5)}
         {sl("colour_light_edge", "Edge glow", 0.6)}
+        <div className="cl-boxes" role="group" aria-label="Extra light boxes">
+          <div className="master-head"><h5>Many boxes</h5><span className="muted small">{zones.length} of 6</span></div>
+          <p className="muted small">Draw as many as six rectangles on the preview. Each has its own colour and side, and lights the subject only inside itself. They add to Light A and B (set those to “off” to use boxes only).</p>
+          <div className="btn-row">
+            <Btn icon="plus" label="Add a box" onClick={addBox} disabled={zones.length >= 6} title="Adds a new box on the preview; drag it into place" />
+            {zones.length > 0 && <Btn label="Boxes only" onClick={() => preset({ colour_light_side_a: "off", colour_light_side_b: "off" })} title="Switch Light A and B off so only your boxes light the subject" />}
+          </div>
+          {zones.length > 0 && <div className="cl-tabs" role="tablist" aria-label="Boxes">{zones.map((z, i) =>
+            <button key={i} role="tab" aria-selected={i === cur} className={"cl-tab" + (i === cur ? " on" : "")} onClick={() => setBoxSel(i)} style={{ borderColor: z.color }}>Box {i + 1}</button>)}</div>}
+          {zb && <div className="cl-box" aria-label={`Box ${cur + 1} settings`}>
+            <label className="field"><span className="fl">Colour and side</span>
+              <span className="slider-row"><input type="color" value={zb.color} onChange={e => patchZone(cur, { color: e.target.value })} aria-label={`Box ${cur + 1} colour`} />
+                <select value={zb.side} onChange={e => patchZone(cur, { side: e.target.value })} aria-label={`Box ${cur + 1} side`}>{(["left", "right", "top", "bottom"] as const).map(sd => <option key={sd} value={sd}>from the {sd}</option>)}</select></span></label>
+            {([["reach", "How far it reaches", 0, 1], ["intensity", "Strength", 0, 1.5], ["soft", "Soft edge of the box", 0, 1]] as const).map(([k, label, lo, hi]) =>
+              <label className="field" key={k}><span className="fl">{label} <em>{Math.round((zb[k] ?? 0) * 100)}%</em></span>
+                <input type="range" min={lo} max={hi} step={0.01} value={zb[k] ?? 0} onChange={e => patchZone(cur, { [k]: +e.target.value })} aria-label={`Box ${cur + 1} ${label}`} /></label>)}
+            <div className="btn-row"><Btn icon="trash" label="Delete this box" onClick={() => { setZones(zones.filter((_, k) => k !== cur)); setBoxSel(Math.max(0, cur - 1)); }} /></div>
+          </div>}
+        </div>
         <p className="muted small">Where the two lights meet in the middle they mix. The studio look's Master amount scales this too.</p></>}
     </section>);
 }

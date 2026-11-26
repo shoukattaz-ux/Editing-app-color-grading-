@@ -260,3 +260,8 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .readymade h4 { margin: 10px 0 6px; font-size: 13px; }
 .rm-card { border: 1px solid var(--line, #2a2f3a); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
 .rm-card p { margin: 4px 0 8px; }
+.cl-boxes { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line, #2a2f3a); }
+.cl-boxes h5 { margin: 0; font-size: 13px; }
+.cl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.cl-tab { background: transparent; color: inherit; border: 2px solid var(--line, #2a2f3a); border-radius: 12px; padding: 3px 10px; cursor: pointer; }
+.cl-tab.on { background: rgba(255,255,255,.1); }

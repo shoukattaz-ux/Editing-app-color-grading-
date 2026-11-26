@@ -42,6 +42,13 @@ TEMPLATES: list[dict] = [
        "Cut-out on a dark colour with a soft shadow and a faint reflection under the feet, like a stage floor.",
        [_KEY, _op("bg", "background_replacement", color="#10102a", fit="cover", subject_anchor="bottom", contact_shadow=0.5, reflection=0.25, shadow=0.2)],
        "A green-screen video"),
+    _t("club_light_boxes", "Green screen", "Club lights: three coloured boxes",
+       "Red from the left, blue from the right and gold from above, each in its own box on the subject. Drag the boxes on the preview to place them. Needs a background.",
+       [_KEY, _BG, _op("look", "studio_look", preset="none", ambient_match=0.5, colour_light=0.9, colour_light_side_a="off", colour_light_side_b="off", colour_zones=[
+           {"x0": 0.15, "y0": 0.1, "x1": 0.5, "y1": 0.95, "color": "#ff2a55", "side": "left", "reach": 0.7, "intensity": 1.0, "soft": 0.3},
+           {"x0": 0.5, "y0": 0.1, "x1": 0.85, "y1": 0.95, "color": "#19b8ff", "side": "right", "reach": 0.7, "intensity": 1.0, "soft": 0.3},
+           {"x0": 0.3, "y0": 0.0, "x1": 0.7, "y1": 0.5, "color": "#ffc21a", "side": "top", "reach": 0.6, "intensity": 0.8, "soft": 0.4}])],
+       "A green-screen video"),
     _t("natural_portrait", "Face", "Natural portrait",
        "Restores detail, smooths skin without making it plastic, evens the face brightness and adds a soft key light.", _FACE, "A visible face"),
     _t("skin_glow", "Face", "Soft skin glow",

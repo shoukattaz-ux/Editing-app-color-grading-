@@ -552,7 +552,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         if k <= 0: return fg
         lights = [(L.get("colour_light_side_a", "left"), L.get("colour_light_color_a")), (L.get("colour_light_side_b", "right"), L.get("colour_light_color_b"))]
         lights = [(sd_, _rgb01(c)) for sd_, c in lights if sd_ and sd_ != "off" and c and _rgb01(c)]
-        if not lights: return fg
+        zones = [z for z in (L.get("colour_zones") or []) if _rgb01(z.get("color"))]
+        if not lights and not zones: return fg
         col, alpha = splitn(fg, 2)
         a1, a2, a3, a4 = splitn(g.add([alpha], "alphaextract"), 4)
         gate0 = g.add([a4], "lut=y='clip((val-40)*2.4\\,0\\,255)'")                  # near-transparent edge specks of the key get no light at all
@@ -582,11 +583,19 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         else:
             b = box or {"x0": 0.0, "x1": 1.0, "y0": 0.0, "y1": 1.0}                    # the subject's bounds (measured on the middle frame), else the whole frame
             bx = {k_: num_(v) for k_, v in b.items() if k_ in ("x0", "x1", "y0", "y1")}
+        def inside_box(x0, y0, x1, y1, soft):
+            fx, fy = max(0.002, soft * 0.5 * (x1 - x0)), max(0.002, soft * 0.5 * (y1 - y0))
+            return f"*clip((X/W-{x0:.4f})/{fx:.4f},0,1)*clip(({x1:.4f}-X/W)/{fx:.4f},0,1)*clip((Y/H-{y0:.4f})/{fy:.4f},0,1)*clip(({y1:.4f}-Y/H)/{fy:.4f},0,1)"
+        specs = [(side, c, bx, inside, reach, 1.0) for side, c in lights]                         # light A / B: the main box (fixed, follow or zone)
+        for z in zones:                                                                           # extra boxes: each its own rectangle, colour and side
+            zb = {"x0": num_(z["x0"]), "x1": num_(z["x1"]), "y0": num_(z["y0"]), "y1": num_(z["y1"])}
+            specs.append((z.get("side", "top"), _rgb01(z["color"]), zb, inside_box(float(z["x0"]), float(z["y0"]), float(z["x1"]), float(z["y1"]), float(z.get("soft", 0.3))),
+                          0.3 + 0.6 * float(z.get("reach", 0.5)), float(z.get("intensity", 1.0))))
         layers = []
-        for side, c in lights:
-            bw, bh = f"max(0.05,{bx['x1']}-{bx['x0']})", f"max(0.05,{bx['y1']}-{bx['y0']})"
-            d = {"left": f"((X/W-{bx['x0']})/{bw})", "right": f"(({bx['x1']}-X/W)/{bw})", "top": f"((Y/H-{bx['y0']})/{bh})", "bottom": f"(({bx['y1']}-Y/H)/{bh})"}[side]
-            expr = f"255*pow(clip(1-max(0,{d})/{reach:.4f},0,1),1.6){inside}".replace(",", "\\,")
+        for side, c, bx_, inside_, reach_, gain in specs:
+            bw, bh = f"max(0.05,{bx_['x1']}-{bx_['x0']})", f"max(0.05,{bx_['y1']}-{bx_['y0']})"
+            d = {"left": f"((X/W-{bx_['x0']})/{bw})", "right": f"(({bx_['x1']}-X/W)/{bw})", "top": f"((Y/H-{bx_['y0']})/{bh})", "bottom": f"(({bx_['y1']}-Y/H)/{bh})"}[side]
+            expr = f"{255 * gain:.2f}*pow(clip(1-max(0,{d})/{reach_:.4f},0,1),1.6){inside_}".replace(",", "\\,")
             w = g.add([], f"nullsrc=s={w4}x{h4}:r={fps:g},format=gray" + (f",setpts=N+{seek_f}" if seek_f else ",setpts=N") + f",geq=lum='{expr}',scale={W}:{H}:flags=bicubic,format=gray")
             w_a, w_b = splitn(w, 2)
             layers.append((w_a, w_b, c))
@@ -601,7 +610,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             t1, t2, t3 = splitn(tot, 3)
             chans = {pl: g.add([t], f"lut=y='clip(val*{c[pl_i]:.4f},0,255)'") for pl, t, pl_i in ((0, t1, 1), (1, t2, 2), (2, t3, 0))}   # planes G, B, R
             mixed.append(g.add([chans[0], chans[1], chans[2]], "mergeplanes=0x001020:gbrp"))
-        light = mixed[0] if len(mixed) == 1 else g.add([mixed[0], mixed[1]], "blend=all_mode=addition:shortest=1")
+        light = mixed[0]
+        for extra_light in mixed[1:]: light = g.add([light, extra_light], "blend=all_mode=addition:shortest=1")
         lit = g.add([g.add([col], "format=gbrp"), light], "blend=all_mode=screen:shortest=1")
         return g.add([g.add([lit], "format=rgba"), a3], "alphamerge,format=rgba")
 

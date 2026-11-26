@@ -185,6 +185,22 @@ def _coerce(name: str, spec: Param, v: Any) -> Any:
     if t == "asset":
         if not isinstance(v, str) or not ID_RE.match(v): raise ValueError(f"'{name}' must be an asset id")
         return v
+    if t == "boxes":
+        if not isinstance(v, list) or len(v) > 6: raise ValueError(f"'{name}' must be a list of at most 6 boxes")
+        out = []
+        for i, z in enumerate(v):
+            if not isinstance(z, dict): raise ValueError(f"'{name}'[{i}] must be an object")
+            def num(k, d, lo, hi):
+                x = z.get(k, d)
+                if isinstance(x, bool) or not isinstance(x, (int, float)) or not (lo <= x <= hi): raise ValueError(f"'{name}'[{i}].{k} must be a number from {lo} to {hi}")
+                return float(x)
+            x0, y0, x1, y1 = num("x0", 0.25, 0, 1), num("y0", 0.1, 0, 1), num("x1", 0.75, 0, 1), num("y1", 0.9, 0, 1)
+            if x1 - x0 < 0.02 or y1 - y0 < 0.02: raise ValueError(f"'{name}'[{i}] must be larger than 2% of the frame in both directions (x1 > x0, y1 > y0)")
+            side = z.get("side", "top")
+            if side not in ("left", "right", "top", "bottom"): raise ValueError(f"'{name}'[{i}].side must be left, right, top or bottom")
+            out.append({"x0": x0, "y0": y0, "x1": x1, "y1": y1, "color": normalize_color(z.get("color", "#19b8ff")), "side": side,
+                        "reach": num("reach", 0.5, 0, 1), "intensity": num("intensity", 1.0, 0, 1.5), "soft": num("soft", 0.3, 0, 1)})
+        return out
     if t == "points" and name == "polygon":
         if not isinstance(v, list) or not (3 <= len(v) <= 64): raise ValueError(f"'{name}' needs 3 to 64 points [x, y]")
         out = []

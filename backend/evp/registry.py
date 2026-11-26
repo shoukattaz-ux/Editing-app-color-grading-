@@ -77,6 +77,7 @@ class OpSpec:
 
 from .studio import PRESET_NAMES
 N, I, B, S, C, E, A, PT = ("number", "integer", "boolean", "string", "color", "enum", "asset", "points")
+BX = "boxes"          # a short list of coloured light boxes (see studio_look.colour_zones)
 
 _KEY_PARAMS = {
     "key_color": Param(C, "#00ff00", desc="Colour to remove: '#rrggbb', 'green' or 'blue'."),
@@ -260,6 +261,7 @@ _reg(OpSpec("studio_look", "Studio Look", "Color", STAGE_LOOK, "effects",
              "colour_light_zone_y1": Param(N, 0.9, 0.0, 1.0, desc="[colour_light, place=zone] Bottom edge of your zone (fraction of the frame height; must be larger than colour_light_zone_y0)."),
              "colour_light_zone_soft": Param(N, 0.3, 0.0, 1.0, desc="[colour_light, place=zone] How softly the light fades out at the zone's edges (0 = a hard edge)."),
              "colour_light_edge": Param(N, 0.6, 0.0, 1.0, desc="[colour_light] Extra glow along the subject's outline on the side facing each light (rim light on jaw, cheek and hair). 0 = none."),
+             "colour_zones": Param(BX, None, desc="[colour_light] MANY BOXES: up to 6 extra coloured lights, each confined to its own rectangle (fractions of the frame: x0,y0,x1,y1) with its own colour, side (left/right/top/bottom), reach, intensity and edge softness. They are added to light A and B (set their side to 'off' to use boxes only). Only the subject is ever lit."),
              "light_pattern_asset_id": Param(A, None, asset_types=("image", "video"), desc="[light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples."),
              "fringe": Param(N, 0.0, 0.0, 4.0, unit="px at 1080p", desc="Colour fringing of a lens (lateral chromatic aberration): red and blue separate from green towards the frame edges, by this many pixels at the very edge, on the whole picture.")}))
 _reg(OpSpec("video_enhancement", "Video Enhancement", "Enhance", STAGE_RESTORE, "effects",

@@ -7,6 +7,7 @@ import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
 import { Timeline } from "./Timeline";
 import { GpuChip } from "./Gpu";
+import { useBoxSel, setBoxSel } from "./boxSel";
 import { mergeBlueprint, applyStrength, ExecOptions } from "./merge";
 import { Properties } from "./Properties";
 import { Sidebar, TABS, Tab, Ctx } from "./Sidebar";
@@ -46,6 +47,7 @@ function Editor({ api }: { api: Api }) {
   const [job, setJob] = useState<JobState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [photoSaveOpen, setPhotoSaveOpen] = useState(false);
+  const boxSel = useBoxSel();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importMenu, setImportMenu] = useState(false);
   useEffect(() => { if (window.evp?.isElectron) document.body.classList.add("electron"); }, []);
@@ -325,7 +327,10 @@ function Editor({ api }: { api: Api }) {
           <div className="recovery"><Icon n="check" /> Restored your work exactly as you left it{project.restored_at ? ` (${new Date(project.restored_at * 1000).toLocaleString()})` : ""}. It was auto-saved but not yet saved as a version.
             <Btn label="Save now" kind="primary" onClick={save} />
             <Btn label="Back to last saved version" onClick={async () => { try { load(await api.revert()); toast("Went back to the last saved version"); } catch (e: any) { toast(e.message, "err"); } }} /></div>)}
-        <Preview photo={!!project.photo} zone={(() => { const o = bp.operations.find(x => x.id === sel); const q = o?.parameters ?? {};
+        <Preview photo={!!project.photo} boxes={(() => { const o = bp.operations.find(x => x.id === sel); const q = o?.parameters ?? {};
+            if (!o || o.type !== "studio_look" || !(typeof q.colour_light === "number" && q.colour_light > 0) || !Array.isArray(q.colour_zones) || !q.colour_zones.length) return null;
+            return { list: q.colour_zones as any[], selected: Math.min(boxSel, q.colour_zones.length - 1), onSelect: setBoxSel,
+              onChange: (i: number, patch: Record<string, any>) => edit(b => m.setParam(b, o.id, "colour_zones", (q.colour_zones as any[]).map((z, k) => k === i ? { ...z, ...patch } : z)), `box:${o.id}:${i}`) }; })()} zone={(() => { const o = bp.operations.find(x => x.id === sel); const q = o?.parameters ?? {};
             if (!o || o.type !== "studio_look" || !(typeof q.colour_light === "number" && q.colour_light > 0) || q.colour_light_place !== "zone") return null;
             const n = (k: string, d: number) => (typeof q[k] === "number" ? q[k] : d);
             return { x0: n("colour_light_zone_x0", 0.25), y0: n("colour_light_zone_y0", 0.1), x1: n("colour_light_zone_x1", 0.75), y1: n("colour_light_zone_y1", 0.9), colour: typeof q.colour_light_color_a === "string" ? q.colour_light_color_a : "#19b8ff",

@@ -3,7 +3,7 @@ import type { Api, VideoInfo } from "./api";
 import type { Blueprint } from "./model";
 import * as m from "./model";
 import { Btn, Empty, Icon } from "./ui";
-import { MaskOverlay, ZoneOverlay, useFitRect } from "./MaskOverlay";
+import { MaskOverlay, ZoneOverlay, BoxesOverlay, LightBox, useFitRect } from "./MaskOverlay";
 import type { Op } from "./model";
 
 export type Mode = "original" | "edited" | "compare";
@@ -41,7 +41,8 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   return { url, err, busy, draft: shownDraft };
 }
 
-export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks, zone, photo }: {
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks, zone, boxes, photo }: {
+  boxes?: { list: LightBox[]; selected: number; onChange: (i: number, patch: Partial<LightBox>) => void; onSelect: (i: number) => void } | null;
   photo?: boolean;
   zone?: { x0: number; y0: number; x1: number; y1: number; colour: string; onChange: (patch: Record<string, any>) => void } | null;
   masks?: { ops: Op[]; selected: string | null; onChange: (id: string, patch: Record<string, any>) => void; onSelect: (id: string) => void };
@@ -130,6 +131,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
           </div>)}
         {(edited.busy || orig.busy || view.busy || proxyBusy) && <div className="spin" title="Rendering" />}
         {zone && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <ZoneOverlay rect={fit} zone={zone} onChange={zone.onChange} />}
+        {boxes && boxes.list.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <BoxesOverlay rect={fit} boxes={boxes.list} selected={boxes.selected} onChange={boxes.onChange} onSelect={boxes.onSelect} />}
         {masks && masks.ops.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <MaskOverlay rect={fit} masks={masks.ops} selected={masks.selected} onChange={masks.onChange} onSelect={masks.onSelect} />}
         {mode === "edited" && !photo && !playable && !qcOn && bp.operations.length > 0 && (          // small, in the corner: never covers the picture, which is already live (nothing to apply without effects)
           <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>

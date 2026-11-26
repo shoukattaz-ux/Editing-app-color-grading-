@@ -123,3 +123,42 @@ export function ZoneOverlay({ rect, zone, onChange }: {
       {handles.map(([k, x, y, c]) => <rect key={k} x={x * W - 5} y={y * H - 5} width={10} height={10} fill="#fff" stroke={zone.colour} strokeWidth={2} style={{ cursor: c, pointerEvents: "all" }} onPointerDown={e => begin(e, k)} />)}
     </svg>);
 }
+
+
+export interface LightBox { x0: number; y0: number; x1: number; y1: number; color: string }
+/** several coloured-light boxes at once: click one to select it, drag it to move, drag the white handles of the selected one to resize */
+export function BoxesOverlay({ rect, boxes, selected, onChange, onSelect }: {
+  rect: { left: number; top: number; width: number; height: number };
+  boxes: LightBox[]; selected: number; onChange: (i: number, patch: Partial<LightBox>) => void; onSelect: (i: number) => void;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const drag = useRef<{ i: number; kind: string; x0: number; y0: number; start: LightBox } | null>(null);
+  if (!rect.width || !boxes.length) return null;
+  const toN = (e: React.PointerEvent) => { const b = svg.current!.getBoundingClientRect(); return { x: clamp((e.clientX - b.left) / b.width), y: clamp((e.clientY - b.top) / b.height) }; };
+  const begin = (e: React.PointerEvent, i: number, kind: string) => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture(e.pointerId); const n = toN(e); onSelect(i); drag.current = { i, kind, x0: n.x, y0: n.y, start: { ...boxes[i] } }; };
+  const move = (e: React.PointerEvent) => {
+    const d = drag.current; if (!d) return; const n = toN(e), s = d.start;
+    if (d.kind === "move") {
+      const w = s.x1 - s.x0, h = s.y1 - s.y0, x0 = clamp(s.x0 + n.x - d.x0, 0, 1 - w), y0 = clamp(s.y0 + n.y - d.y0, 0, 1 - h);
+      onChange(d.i, { x0: r4(x0), y0: r4(y0), x1: r4(x0 + w), y1: r4(y0 + h) });
+    } else {
+      let x0 = s.x0, y0 = s.y0, x1 = s.x1, y1 = s.y1;
+      if (d.kind.includes("w")) x0 = clamp(n.x, 0, x1 - 0.03); if (d.kind.includes("e")) x1 = clamp(n.x, x0 + 0.03, 1);
+      if (d.kind.includes("n")) y0 = clamp(n.y, 0, y1 - 0.03); if (d.kind.includes("s")) y1 = clamp(n.y, y0 + 0.03, 1);
+      onChange(d.i, { x0: r4(x0), y0: r4(y0), x1: r4(x1), y1: r4(y1) });
+    }
+  };
+  const end = () => { drag.current = null; };
+  const W = rect.width, H = rect.height;
+  const sb = boxes[selected];
+  const handles: [string, number, number, string][] = sb ? [["hnw", sb.x0, sb.y0, "nwse-resize"], ["hn", (sb.x0 + sb.x1) / 2, sb.y0, "ns-resize"], ["hne", sb.x1, sb.y0, "nesw-resize"], ["he", sb.x1, (sb.y0 + sb.y1) / 2, "ew-resize"],
+    ["hse", sb.x1, sb.y1, "nwse-resize"], ["hs", (sb.x0 + sb.x1) / 2, sb.y1, "ns-resize"], ["hsw", sb.x0, sb.y1, "nesw-resize"], ["hw", sb.x0, (sb.y0 + sb.y1) / 2, "ew-resize"]] : [];
+  return (
+    <svg ref={svg} className="mask-overlay zone-overlay boxes-overlay" width={W} height={H} style={{ left: rect.left, top: rect.top }} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+      {boxes.map((b, i) => (<g key={i}>
+        <rect x={b.x0 * W} y={b.y0 * H} width={(b.x1 - b.x0) * W} height={(b.y1 - b.y0) * H} fill={b.color} fillOpacity={i === selected ? 0.16 : 0.08} stroke={b.color} strokeWidth={i === selected ? 3 : 1.5} strokeDasharray="6 4"
+          style={{ cursor: "move", pointerEvents: "all" }} onPointerDown={e => begin(e, i, "move")} aria-label={`Light box ${i + 1}`} />
+        <text x={b.x0 * W + 6} y={b.y0 * H + 16} fill="#fff" fontSize={12} style={{ pointerEvents: "none" }}>{i + 1}</text></g>))}
+      {handles.map(([k, x, y, c]) => <rect key={k} x={x * W - 5} y={y * H - 5} width={10} height={10} fill="#fff" stroke={sb.color} strokeWidth={2} style={{ cursor: c, pointerEvents: "all" }} onPointerDown={e => begin(e, selected, k)} aria-label={`Resize box ${selected + 1}`} />)}
+    </svg>);
+}

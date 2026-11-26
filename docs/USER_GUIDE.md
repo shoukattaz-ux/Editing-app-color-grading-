@@ -292,3 +292,14 @@ Open **Ready-made** in the left bar for finished, tested sets of effects that yo
 - **Quality**: clean and sharp; 2x AI upscale.
 
 The background of the club looks is a plain dark colour: choose your own picture or video in **Backgrounds** afterwards.
+
+## Many coloured light boxes
+
+In **Studio Look → Colour lights** you can draw up to **six boxes** on the preview. Each box has its own colour and side (the light comes from the left, right, top or bottom of that box), its own reach, strength and soft edge, and it lights the **subject only, and only inside itself**. The background is never touched.
+
+1. Turn Colour lights on, then press **Add a box**. A box appears on the preview.
+2. Drag it to move it. Click a box to select it, then drag its white handles to resize it.
+3. Use the **Box 1, Box 2…** tabs in Properties to change a box's colour, side and strength, or delete it.
+4. Press **Boxes only** to switch Light A and B off so that only your boxes light the subject. Otherwise the boxes are added to Light A and B.
+
+The boxes stay in the same place in the picture for the whole video (like stage lights). The Ready-made tab has a three-box example: *Club lights: three coloured boxes*.
