@@ -121,9 +121,7 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
 
 def ensure_floor(plan: Plan, source: str, cache_dir: str) -> None:
     """background replacements with a reflection / contact shadow and no floor_y: find the floor = the lowest point of the subject's matte on the middle frame"""
-    import hashlib, json as _json, io
-    import numpy as np
-    from PIL import Image
+    import hashlib, json as _json
     from .floorfx import measure_bottom, placed_y
     plan.floor = {}
     reps = [o for o in plan.steps if o.type == "background_replacement" and (o.params["reflection"] > 0 or o.params["contact_shadow"] > 0) and o.params.get("floor_y") is None]
@@ -135,7 +133,7 @@ def ensure_floor(plan: Plan, source: str, cache_dir: str) -> None:
             plan.floor[r.id] = _json.loads(f.read_text(encoding="utf-8")); continue
         t = ((r.start_frame + r.end_frame) // 2) / plan.blueprint.output.fps
         png = render_frame(plan, source, t, 360, cache_dir, _measuring=True, view="alpha")
-        a = np.asarray(Image.open(io.BytesIO(png)).convert("L"))
+        a = _gray_png(png)
         frac, _ = measure_bottom(a)
         y = placed_y(frac, r.params)
         res = {"y": round(float(min(1.0, max(0.0, y))), 4), "cut": bool(y >= 0.985 or frac >= 0.995), "raw": round(float(frac), 4)}
@@ -143,12 +141,19 @@ def ensure_floor(plan: Plan, source: str, cache_dir: str) -> None:
         plan.floor[r.id] = res
 
 
+def _gray_png(png: bytes):
+    """a rendered PNG as a 2-D uint8 gray array (OpenCV: already a dependency; Pillow is not installed by the app)"""
+    import cv2
+    import numpy as np
+    a = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE)
+    if a is None: raise RuntimeError("could not read the measuring frame")
+    return a
+
+
 def _subject_bounds(plan: Plan, r, source: str, cache_dir: str, t: float) -> dict | None:
     """the placed subject's matte bounds at time t as final-frame fractions {x0,x1,y0,y1}, or None when there is no subject"""
-    import io
     import numpy as np
-    from PIL import Image
-    a = np.asarray(Image.open(io.BytesIO(render_frame(plan, source, t, 360, cache_dir, _measuring=True, view="alpha"))).convert("L")).astype(np.float32) / 255.0
+    a = _gray_png(render_frame(plan, source, t, 360, cache_dir, _measuring=True, view="alpha")).astype(np.float32) / 255.0
     h, w = a.shape
     cols, rows = np.where((a > 0.5).mean(0) > 0.004)[0], np.where((a > 0.5).mean(1) > 0.004)[0]
     if len(cols) == 0 or len(rows) == 0: return None

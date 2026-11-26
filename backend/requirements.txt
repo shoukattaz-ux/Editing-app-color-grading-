@@ -4,6 +4,7 @@ numpy>=1.26
 opencv-python-headless>=4.9
 pytest>=8
 httpx>=0.27
+pillow>=10             # tests only (the app itself never imports it)
 onnxruntime>=1.17; sys_platform != "win32"            # AI features on CPU. NVIDIA GPU: use onnxruntime-gpu instead
 onnxruntime-directml>=1.17; sys_platform == "win32"   # Windows: runs on ANY DirectX-12 GPU (AMD, Intel, NVIDIA); includes the CPU provider
 onnx>=1.15             # one-time conversion of Real-ESRGAN weights
