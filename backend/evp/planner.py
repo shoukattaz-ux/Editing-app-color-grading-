@@ -99,6 +99,12 @@ def build_plan(bp: Blueprint, video: VideoInfo, rep: Report) -> Plan | None:
             continue
         for k in pool: plan.masks.setdefault(k.id, []).append(mk)
 
+    # --- cinema bars on a tall video would hide most of the picture: they are skipped there, and said so
+    from .cinema import letterbox_skipped
+    for cg in (o for o in ops if o.type == "color_grading" and o.params.get("letterbox", "none") != "none"):
+        if letterbox_skipped(cg.params["letterbox"], plan.blueprint.output.width, plan.blueprint.output.height):
+            rep.warn("LETTERBOX_SKIPPED", f"'{cg.id}': {cg.params['letterbox']}:1 cinema bars would hide most of this tall / square picture, so they are not drawn. Use them on landscape (16:9) video.", cg.id)
+
     # --- Color Gradings for the SUBJECT only / the BACKGROUND only: applied inside the composite of the background they overlap
     for cg in (o for o in ops if o.type == "color_grading" and o.params.get("apply_to", "both") in ("subject", "background")):
         reps = [r for r in ops if r.type == "background_replacement" and _overlap(r, cg)]

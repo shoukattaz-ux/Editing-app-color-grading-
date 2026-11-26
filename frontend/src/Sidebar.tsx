@@ -165,6 +165,12 @@ function ColorTab({ ctx }: { ctx: Ctx }) {
         onClick={() => { const d = ctx.duration || ctx.video?.duration || 5; let id = "";
           ctx.edit(bp => { const r = m.addOp(bp, spec, 0, d); id = r.id; return m.setParam(m.setParam(r.bp, r.id, "auto_enhance", 1), r.id, "enhance_style", "crisp"); });
           setTimeout(() => ctx.setSel(id), 0); }} />
+      <Btn icon="film" label="Cinematic look" disabled={!ctx.video} title="A real film grade over the whole video: auto-enhanced base + teal & orange film look (skin stays warm), vignette and grain. Change the style and strength in Properties."
+        onClick={() => { const d = ctx.duration || ctx.video?.duration || 5; let id = "";
+          ctx.edit(bp => { const r = m.addOp(bp, spec, 0, d); id = r.id; let b2 = r.bp;
+            for (const [k, x] of Object.entries({ auto_enhance: 0.7, enhance_style: "natural", cinematic: 1, cinematic_style: "teal_orange" })) b2 = m.setParam(b2, r.id, k, x);
+            return b2; });
+          setTimeout(() => ctx.setSel(id), 0); }} />
       <Btn icon="plus" label="Blank grade" onClick={() => add()} disabled={!ctx.video} />
     </div>
     <h4>Cinematic presets</h4>

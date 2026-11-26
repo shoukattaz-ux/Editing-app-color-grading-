@@ -208,6 +208,13 @@ Both are built from the subject itself, so they follow every movement (a jump li
 * Limits: it only changes brightness and colour. It cannot turn a white (clipped) sky blue, and it does not redraw detail the way AI photo apps do (they invent hair strands and reshape faces); for extra real detail add AI Resolution Enhancement.
 * In a blueprint: `{"type": "color_grading", "parameters": {"auto_enhance": 1.0, "enhance_style": "crisp", "apply_to": "subject"}}` (`apply_to`: both / subject / background).
 
+## Cinematic look: a real film grade in one control
+**Color** panel → **Cinematic look** (an auto-enhanced base + the film look over the whole video), or the orange **Cinematic look** card in any Color Grading. What a colourist does for a film look, in one slider (0 – 150 %):
+* filmic tones: slightly lifted, soft blacks and highlights that roll off instead of glaring, a gentle S-curve;
+* colour **by hue**, not only by brightness: skin (reds / yellows) stays warm, greens turn toward teal, magentas and blues calm down; teal shadows and warm highlights with the brightness preserved;
+* restrained overall colour, a vignette, and fine film grain in the brightness only (no colour speckles).
+Styles: **Teal & orange** (the blockbuster look), **Moody** (darker, muted, cold shadows), **Golden** (warm golden-hour film), **Bleach** (bleach bypass: low colour, high contrast). **Cinema bars** (2.39 / 2 / 1.85 : 1) add black bars top and bottom; on a tall (portrait) video they would hide most of the picture, so they are skipped there and the project check says so. In a blueprint: `"cinematic": 1.0, "cinematic_style": "teal_orange", "letterbox": "2.39"` on a color_grading. The colour-by-hue step needs FFmpeg 5.1 or newer (any current build); with an older one the rest of the look still works.
+
 ## Colour lights: cyan from the left, magenta from the right (portrait / stage look)
 On a **Studio Look** (with a Background Replacement behind the subject) open **Colour lights** and press **Cyan / magenta portrait**. Two coloured lights fall on the **subject only**, each from a side, and fade across it; where they meet in the middle the colours mix. A glow also hugs the outline on the side facing each light (jaw, cheek, hair, fins).
 

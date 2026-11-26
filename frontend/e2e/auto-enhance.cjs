@@ -55,6 +55,14 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     await page.click(".autoenhance button:has-text('Both')"); await page.waitForTimeout(600);
     await page.click(".autoenhance button:has-text('Off')"); await page.waitForTimeout(800);
     check((await bpNow()).operations.find(o => o.type === "color_grading").parameters.auto_enhance === 0, "Off turns it off");
+    // cinematic look: one click, style, bars
+    await page.click("button[aria-label=Color]"); await page.click("text=Cinematic look"); await page.waitForSelector(".cinematic");
+    let cg = null;
+    for (let i = 0; i < 40 && !cg; i++) { await page.waitForTimeout(250); cg = (await bpNow()).operations.find(o => o.type === "color_grading" && o.parameters.cinematic); }
+    check(cg && cg.parameters.cinematic === 1 && cg.parameters.cinematic_style === "teal_orange" && cg.parameters.auto_enhance === 0.7, "one click adds the Cinematic look (on an auto-enhanced base)", JSON.stringify(cg && cg.parameters));
+    await page.click(".cinematic button:has-text('Moody')"); await page.selectOption('select[aria-label="Cinema bars"]', "2.39"); await page.waitForTimeout(900);
+    cg = (await bpNow()).operations.find(o => o.id === cg.id);
+    check(cg.parameters.cinematic_style === "moody" && cg.parameters.letterbox === "2.39", "style and cinema bars are stored");
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall auto-enhance checks passed");

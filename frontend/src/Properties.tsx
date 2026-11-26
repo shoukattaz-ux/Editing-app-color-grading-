@@ -330,6 +330,33 @@ function AutoEnhance({ op, edit, note }: { op: Op; edit: Edit; note?: EnhanceNot
     </section>);
 }
 
+/** Cinematic look: a real film grade in one control (colour by hue, split tone, filmic curve, vignette, grain) + cinema bars */
+function Cinematic({ op, edit, video }: { op: Op; edit: Edit; video: VideoInfo | null }) {
+  const pr = op.parameters ?? {};
+  const v = typeof pr.cinematic === "number" ? pr.cinematic : 0;
+  const style = typeof pr.cinematic_style === "string" ? pr.cinematic_style : "teal_orange";
+  const bars = typeof pr.letterbox === "string" ? pr.letterbox : "none";
+  const set = (k: string, x: number | string) => edit(b => m.setParam(b, op.id, k, x), `p:${op.id}:${k}`);
+  const tall = !!video && video.height >= video.width * 0.75;
+  return (
+    <section className="cinematic">
+      <div className="master-head"><h4>Cinematic look</h4><span className="muted small">{v > 0 ? `${Math.round(v * 100)}%` : "off"}</span></div>
+      <p className="muted small">A film grade in one control: filmic tones (soft blacks, highlights that roll off), colour by hue (skin stays warm, greens go teal, magentas / blues calm down), teal shadows and warm highlights, restrained colour, a vignette and fine film grain.</p>
+      <div className="master-row"><input type="range" min={0} max={150} value={Math.round(v * 100)} onChange={e => set("cinematic", +e.target.value / 100)} onDoubleClick={() => set("cinematic", 0)} aria-label="Cinematic amount" />
+        <Btn label={v > 0 ? "Off" : "Make it cinematic"} kind={v > 0 ? undefined : "primary"} onClick={() => set("cinematic", v > 0 ? 0 : 1)} /></div>
+      <div className="btn-row" role="group" aria-label="Cinematic style">
+        {([["teal_orange", "Teal & orange"], ["moody", "Moody"], ["golden", "Golden"], ["bleach", "Bleach"]] as const).map(([k, l]) =>
+          <Btn key={k} label={l} kind={style === k ? "primary" : undefined} onClick={() => set("cinematic_style", k)}
+            title={k === "teal_orange" ? "The blockbuster look: teal shadows, warm skin" : k === "moody" ? "Darker, muted, cold shadows" : k === "golden" ? "Warm golden-hour film" : "Bleach bypass: low colour, high contrast"} />)}
+      </div>
+      <label className="field"><span className="fl">Cinema bars</span>
+        <select value={bars} onChange={e => set("letterbox", e.target.value)} aria-label="Cinema bars">
+          <option value="none">none</option><option value="2.39">2.39 : 1 (anamorphic widescreen)</option><option value="2.0">2 : 1</option><option value="1.85">1.85 : 1</option></select></label>
+      {bars !== "none" && tall && <p className="muted small">This video is tall: bars would hide most of it, so they are not drawn. Use them on landscape (16:9) video.</p>}
+      <p className="muted small">Tip: put <b>Auto enhance</b> (Natural, about 70 %) in the same grade first for a clean base; the look goes on top.</p>
+    </section>);
+}
+
 /** Camera match: make the subject look as if the same camera shot it and the background */
 function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
   const v = (op.parameters?.camera_match as number | undefined) ?? 0;
@@ -473,6 +500,7 @@ export function Properties({ enhanceNotes, bp, schema, video, layout, sel, selCl
         </div>
       </section>
       {op.type === "color_grading" && <AutoEnhance op={op} edit={edit} note={enhanceNotes?.[op.id]} />}
+      {op.type === "color_grading" && <Cinematic op={op} edit={edit} video={video} />}
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
       {op.type === "studio_look" && <ColourLights op={op} edit={edit} />}

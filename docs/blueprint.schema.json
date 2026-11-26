@@ -839,6 +839,35 @@
                       "maximum": 1.5,
                       "default": 0.0
                     },
+                    "cinematic": {
+                      "description": "CINEMATIC LOOK: a real film grade in one control - filmic tone curve (soft lifted blacks, rolled-off highlights), colour by hue (skin stays warm, greens toward teal, magentas / blues calmed), split tone with brightness preserved, restrained saturation, vignette and fine film grain. 0 = off, 1 = the full look, 1.5 = stronger.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.5,
+                      "default": 0.0
+                    },
+                    "cinematic_style": {
+                      "description": "[cinematic] teal_orange = the blockbuster look (teal shadows, warm skin); moody = darker, muted, cold shadows; golden = warm golden-hour film; bleach = low-saturation, high-contrast bleach bypass.",
+                      "type": "string",
+                      "enum": [
+                        "teal_orange",
+                        "moody",
+                        "golden",
+                        "bleach"
+                      ],
+                      "default": "teal_orange"
+                    },
+                    "letterbox": {
+                      "description": "Black cinema bars top and bottom so the picture shows at this aspect ratio (2.39 = anamorphic widescreen). Applies where this grade runs.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "2.39",
+                        "2.0",
+                        "1.85"
+                      ],
+                      "default": "none"
+                    },
                     "apply_to": {
                       "description": "Where this grade (and its auto_enhance) applies: both = the whole picture; subject = only the keyed person / object (its cut-out is untouched, the background never changes); background = only the picture behind the subject. subject / background need a background_replacement.",
                       "type": "string",

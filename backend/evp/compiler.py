@@ -13,7 +13,7 @@ from .animate import AnimChain
 from .keyframes import to_expr
 from .masks import write_mask
 from .floorfx import reflection_gradient, band_mask as floor_band, write_gray
-from .media import supports_timeline, ffmpeg_bin, encoders, _try_encoder, hw_decode_usable
+from .media import supports_timeline, ffmpeg_bin, ffmpeg_filters, encoders, _try_encoder, hw_decode_usable
 
 
 @dataclass
@@ -797,6 +797,9 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         cv = [f"{n}='{curve_str(p[k])}'" for n, k in (("master", "curve_master"), ("red", "curve_red"),
               ("green", "curve_green"), ("blue", "curve_blue")) if p[k]]
         if cv: f.append("curves=" + ":".join(cv))
+        if float(p.get("cinematic", 0) or 0) > 0:                       # the film look, on top of everything above
+            from .cinema import filters as cine_filters
+            f += cine_filters(float(p["cinematic"]), p.get("cinematic_style") or "teal_orange", "huesaturation" in ffmpeg_filters())
         return f
 
     def grade_block(src: str, op: Operation) -> str:
@@ -823,9 +826,20 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             def whole(x: str) -> str:
                 s_ = g.add([x], ",".join([*pre, *cs.wrap_rgb(main)])) if main else x
                 return lut_partial(s_) if lut_id else s_
-            return amount_block(src, op, whole)
+            return grade_finish(amount_block(src, op, whole), op)
         out = apply_ranged(src, main, op, pre)
-        return ranged_block(out, op, lut_partial) if lut_id else out
+        out = ranged_block(out, op, lut_partial) if lut_id else out
+        return grade_finish(out, op)
+
+    def grade_finish(src: str, op: Operation) -> str:
+        """the cinematic look's vignette + grain and the letterbox bars: after the colour work, over the grade's range"""
+        from .cinema import finish as cine_finish, letterbox as cine_bars
+        p = op.params
+        fin = cine_finish(float(p.get("cinematic", 0) or 0), p.get("cinematic_style") or "teal_orange", scale_px)
+        bars = cine_bars(p.get("letterbox"), W, H)
+        chain = fin + ([bars] if bars else [])
+        if not chain: return src
+        return ranged_block(src, op, lambda x: g.add([x], ",".join(chain)))
 
     def grade_part(x: str, op: Operation) -> str:
         """a Color Grading on an RGBA layer (the subject or the background): only the colour is graded, the alpha (the cut-out) is untouched"""
