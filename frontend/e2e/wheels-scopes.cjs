@@ -49,6 +49,7 @@ const pngChunks = (buf) => { const n = []; let i = 8; while (i + 8 <= buf.length
     check(await page.locator('.fl:text-is("lift")').count() === 0, "the raw lift/gamma/gain text boxes are replaced by the wheels");
 
     // drag Lift toward blue (hue 240 = lower-left): a pure, zero-mean blue cast
+    await page.locator(".wheel-disc").nth(0).scrollIntoViewIfNeeded();
     const disc = page.locator(".wheel-disc").nth(0), bb = await disc.boundingBox(), cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2, R = bb.width / 2;
     await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx - R * 0.45, cy + R * 0.78, { steps: 6 }); await page.mouse.up();
     let lift = (await op()).parameters.lift;

@@ -25,6 +25,7 @@ class Plan:
     face_controls: dict = field(default_factory=dict)             # op id -> ml.face.ControlRef (filled by the engine)
     upscales: dict = field(default_factory=dict)                  # op id -> ml.upscale.UpscaleRef (filled by the engine)
     light_box: dict = field(default_factory=dict)                 # replacement id -> the placed subject's bounds {x0,x1,y0,y1} as frame fractions (for colour lights; filled by the engine)
+    enhance: dict = field(default_factory=dict)                   # color_grading id -> the measured shot for auto_enhance (filled by the engine)
     floor: dict = field(default_factory=dict)                     # replacement id -> {"y": floor line (fraction of the frame height), "cut": subject touches the frame bottom} (filled by the engine)
     masks: dict[str, list] = field(default_factory=dict)          # keyer id -> the garbage / keep masks that correct its matte
 

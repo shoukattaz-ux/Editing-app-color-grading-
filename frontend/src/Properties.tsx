@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { Blueprint, Op, OpSpec, ParamSpec, Schema } from "./model";
 import * as m from "./model";
-import type { CameraNote, Issue, VideoInfo } from "./api";
+import type { CameraNote, EnhanceNote, Issue, VideoInfo } from "./api";
 import { Btn, Empty, Icon, resolutionOptions } from "./ui";
 import { KeyframeGraph } from "./Keyframes";
 import { ColorWheels } from "./ColorWheels";
@@ -295,6 +295,34 @@ function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** Auto enhance: ONE master slider. The clip is measured and the matching corrections are applied together. */
+function AutoEnhance({ op, edit, note }: { op: Op; edit: Edit; note?: EnhanceNote }) {
+  const pr = op.parameters ?? {};
+  const v = typeof pr.auto_enhance === "number" ? pr.auto_enhance : 0;
+  const style = typeof pr.enhance_style === "string" ? pr.enhance_style : "crisp";
+  const set = (k: string, x: number | string) => edit(b => m.setParam(b, op.id, k, x), `p:${op.id}:${k}`);
+  const full = note?.full, ms = note?.measured;
+  const f = (x: number, d = 2) => (x >= 0 ? "+" : "") + x.toFixed(d);
+  return (
+    <section className="autoenhance">
+      <div className="master-head"><h4>Auto enhance</h4><span className="muted small">{v > 0 ? `${Math.round(v * 100)}%` : "off"}</span></div>
+      <p className="muted small">One slider for a flat, hazy, dim or colour-cast clip. The clip is measured and the right corrections (haze, blacks, whites, brightness, contrast, white balance, colour, clarity, detail) are applied together. Your own sliders below add on top.</p>
+      <div className="master-row"><input type="range" min={0} max={150} value={Math.round(v * 100)} onChange={e => set("auto_enhance", +e.target.value / 100)} onDoubleClick={() => set("auto_enhance", 0)} aria-label="Auto enhance amount" />
+        <Btn label={v > 0 ? "Off" : "Enhance"} kind={v > 0 ? undefined : "primary"} onClick={() => set("auto_enhance", v > 0 ? 0 : 1)} /></div>
+      <div className="btn-row" role="group" aria-label="Enhance style">
+        {([["natural", "Natural"], ["crisp", "Crisp"], ["vivid", "Vivid"]] as const).map(([k, l]) =>
+          <Btn key={k} label={l} kind={style === k ? "primary" : undefined} onClick={() => set("enhance_style", k)}
+            title={k === "natural" ? "Gentle: keeps the mood of the shot" : k === "crisp" ? "Clean, bright and a little cool: a clear-day look" : "More colour and punch"} />)}
+      </div>
+      {v > 0 && !note && <p className="muted small">Measuring the clip on the next preview frame…</p>}
+      {v > 0 && ms && full && <ul className="cm-list">
+        <li><b>Measured:</b> middle brightness {Math.round(ms.p50 * 100)}%, whites {Math.round((ms.white ?? ms.p99) * 100)}%, darkest {Math.round(ms.p1 * 100)}%, cast {ms.r > ms.b * 1.02 ? "warm" : ms.b > ms.r * 1.02 ? "cool" : "neutral"}</li>
+        <li><b>Applying at {Math.round(v * 100)}%:</b> exposure {f(full.exposure * v)} · whites {f(full.whites * v)} · blacks {f(full.blacks * v)} · dehaze {f(full.dehaze * v)} · contrast ×{(1 + v * (full.contrast - 1)).toFixed(2)} · temperature {f(full.temperature * v, 0)} · tint {f(full.tint * v, 0)} · clarity {f(full.clarity * v)} · texture {f(full.texture * v)}</li>
+      </ul>}
+      <p className="muted small">It changes brightness and colour; it cannot turn a white sky blue or invent detail that is not in the video.</p>
+    </section>);
+}
+
 /** Camera match: make the subject look as if the same camera shot it and the background */
 function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
   const v = (op.parameters?.camera_match as number | undefined) ?? 0;
@@ -397,10 +425,11 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes, floorNotes }: {
+export function Properties({ enhanceNotes, bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes, floorNotes }: {
   floorNotes?: Record<string, { y: number; cut: boolean }>;
   hairNotes?: Record<string, { used: number; skipped: number }>;
   cameraNotes?: Record<string, CameraNote>;
+  enhanceNotes?: Record<string, EnhanceNote>;
   keyDoctor?: (opId: string) => Promise<any>;
   importAsset?: () => Promise<string | null>; plateNotes?: Record<string, { used: number; rejected: number }>;
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
@@ -436,6 +465,7 @@ export function Properties({ bp, schema, video, layout, sel, selClip, edit, t, s
           <label className="field"><span className="fl">end <em className="unit">(s)</em></span><input type="number" step={1 / fps} min={0} max={dur} value={+end.toFixed(4)} onChange={e => { const s = parseFloat(e.target.value); if (!isNaN(s)) edit(b => m.setOpTime(b, op.id, op.start, Math.max(s, op.start + 1 / fps)), "time:" + op.id); }} /></label>
         </div>
       </section>
+      {op.type === "color_grading" && <AutoEnhance op={op} edit={edit} note={enhanceNotes?.[op.id]} />}
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
       {op.type === "studio_look" && <ColourLights op={op} edit={edit} />}

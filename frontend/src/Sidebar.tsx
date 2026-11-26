@@ -160,7 +160,13 @@ function ColorTab({ ctx }: { ctx: Ctx }) {
   };
   return (<>
     <h3>Color grading</h3><p className="muted">Add a grade at the playhead, then fine-tune exposure, curves, LGG, LUT… in the properties panel.</p>
-    <Btn icon="plus" label="Blank grade" onClick={() => add()} disabled={!ctx.video} />
+    <div className="btn-row">
+      <Btn icon="wand" kind="primary" label="Auto enhance (one slider)" disabled={!ctx.video} title="Measures your clip and fixes haze, dull colour, a colour cast and dim exposure in one go, over the whole video. One master slider sets how strong."
+        onClick={() => { const d = ctx.duration || ctx.video?.duration || 5; let id = "";
+          ctx.edit(bp => { const r = m.addOp(bp, spec, 0, d); id = r.id; return m.setParam(m.setParam(r.bp, r.id, "auto_enhance", 1), r.id, "enhance_style", "crisp"); });
+          setTimeout(() => ctx.setSel(id), 0); }} />
+      <Btn icon="plus" label="Blank grade" onClick={() => add()} disabled={!ctx.video} />
+    </div>
     <h4>Cinematic presets</h4>
     {presets.map(p => <button key={p} className="item" disabled={!ctx.video} onClick={() => add(p)}><Icon n="color" size={14} /> {p.replace(/_/g, " ")}</button>)}
   </>);

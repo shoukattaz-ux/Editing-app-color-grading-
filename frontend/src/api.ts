@@ -31,6 +31,7 @@ export interface MediaItem { path: string; name: string; kind: "image" | "video"
 export interface MediaBin { sources: MediaItem[]; assets: MediaItem[] }
 export interface KeyFinding { id: string; severity: "problem" | "warn" | "info"; title: string; detail: string; time: number | null; fix: { label: string; set?: Record<string, any>; add_ops?: { type: string; params: Record<string, any> }[]; advice?: string } | null; measure: Record<string, any> }
 export interface KeyDoctorResult { findings: KeyFinding[]; score: number; frames_checked: number; summary: string }
+export interface EnhanceNote { measured: Record<string, number>; full: Record<string, number> }
 export interface CameraNote { match_softness: number; subject_grain: number; background_grain: number; match_blacks: number; measured: { subject_edge_blur_px: number; background_edge_blur_px: number; subject_noise_levels: number; background_noise_levels: number; subject_black: number; background_black: number } }
 export interface AiDevice { choice: string; running_on: string; provider: string; wanted: string; actual: string | null; fell_back: boolean; options: { value: string; label: string }[] }
 export interface ReportConfig { endpoint: string; bucket: string; access_key_id_masked: string; has_secret: boolean; enabled: boolean; auto_send: boolean; configured: boolean; pending: number; last: { ok?: boolean; error?: string; when?: number } }
@@ -47,6 +48,7 @@ export class Api {
     if (raw) {
       const n = r.headers.get("x-evp-plate"); if (n && this.onPlate) { try { this.onPlate(JSON.parse(n)); } catch { /* ignore */ } }
       const c = r.headers.get("x-evp-camera"); if (c && this.onCamera) { try { this.onCamera(JSON.parse(c)); } catch { /* ignore */ } }
+      const en = r.headers.get("x-evp-enhance"); if (en && this.onEnhance) { try { this.onEnhance(JSON.parse(en)); } catch { /* ignore */ } }
       const h = r.headers.get("x-evp-hair"); if (h && this.onHair) { try { this.onHair(JSON.parse(h)); } catch { /* ignore */ } }
       const fl = r.headers.get("x-evp-floor"); if (fl && this.onFloor) { try { this.onFloor(JSON.parse(fl)); } catch { /* ignore */ } }
     }
@@ -55,6 +57,7 @@ export class Api {
   /** clean plate use per keying operation, reported by the engine with every preview frame: { opId: { used, rejected } } */
   /** camera match measurements per studio look, reported with every preview frame */
   onCamera?: (n: Record<string, CameraNote>) => void;
+  onEnhance?: (n: Record<string, EnhanceNote>) => void;
   /** hair detail use per keying operation: { opId: { used, skipped } } */
   onHair?: (n: Record<string, { used: number; skipped: number }>) => void;
   /** the floor line found for each background replacement: { opId: { y (fraction of the frame height), cut } } */

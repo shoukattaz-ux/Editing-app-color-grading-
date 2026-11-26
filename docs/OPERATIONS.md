@@ -122,6 +122,8 @@ Timeline track: **effects**
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
 | `amount` | number | `1.0` | 0.0 … 1.5 x | Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values. |
+| `auto_enhance` | number | `0.0` | 0.0 … 1.5 | AUTO ENHANCE master slider: the clip is measured (haze, colour cast, exposure, contrast, colourfulness) and the matching corrections - dehaze, blacks, whites, highlights, exposure, contrast, white balance, vibrance, clarity, texture - are applied together. 0 = off, 1 = the measured correction, 1.5 = pushed further. Your own sliders in this Color Grading add on top. |
+| `enhance_style` | enum | `crisp` | natural, crisp, vivid | [auto_enhance] natural = gentle, keeps the mood; crisp = clean, cool and sharp (a clear-day look); vivid = more colour and punch. |
 | `preset` | enum | `none` | none, cinematic_teal_orange, warm_film, cool_blue, bleach_bypass, faded_matte, high_contrast_bw | Starting look; individual controls are applied on top. |
 | `exposure` ◆ | number | `0.0` | -3.0 … 3.0 EV | Exposure compensation in stops. |
 | `contrast` ◆ | number | `1.0` | 0.0 … 3.0 | 1.0 = unchanged. |

@@ -54,7 +54,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
     app = FastAPI(title="EVP backend", version=__version__)
     app.state.evp = st
     # The UI is served from file:// or a dev server; every route except /health requires the per-launch secret token.
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges", "x-evp-plate", "x-evp-camera", "x-evp-hair", "x-evp-floor"])
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["content-range", "accept-ranges", "x-evp-plate", "x-evp-camera", "x-evp-hair", "x-evp-floor", "x-evp-enhance"])
 
     def auth(request: Request):
         t = request.headers.get("x-evp-token") or request.query_params.get("token")
@@ -309,8 +309,10 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         notes = {k: ref.plate for k, ref in plan.mattes.items() if getattr(ref, "plate", None)}      # clean plate use per key: {used, rejected}
         cams = {k: v["camera"] for k, v in plan.look_auto.items() if isinstance(v, dict) and v.get("camera")}   # camera match measurements per studio look
         hairs = {k: ref.hair for k, ref in plan.mattes.items() if getattr(ref, "hair", None)}                  # hair detail use per key: {used, skipped}
-        floors = dict(plan.floor)                                                                              # floor line per background replacement: {y, cut}
-        hdr = {**({"x-evp-floor": json.dumps(floors)} if floors else {}), **({"x-evp-plate": json.dumps(notes)} if notes else {}), **({"x-evp-camera": json.dumps(cams)} if cams else {}), **({"x-evp-hair": json.dumps(hairs)} if hairs else {})}
+        floors = dict(plan.floor)
+        from .enhance import corrections as _enh_corr
+        enh = {k: {"measured": m_, "full": _enh_corr(m_, next((o.params.get("enhance_style") or "crisp" for o in plan.steps if o.id == k), "crisp"))} for k, m_ in plan.enhance.items()}                                                                              # floor line per background replacement: {y, cut}
+        hdr = {**({"x-evp-enhance": json.dumps(enh)} if enh else {}), **({"x-evp-floor": json.dumps(floors)} if floors else {}), **({"x-evp-plate": json.dumps(notes)} if notes else {}), **({"x-evp-camera": json.dumps(cams)} if cams else {}), **({"x-evp-hair": json.dumps(hairs)} if hairs else {})}
         resp = Response(png, media_type="image/png", headers=hdr or None)
         _FRAMES[ckey] = resp
         while len(_FRAMES) > 32: _FRAMES.popitem(last=False)

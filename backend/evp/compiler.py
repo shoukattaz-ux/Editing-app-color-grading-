@@ -817,7 +817,13 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         elif t == "background_replacement":
             cur = composite(cur, next(o for o in plan.steps if o.id == plan.alpha_source[op.id]), op)
         elif t == "color_grading":
-            main = grade_filters(op)
+            if float(p.get("auto_enhance", 0) or 0) > 0 and plan.enhance.get(op.id):
+                import copy as _copy
+                from .enhance import apply as enhance_apply
+                op_e = _copy.copy(op); op_e.params = enhance_apply(p, plan.enhance[op.id])        # the measured corrections x the master slider + your own sliders
+                main = grade_filters(op_e)
+            else:
+                main = grade_filters(op)
             lut_id = p["lut_asset_id"]
             if lut_id and p["lut_intensity"] >= 1:
                 main.append(f"lut3d=file='{esc_path(bp.assets[lut_id].resolved)}'")

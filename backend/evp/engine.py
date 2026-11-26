@@ -119,6 +119,32 @@ def ensure_auto(plan: Plan, source: str, cache_dir: str) -> None:
         plan.look_auto[lk.id] = res
 
 
+def ensure_enhance(plan: Plan, source: str, cache_dir: str) -> None:
+    """auto enhance: measure the shot under each Color Grading that uses it - three frames of its range, from the source as cut. Cached."""
+    import hashlib, json as _json
+    from .enhance import analyze
+    from .ml.frames import decode
+    plan.enhance = {}
+    ops = [o for o in plan.steps if o.type == "color_grading" and float(o.params.get("auto_enhance", 0) or 0) > 0]
+    if not ops: return
+    out = plan.blueprint.output
+    w = min(480, out.width) // 2 * 2; h = max(2, int(round(out.height * w / out.width)) // 2 * 2)
+    for op in ops:
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, op.start_frame, op.end_frame, plan.edl, w, "enh6"], default=str).encode()).hexdigest()[:24]
+        f = Path(cache_dir) / "look" / f"enhance_{key}.json"
+        if f.is_file():
+            plan.enhance[op.id] = _json.loads(f.read_text(encoding="utf-8")); continue
+        n = max(1, op.end_frame - op.start_frame)
+        frames = []
+        for q in (0.2, 0.5, 0.8):
+            fr = op.start_frame + min(n - 1, int(n * q))
+            frames += list(decode(source, w, h, out.fps, fr, 1, plan.edl))
+        if not frames: continue
+        res = analyze(frames)
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(_json.dumps(res), encoding="utf-8")
+        plan.enhance[op.id] = res
+
+
 def ensure_floor(plan: Plan, source: str, cache_dir: str) -> None:
     """background replacements with a reflection / contact shadow and no floor_y: find the floor = the lowest point of the subject's matte on the middle frame"""
     import hashlib, json as _json
@@ -384,7 +410,7 @@ class Job:
                 try:
                     ensure_auto(self.plan, self.source, self.work_dir)          # measuring renders first, then the real (full-range) analyses
                     ensure_references(self.plan, self.source, self.work_dir)
-                    ensure_floor(self.plan, self.source, self.work_dir); ensure_light_box(self.plan, self.source, self.work_dir)
+                    ensure_floor(self.plan, self.source, self.work_dir); ensure_light_box(self.plan, self.source, self.work_dir); ensure_enhance(self.plan, self.source, self.work_dir)
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
                 except (Cancelled, FaceCancelled, UpCancelled):
                     self.state = self.current = "cancelled"; return
@@ -615,7 +641,7 @@ def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 96
         # measuring renders look at another frame and leave THEIR mattes/analyses in the plan, so they run first and this frame's go last
         ensure_auto(plan, source, wd)
         ensure_references(plan, source, wd)
-        ensure_floor(plan, source, wd); ensure_light_box(plan, source, wd)
+        ensure_floor(plan, source, wd); ensure_light_box(plan, source, wd); ensure_enhance(plan, source, wd)
     ensure_mattes(plan, source, wd, frame=round(t * plan.blueprint.output.fps))
     if view and not any(o.type in ("chroma_key", "background_removal") for o in plan.steps):
         raise ValueError("There is no keying (chroma key / background removal) in this project, so there is no matte to show")
