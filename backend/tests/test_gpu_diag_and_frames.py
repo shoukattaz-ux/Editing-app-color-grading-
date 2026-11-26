@@ -76,3 +76,44 @@ def test_two_renders_at_once_do_not_share_the_text_file(prep, tmp_path):
     b = compile_plan(p.plan, "in.mp4", "b.mp4", RenderOptions(), str(tmp_path)).work_files
     ta, tb = [f for f in a if f.endswith(".txt")], [f for f in b if f.endswith(".txt")]
     assert ta and tb and set(ta).isdisjoint(tb)
+
+
+def test_a_live_frame_inside_a_long_cached_matte_lands_on_exactly_that_frame(tmp_path):
+    """after Apply the whole clip's matte is cached; a live frame later in the clip SEEKS into that file (instead of generating and throwing
+    away every earlier frame). It must show precisely the matte of that frame - the subject moves, so a frame off would show."""
+    import numpy as np, subprocess, cv2
+    from evp.samples import make_greenscreen
+    from evp.engine import prepare, render_frame, ensure_mattes
+    from evp.security import PathPolicy
+    from evp.media import ffmpeg_bin
+    v = str(make_greenscreen(tmp_path / "gs.mp4", 4))
+    ops = [{"id": "k", "type": "background_removal", "start": 0, "parameters": {"mode": "screen", "temporal_smooth": 0.0}}]
+    p = prepare({"blueprint_version": "1.0", "operations": ops}, v, PathPolicy([tmp_path]), tmp_path, strict=True)
+    ensure_mattes(p.plan, v, str(tmp_path))                                    # the whole range, as after "Apply to full video"
+    ref = p.plan.mattes["k"]; fps = p.plan.blueprint.output.fps
+    assert ref.start_frame == 0 and ref.frames > 60
+    for n in (37, 61):
+        got = cv2.imdecode(np.frombuffer(render_frame(p.plan, v, n / fps, None, str(tmp_path), view="alpha"), np.uint8), cv2.IMREAD_GRAYSCALE).astype(float)
+        raw = subprocess.run([ffmpeg_bin(), "-v", "error", "-i", ref.path, "-vf", f"select=eq(n\\,{n})", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        want = np.frombuffer(raw, np.uint8).reshape(got.shape).astype(float)
+        wrong = [np.abs(got - cv2.imdecode(np.frombuffer(render_frame(p.plan, v, (n + d) / fps, None, str(tmp_path), view="alpha"), np.uint8), cv2.IMREAD_GRAYSCALE)).mean() for d in (1,)]
+        assert np.abs(got - want).mean() < 1.0, f"frame {n}: live matte differs from the cached frame by {np.abs(got - want).mean():.2f}"
+        assert wrong[0] > 3 * max(0.05, np.abs(got - want).mean()), "the test clip must move enough to tell neighbouring frames apart"
+
+
+def test_lookup_blend_gives_the_same_picture_as_the_per_pixel_formula(tmp_path):
+    """the speed-up turns blend=all_expr into lut2: same numbers (within 1 level of rounding) for the formulas the compositor uses"""
+    import subprocess, numpy as np
+    from evp.compiler import fast_blends
+    from evp.media import ffmpeg_bin
+    src = "testsrc2=s=320x180:d=0.04,format=gbrp"
+    for e in ["clip(A*(1+0.660*(B/128-1))\\,0\\,255)", "clip(A*(255-B)/128*0.480\\,0\\,255)", "A*B/255", "clip(B+(A-B)*0.62500\\,0\\,255)"]:
+        out = []
+        for chain in (f"blend=all_expr='{e}'", fast_blends(f"blend=all_expr='{e}'")):
+            g = f"{src}[a];testsrc=s=320x180:d=0.04,format=gbrp,hflip[b];[a][b]{chain},format=rgb24"
+            r = subprocess.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", g, "-frames:v", "1", "-f", "rawvideo", "-"], capture_output=True)
+            assert r.returncode == 0, r.stderr
+            out.append(np.frombuffer(r.stdout, np.uint8).astype(int))
+        assert "lut2" in fast_blends(f"blend=all_expr='{e}'")
+        assert np.abs(out[0] - out[1]).max() <= 1, e
+    assert fast_blends("blend=all_expr='if(gt(Y\\,3)\\,A\\,B)'").startswith("blend=")         # position-dependent formulas stay a blend

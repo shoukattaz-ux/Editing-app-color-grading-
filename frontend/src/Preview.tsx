@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Api, VideoInfo } from "./api";
 import type { Blueprint } from "./model";
 import * as m from "./model";
@@ -13,21 +13,30 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const seq = useRef(0);
+  // ONE frame renders at a time. While it renders, newer requests only replace the "wanted" one; when it finishes, the latest wanted frame
+  // is rendered next and everything in between is skipped. (Firing a request for every slider step made the engine render them all at
+  // once, competing for the processor, so the frame you actually wanted came last and slowest.)
+  const want = useRef<{ key: string; run: () => Promise<Blob> } | null>(null);
+  const running = useRef(false);
+  const shownKey = useRef("");
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  const pump = useCallback(async () => {
+    if (running.current || !want.current) return;
+    const job = want.current; want.current = null; running.current = true; setBusy(true);
+    try {
+      const blob = await job.run();
+      if (alive.current) { shownKey.current = job.key; setUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); setErr(null); }
+    } catch (e: any) { if (alive.current && !want.current) setErr(e.message); }
+    finally { running.current = false; if (alive.current) { if (want.current) pump(); else setBusy(false); } }
+  }, []);
   useEffect(() => {
     if (!enabled) return;
-    const my = ++seq.current;
-    const h = setTimeout(async () => {
-      setBusy(true);
-      try {
-        const blob = await api.frame(bp, t, original, width, view);
-        if (my !== seq.current) return;
-        setUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); setErr(null);
-      } catch (e: any) { if (my === seq.current) setErr(e.message); }
-      finally { if (my === seq.current) setBusy(false); }
-    }, 220);
+    const key = JSON.stringify([bp, Math.round(t * 1000), original, width, view ?? ""]);
+    if (key === shownKey.current && !running.current) return;
+    const h = setTimeout(() => { want.current = { key, run: () => api.frame(bp, t, original, width, view) }; pump(); }, running.current ? 60 : 160);
     return () => clearTimeout(h);
-  }, [api, bp, Math.round(t * 1000), original, enabled, width, view]);
+  }, [api, bp, Math.round(t * 1000), original, enabled, width, view, pump]);
   return { url, err, busy };
 }
 

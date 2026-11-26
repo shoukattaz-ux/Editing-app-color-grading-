@@ -45,6 +45,31 @@ def decode(source: str, W: int, H: int, fps: float, first: int, total: int, edl:
         yield from _decode_pieces(source, W, H, fps, a, b - a, flags)
 
 
+# ---- live preview: the same few frames are decoded again for every slider tweak at the same playhead. Keep the last windows in memory.
+import threading as _threading
+from collections import OrderedDict as _OD
+_WIN: "_OD[str, list[np.ndarray]]" = _OD()
+_WIN_LOCK = _threading.Lock()
+_WIN_MAX_BYTES = 400 * 1024 * 1024                 # ~ 60 frames of 1080p; a few playhead positions
+
+
+def decode_cached(source: str, W: int, H: int, fps: float, first: int, total: int, edl: list | None = None, flags: str = "bilinear") -> list[np.ndarray]:
+    """decode() for SHORT windows (live previews), remembered in memory: tweaking a setting at the same playhead decodes nothing again.
+    Keyed by the file's identity (path, size, modification time), so an edited or replaced file is decoded afresh."""
+    import json, os
+    st = os.stat(source)
+    key = json.dumps([os.path.abspath(source), st.st_size, st.st_mtime_ns, W, H, round(fps, 4), first, total, edl, flags], default=str)
+    with _WIN_LOCK:
+        if key in _WIN:
+            _WIN.move_to_end(key); return _WIN[key]
+    frames = [f for f in decode(source, W, H, fps, first, total, edl, flags)]
+    for f in frames: f.setflags(write=False)        # shared between requests: nobody may change them in place
+    with _WIN_LOCK:
+        _WIN[key] = frames
+        while len(_WIN) > 1 and sum(sum(x.nbytes for x in v) for v in _WIN.values()) > _WIN_MAX_BYTES: _WIN.popitem(last=False)
+    return frames
+
+
 class Writer:
     """Pipe raw frames into a lossless FFV1 file; atomic rename on close()."""
 

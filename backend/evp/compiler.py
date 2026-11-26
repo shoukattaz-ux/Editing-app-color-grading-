@@ -1,5 +1,6 @@
 """Compiles an execution Plan into an FFmpeg argument list (never a shell string)."""
 from __future__ import annotations
+import re
 import os, tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -126,6 +127,21 @@ def curve_str(pts) -> str:
     return " ".join(f"{x:g}/{y:g}" for x, y in pts)
 
 
+_BLEND_EXPR = re.compile(r"blend=all_expr='((?:[^'\\]|\\.)*)'")
+
+
+def fast_blends(chain: str) -> str:
+    """blend=all_expr='f(A,B)' evaluates the formula for every pixel (~0.3 s per 1080p frame each). When the formula only depends on the two
+    pixel values (no position / time) and the planes are 8-bit (every such blend here is), lut2 gives the SAME result from a 256x256 table
+    computed once per frame. Formulas that use X, Y, W, H, T, N ... stay a blend."""
+    def sub(m: "re.Match[str]") -> str:
+        e = m.group(1)
+        if re.search(r"\b(X|Y|W|H|T|N|SW|SH|TOP|BOTTOM)\b", e): return m.group(0)
+        x = re.sub(r"\bB\b", "y", re.sub(r"\bA\b", "x", e))
+        return "lut2=" + ":".join(f"c{i}='{x}'" for i in range(4))
+    return _BLEND_EXPR.sub(sub, chain)
+
+
 class _Graph:
     def __init__(self):
         self.parts: list[str] = []
@@ -137,7 +153,7 @@ class _Graph:
 
     def add(self, ins: list[str], chain: str, out: str | None = None) -> str:
         out = out or self.label()
-        self.parts.append("".join(f"[{i}]" for i in ins) + chain + f"[{out}]")
+        self.parts.append("".join(f"[{i}]" for i in ins) + fast_blends(chain) + f"[{out}]")
         return out
 
     def split(self, src: str) -> tuple[str, str]:
@@ -194,6 +210,20 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     def pad_after(ref) -> int:
         """frames needed after an analysis file ends so the stream covers the whole timeline (+2 spare)"""
         return max(0, plan.total_frames - ref.start_frame - ref.frames) + 2
+
+    def cached_stream(path: str, ref, pad: str) -> str:
+        """an analysis file (matte, colours, upscale, face control) covering timeline frames [start_frame, start_frame+frames), lined up with
+        the (seeked) render: padded before / after with `pad` (tpad options). When the render starts INSIDE the file, the file is SEEKED to that
+        frame - padding and throwing away all earlier frames instead made a live frame at minute 1 process ~1800 extra frames."""
+        off = seek_f - ref.start_frame
+        if 0 < off < ref.frames:
+            inputs.append(["-ss", f"{(off - 0.5) / fps:.6f}", "-i", path])
+            return g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=stop={pad_after(ref) + 2}:{pad},setpts=N+{seek_f}")
+        inputs.append(["-i", path])
+        if off <= 0:                                  # the render starts at or before the file: pad only the gap in between (often none)
+            return g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={-off}:stop={pad_after(ref)}:{pad},setpts=N+{seek_f}")
+        return g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:{pad},"
+                                            f"trim=start_frame={seek_f},setpts=N+{seek_f}")
 
     def enable(op: Operation) -> str | None:
         if op.start_frame <= 0 and op.end_frame >= plan.total_frames:
@@ -295,10 +325,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             ref = plan.mattes.get(k.id)
             if ref is None:
                 raise RuntimeError(f"AI matte for '{k.id}' was not generated")
-            inputs.append(["-i", ref.path])
             # matte file covers [start_frame, start_frame+frames): pad before with opaque, clone after, align to (seeked) timeline
-            m = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:color=white:stop={pad_after(ref)}:stop_mode=clone,"
-                      f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H},format=gray")
+            m = g.add([cached_stream(ref.path, ref, "start_mode=add:color=white:stop_mode=clone")], f"scale={W}:{H},format=gray")
             own_colour = p["mode"] == "screen" and not any(o.type in ("video_enhancement", "ai_upscale") for o in plan.steps)   # nothing changed the frame before the key
             if p["mode"] == "screen" and p["spill_suppression"] and ref.screen and not own_colour:
                 # core pixels keep the (already processed) frame; take the screen's spill out of them. Edge pixels use the keyer's solved, despilled colour.
@@ -306,9 +334,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             colour = src
             m, m_edge = g.split(m) if ref.fgr_path else (m, None)
             if ref.fgr_path:
-                inputs.append(["-i", ref.fgr_path])
-                fg = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:start_mode=add:stop={pad_after(ref)}:stop_mode=clone,"
-                           f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}")
+                fg = g.add([cached_stream(ref.fgr_path, ref, "start_mode=add:stop_mode=clone")], f"scale={W}:{H}")
                 # take the model's / keyer's foreground colour only in semi-transparent edges (weight = (1-alpha)*4), keep the
                 # (possibly already processed) frame elsewhere
                 w = g.add([m_edge], "lut=y=255,format=gray" if own_colour else f"lut=y='clip((255-val)*{10 if p['mode'] == 'screen' else 4}\\,0\\,255)',format=gray")
@@ -817,9 +843,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             ref = plan.face_controls.get(op.id)
             if ref is None:
                 raise RuntimeError(f"face analysis for '{op.id}' was not generated")
-            inputs.append(["-i", ref.path])
-            ctrl = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:start_mode=add:stop_mode=add:color=black,"
-                         f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=bilinear,format=gbrp")
+            ctrl = g.add([cached_stream(ref.path, ref, "start_mode=add:stop_mode=add:color=black")], f"scale={W}:{H}:flags=bilinear,format=gbrp")
             tone, tone_pre = [], []
             if t == "face_tone_correction":
                 an = chain_for(op, "ft")
@@ -854,9 +878,7 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             ref = plan.upscales.get(op.id)
             if ref is None:
                 raise RuntimeError(f"AI upscale for '{op.id}' was not generated")
-            inputs.append(["-i", ref.path])
-            u = g.add([f"{len(inputs)}:v"], f"fps={fps:g},setpts=N,tpad=start={ref.start_frame}:stop={pad_after(ref)}:start_mode=add:stop_mode=add:color=black,"
-                      f"trim=start_frame={seek_f},setpts=N+{seek_f},scale={W}:{H}:flags=lanczos:out_color_matrix={cs.matrix}:out_range={cs.range},setsar=1,format=yuv444p")
+            u = g.add([cached_stream(ref.path, ref, "start_mode=add:stop_mode=add:color=black")], f"scale={W}:{H}:flags=lanczos:out_color_matrix={cs.matrix}:out_range={cs.range},setsar=1,format=yuv444p")
             en = enable(op)
             cur = g.add([cur, u], (f"overlay=enable='{en}':shortest=1:format=yuv444" if en else "overlay=shortest=1:format=yuv444") + ",format=yuv444p")
         elif t == "video_enhancement":

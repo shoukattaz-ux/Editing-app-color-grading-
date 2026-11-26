@@ -43,6 +43,9 @@ class ScreenKeyer:
 
     # -- screen colour ---------------------------------------------------------------------------------------------
     def _find_screen(self, f: np.ndarray) -> None:
+        # statistics only (median colour, 95th percentile): a quarter-size copy gives the same answer for a fraction of the time
+        q = 4 if min(f.shape[:2]) >= 400 else 1
+        if q > 1: f = cv2.resize(f, (f.shape[1] // q, f.shape[0] // q), interpolation=cv2.INTER_AREA)
         h, w = f.shape[:2]
         m = max(2, int(min(h, w) * 0.08))
         ring = np.concatenate([f[:m].reshape(-1, 3), f[-m:].reshape(-1, 3), f[:, :m].reshape(-1, 3), f[:, -m:].reshape(-1, 3)])
@@ -54,12 +57,15 @@ class ScreenKeyer:
         d = _dom(f, c)
         thr = max(0.08, 0.6 * float(np.percentile(d, 95)))
         sel = d > thr
-        K = np.median(f[sel], 0) if sel.sum() > 200 else (self.K if self.K is not None else np.array([0.2, 0.7, 0.2]))
+        K = np.median(f[sel], 0) if sel.sum() > 200 // (q * q) else (self.K if self.K is not None else np.array([0.2, 0.7, 0.2]))
         self.K = K if self.K is None or c != self.c else 0.7 * self.K + 0.3 * K
         self.c = c
 
-    def __call__(self, rgb: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
+    def __call__(self, rgb: np.ndarray, need_fg: bool = True) -> tuple[np.ndarray, np.ndarray | None]:
+        """need_fg=False: a warm-up frame of a live preview - only the matte (it primes the screen tracking and the temporal smoothing)
+        is needed, so the subject-colour solve, the costly part, is skipped. The matte itself is identical either way."""
         p = self.p
+        need_fg = need_fg and p.get("edge_color_fix", True)
         f = rgb.astype(np.float32) / 255.0
         h, w = f.shape[:2]
         self._find_screen(f)
@@ -70,7 +76,6 @@ class ScreenKeyer:
         def chroma(x):
             return _dom(x, c) / np.maximum(x[..., c], 0.08)
         dom = _dom(f, c)
-        D0 = max(float(_dom(K[None, None, :], c)[0, 0]), 0.1)
         C0 = max(float(chroma(K[None, None, :])[0, 0]), 0.1)
         # local screen model at 1/8 resolution: normalised blur of the pixels that are clearly screen
         s = 8
@@ -93,9 +98,10 @@ class ScreenKeyer:
             if Bpl is not None: B = Bpl
         # a measured plate can be trusted in dark parts of the screen where a guessed model cannot: a lower floor there keeps the matte clean in shadows
         a = alpha_from(B, PLATE_FLOOR if (self.plate is not None and Bpl is not None) else 0.1)
-        f_clean = self._despill(f, c, p) if p.get("spill_suppression", True) else f      # borrowed colours must not carry spill
-        core = cv2.erode((a > 0.995).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(np.float32)      # safely inside the subject: no mixed pixels
-        near, got = self._nearest_solid(f_clean, core, h, w)
+        if need_fg:
+            f_clean = self._despill(f, c, p) if p.get("spill_suppression", True) else f      # borrowed colours must not carry spill
+            core = cv2.erode((a > 0.995).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(np.float32)      # safely inside the subject: no mixed pixels
+            near, got = self._nearest_solid(f_clean, core, h, w)
         a = self._clean(a, p)
         # temporal smoothing where nothing moved (large changes pass straight through: no ghosting)
         ts = float(p.get("temporal_smooth", 0.5))
@@ -103,7 +109,7 @@ class ScreenKeyer:
             wgt = np.where(np.abs(a - self.prev_a) > 0.3, 1.0, 1.0 - 0.6 * ts).astype(np.float32)
             a = self.prev_a + (a - self.prev_a) * wgt
         self.prev_a = a
-        if not p.get("edge_color_fix", True):
+        if not need_fg:
             return a, None
         # solve the subject colour back out of the mix and despill it
         F = np.clip((f - (1.0 - a)[..., None] * B) / np.maximum(a, 0.05)[..., None], 0, 1)

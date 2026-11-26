@@ -14,7 +14,7 @@ from typing import Callable
 import numpy as np
 
 from .. import edl as _edl
-from .frames import decode
+from .frames import decode, decode_cached
 from .models import ensure_model
 from ..media import ffmpeg_bin
 
@@ -174,18 +174,21 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
         model = _model()
     n = 0
     try:
-        for rgb in decode(source, W, H, fps, first, total, edl, flags="lanczos"):
+        # a live-preview frame (one frame + warm-up): the decoded frames are remembered, so a slider tweak at the same playhead decodes nothing
+        src_frames = decode_cached(source, W, H, fps, first, total, edl, flags="lanczos") if frames == 1 else decode(source, W, H, fps, first, total, edl, flags="lanczos")
+        for rgb in src_frames:
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
             if keyer is not None:
-                a, fg = keyer(rgb)
-                if hair > 0:
+                warm = first + n < start_frame                      # (n counts frames done so far) a warm-up frame: its matte primes the keyer, its colours are never written
+                a, fg = keyer(rgb, need_fg=not warm)
+                if hair > 0 and not warm:                              # warm-up frames are never written: no AI hair pass for them
                     from .hair import blend_hair
                     a_ai, fg_ai = model(rgb, ds)
                     a, fg, used = blend_hair(a, fg, a_ai, fg_ai, hair, float(p["hair_width"]), keyer.c if p.get("spill_suppression", True) else None)
                     hair_used += 1 if used else 0; hair_seen += 1
                 if keyer2 is not None:
-                    a2, fg2 = keyer2(rgb)
+                    a2, fg2 = keyer2(rgb, need_fg=not warm)
                     a = (ps * a + (1.0 - ps) * a2).astype(np.float32)
                     if fg is not None and fg2 is not None: fg = (ps * fg + (1.0 - ps) * fg2).astype(np.float32)
             else: a, fg = model(rgb, ds)
