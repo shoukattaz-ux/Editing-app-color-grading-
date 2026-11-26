@@ -288,3 +288,27 @@ def test_the_network_runs_once_per_face_picture_whatever_the_sliders_say():
     for strength, identity in ((1.0, 0.0), (0.7, 0.5), (0.3, 1.0)):                   # three slider positions at the same playhead
         restorer(lambda i: [(box, lm)], net)(frame, {**P, "strength": strength, "identity": identity})
     assert len(calls) == 1
+
+
+def test_two_requests_for_the_same_face_analysis_at_once_do_not_crash(tmp_path, monkeypatch):
+    """the live preview and a second preview (or a test) ask for the same face analysis together: the second must wait and reuse it.
+    It used to fail with FileNotFoundError when both renamed the same temporary file - the browser then saw 'Failed to fetch'."""
+    import threading, time
+    from evp.ml import face
+    from evp.samples import make_greenscreen
+    v = str(make_greenscreen(tmp_path / "a.mp4", 1))
+    p = prepare({"blueprint_version": "1.0", "operations": [{"id": "s", "type": "skin_retouch", "start": 0, "parameters": {}}]}, v, PathPolicy([tmp_path]), tmp_path, strict=True)
+    op = p.plan.steps[0]
+    real = face.decode
+    def slow(*a, **k):
+        for f in real(*a, **k):
+            time.sleep(0.15); yield f                                   # keep both requests inside the analysis at the same time
+    monkeypatch.setattr(face, "decode", slow)
+    results, errors = [], []
+    def go():
+        try: results.append(face.generate_control(v, op, 320, 180, 30, 5, 1, str(tmp_path), warmup=2))
+        except BaseException as e: errors.append(repr(e))
+    ts = [threading.Thread(target=go) for _ in range(3)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert not errors, errors
+    assert len(results) == 3 and len({r.path for r in results}) == 1

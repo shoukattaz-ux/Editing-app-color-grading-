@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from .. import edl as _edl
+from .. import fsutil
 from ..animate import op_params_at, keyframes_key
 from .frames import decode, Writer
 from .models import ensure_model
@@ -209,6 +210,17 @@ KINDS = {"face_tone_correction": _weights_tone, "face_relighting": _weights_reli
 def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
                      progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
                      warmup: int = 0, edl: list | None = None) -> ControlRef:
+    s = min(1.0, ANALYSIS_LONG_SIDE / max(W, H))
+    aw, ah = max(2, int(W * s) // 2 * 2), max(2, int(H * s) // 2 * 2)
+    out = Path(cache_dir) / "face" / f"ctrl_{control_key(op.type, source, op, W, H, fps, start_frame, frames, edl)}.mkv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with fsutil.exclusive(out):             # the same analysis requested twice at once (the preview and a test, two previews): the second waits and reuses it
+        return _generate_control(source, op, W, H, fps, start_frame, frames, cache_dir, progress, cancel, warmup, edl)
+
+
+def _generate_control(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,
+                      progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
+                      warmup: int = 0, edl: list | None = None) -> ControlRef:
     s = min(1.0, ANALYSIS_LONG_SIDE / max(W, H))
     aw, ah = max(2, int(W * s) // 2 * 2), max(2, int(H * s) // 2 * 2)
     out = Path(cache_dir) / "face" / f"ctrl_{control_key(op.type, source, op, W, H, fps, start_frame, frames, edl)}.mkv"

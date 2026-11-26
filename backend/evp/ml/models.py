@@ -110,7 +110,8 @@ def _download(name: str, info: "ModelInfo", p: Path) -> Path:
     tmp = Path(tmp_name)
     try:
         with urllib.request.urlopen(info.url, timeout=120) as r, open(tmp, "wb") as f:
-            _PROGRESS[name] = {"done": 0, "total": int(r.headers.get("Content-Length") or info.size)}
+            hdrs = getattr(r, "headers", None)
+            _PROGRESS[name] = {"done": 0, "total": int((hdrs.get("Content-Length") if hdrs is not None else None) or info.size)}
             while True:
                 chunk = r.read(1 << 20)
                 if not chunk: break
