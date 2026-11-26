@@ -117,3 +117,40 @@ def test_lookup_blend_gives_the_same_picture_as_the_per_pixel_formula(tmp_path):
         assert "lut2" in fast_blends(f"blend=all_expr='{e}'")
         assert np.abs(out[0] - out[1]).max() <= 1, e
     assert fast_blends("blend=all_expr='if(gt(Y\\,3)\\,A\\,B)'").startswith("blend=")         # position-dependent formulas stay a blend
+
+
+def test_draft_processes_at_preview_size_and_scales_pixel_settings(tmp_path):
+    """fast draft: the whole live frame (key included) runs at preview size; pixel-sized settings shrink with it; the full plan is untouched"""
+    from evp.samples import make_greenscreen
+    from evp.engine import prepare, draft_plan, render_frame
+    from evp.security import PathPolicy
+    import numpy as np, cv2
+    v = str(make_greenscreen(tmp_path / "gs.mp4", 2, size="1920x1080"))
+    ops = [{"id": "k", "type": "background_removal", "start": 0, "parameters": {"mode": "screen", "edge_soften": 2.0, "edge_shrink": 1.0}},
+           {"id": "r", "type": "background_replacement", "start": 0, "depends_on": ["k"], "parameters": {"color": "#203040", "blur": 4.0}}]
+    p = prepare({"blueprint_version": "1.0", "operations": ops}, v, PathPolicy([tmp_path]), tmp_path, strict=True)
+    d = draft_plan(p.plan, 960)
+    assert (d.blueprint.output.width, d.blueprint.output.height) == (960, 540)
+    k = next(o for o in d.steps if o.id == "k"); r = next(o for o in d.steps if o.id == "r")
+    assert abs(k.params["edge_soften"] - 1.0) < 1e-9 and abs(k.params["edge_shrink"] - 0.5) < 1e-9 and abs(r.params["blur"] - 2.0) < 1e-9
+    assert p.plan.blueprint.output.width == 1920 and next(o for o in p.plan.steps if o.id == "k").params["edge_soften"] == 2.0     # the real plan is untouched
+    full = cv2.imdecode(np.frombuffer(render_frame(p.plan, v, 1.0, 960, str(tmp_path)), np.uint8), 1).astype(float)
+    dr = cv2.imdecode(np.frombuffer(render_frame(d, v, 1.0, 960, str(tmp_path)), np.uint8), 1).astype(float)
+    assert full.shape == dr.shape and np.abs(full - dr).mean() < 2.0            # the draft looks like the real thing
+    small = tmp_path / "small.mp4"
+    make_greenscreen(small, 1, size="640x360")
+    p2 = prepare({"blueprint_version": "1.0", "operations": ops[:1]}, str(small), PathPolicy([tmp_path]), tmp_path, strict=True)
+    assert draft_plan(p2.plan, 960) is p2.plan                                 # already preview size: nothing to do
+
+
+def test_draft_frame_endpoint(tmp_path):
+    from fastapi.testclient import TestClient
+    from evp.server import create_app
+    from evp.samples import make_greenscreen
+    v = str(make_greenscreen(tmp_path / "gs.mp4", 2, size="1280x720"))
+    H = {"x-evp-token": "tok"}
+    c = TestClient(create_app("tok", str(tmp_path / "d")))
+    c.post("/api/project/new", headers=H, json={"parent": str(tmp_path), "name": "Q", "source": v})
+    b = {"blueprint": bp(ops=[KEY]), "t": 1.0, "width": 960}
+    a, d = c.post("/api/preview/frame", headers=H, json=b), c.post("/api/preview/frame", headers=H, json={**b, "draft": True})
+    assert a.status_code == d.status_code == 200 and a.content[:4] == d.content[:4] == b"\x89PNG"

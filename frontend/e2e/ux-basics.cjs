@@ -69,7 +69,16 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     const st = await page.locator("footer.status").innerText();
     check(/cancel/i.test(st) && await page.locator("text=Stopped the full-video render").count() === 1, "changing a setting stops the running full-video render (it was for the old settings)", st.replace(/\n/g, " "));
     check(await page.locator(".preview img.media").count() === 1, "the live frame is shown for the new setting");
-    check(!/ON/.test(await page.locator(".autobtn").innerText()), "Auto-apply is off by default and says so", await page.locator(".autobtn").innerText());
+    check(!/ON/.test(await page.locator(".autobtn:has-text('Auto-apply')").innerText()), "Auto-apply is off by default and says so", await page.locator(".autobtn:has-text('Auto-apply')").innerText());
+    // fast draft live frame: off by default, one click on, the request asks for a draft, the picture is labelled
+    check(/Draft: off/.test(await page.locator(".transport").innerText()), "Draft is off by default (full quality, like the export)");
+    let drafts = 0; page.on("request", r => { if (r.url().includes("/api/preview/frame") && (r.postData() ?? "").includes('"draft":true')) drafts++; });
+    const draftReq = page.waitForRequest(r => r.url().includes("/api/preview/frame") && (r.postData() ?? "").includes('"draft":true'), { timeout: 30000 });
+    await page.click(".transport button:has-text('Draft')"); await setMaster("45");
+    await draftReq.catch(() => {}); await page.waitForSelector(".draft-tag", { timeout: 20000 });
+    check(drafts >= 1 && /Draft: ON/.test(await page.locator(".transport").innerText()), "Draft on: the live frame is requested as a draft and labelled DRAFT", `${drafts} draft request(s)`);
+    await page.click(".transport button:has-text('Draft')"); await setMaster("50"); await page.waitForTimeout(1500);
+    check(await page.locator(".draft-tag").count() === 0, "Draft off again: full-quality frame, no label");
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall usability checks passed");

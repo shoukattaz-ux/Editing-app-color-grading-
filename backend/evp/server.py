@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from . import __version__, mediabin
 from .blueprint import VideoInfo
 from .compiler import RenderOptions
-from .engine import prepare, render_frame, Job, JobManager
+from .engine import prepare, render_frame, draft_plan, Job, JobManager
 from .media import probe, hardware_report, MediaError
 from .reporter import Reporter
 from .project import Project, ProjectError, RecentProjects
@@ -272,6 +272,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         width: int | None = 960
         original: bool = False
         view: str | None = None          # key QC: alpha | edge | red | white | grey | checker
+        draft: bool = False              # fast draft: process at preview size (the key included); never used for exports
 
     from collections import OrderedDict
     _FRAMES: "OrderedDict[str, Response]" = OrderedDict()        # the last 32 single-frame previews, keyed by everything that affects the picture
@@ -283,7 +284,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             r = getattr(a, "resolved", None)
             try: files.append((r, os.stat(r).st_mtime_ns))
             except (OSError, TypeError): files.append((r, 0))
-        blob = json.dumps([b.blueprint if not b.original else None, round(b.t, 4), b.width, b.view, bool(b.original), str(source), os.stat(source).st_mtime_ns, files], sort_keys=True, default=str)
+        blob = json.dumps([b.blueprint if not b.original else None, round(b.t, 4), b.width, b.view, bool(b.original), bool(b.draft), str(source), os.stat(source).st_mtime_ns, files], sort_keys=True, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()
 
     @app.post("/api/preview/frame", dependencies=[api()])
@@ -299,15 +300,16 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
             ckey = _frame_key(prep.plan, st.source, b)
             if ckey in _FRAMES:                                                  # the same picture again (scrubbing back, undo, toggling): instant
                 _FRAMES.move_to_end(ckey); return _FRAMES[ckey]
-            png = render_frame(prep.plan, st.source, b.t, b.width, str(st.project.cache_dir), view=b.view)
+            plan = draft_plan(prep.plan, min(960, b.width or 960)) if b.draft else prep.plan
+            png = render_frame(plan, st.source, b.t, b.width, str(st.project.cache_dir), view=b.view)
         except ValueError as e:
             raise HTTPException(422, {"errors": [str(e)]})
         except RuntimeError as e:
             raise HTTPException(500, str(e))
-        notes = {k: ref.plate for k, ref in prep.plan.mattes.items() if getattr(ref, "plate", None)}      # clean plate use per key: {used, rejected}
-        cams = {k: v["camera"] for k, v in prep.plan.look_auto.items() if isinstance(v, dict) and v.get("camera")}   # camera match measurements per studio look
-        hairs = {k: ref.hair for k, ref in prep.plan.mattes.items() if getattr(ref, "hair", None)}                  # hair detail use per key: {used, skipped}
-        floors = dict(prep.plan.floor)                                                                              # floor line per background replacement: {y, cut}
+        notes = {k: ref.plate for k, ref in plan.mattes.items() if getattr(ref, "plate", None)}      # clean plate use per key: {used, rejected}
+        cams = {k: v["camera"] for k, v in plan.look_auto.items() if isinstance(v, dict) and v.get("camera")}   # camera match measurements per studio look
+        hairs = {k: ref.hair for k, ref in plan.mattes.items() if getattr(ref, "hair", None)}                  # hair detail use per key: {used, skipped}
+        floors = dict(plan.floor)                                                                              # floor line per background replacement: {y, cut}
         hdr = {**({"x-evp-floor": json.dumps(floors)} if floors else {}), **({"x-evp-plate": json.dumps(notes)} if notes else {}), **({"x-evp-camera": json.dumps(cams)} if cams else {}), **({"x-evp-hair": json.dumps(hairs)} if hairs else {})}
         resp = Response(png, media_type="image/png", headers=hdr or None)
         _FRAMES[ckey] = resp

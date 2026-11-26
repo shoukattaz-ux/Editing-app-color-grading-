@@ -460,6 +460,34 @@ def _rm(p: str):
     except OSError: pass
 
 
+# parameters given in pixels of the OUTPUT picture (not "px at 1080p", which the compiler already scales by the picture height)
+DRAFT_PX_PARAMS = ("edge_erode", "edge_feather", "edge_shrink", "edge_soften", "blur")
+
+
+def draft_plan(plan: Plan, width: int = 960) -> Plan:
+    """Fast draft of a live frame: the same project processed at preview size (the key included), instead of full size and then shrunk.
+    Pixel-sized settings are scaled with the picture so it looks the same; fine edges are less exact than the export. Exports never use this."""
+    import copy
+    from .keyframes import Keyframe
+    out = plan.blueprint.output
+    if out.width <= width: return plan
+    f = width / out.width
+    d = copy.deepcopy(plan)
+    d.blueprint.output.width = max(2, int(width) // 2 * 2)
+    d.blueprint.output.height = max(2, int(round(out.height * f)) // 2 * 2)
+    seen: set[int] = set()
+    for op in list(d.blueprint.operations) + list(d.steps):
+        if id(op) in seen: continue                      # the execution order usually holds the same objects: scale each once
+        seen.add(id(op))
+        for k in DRAFT_PX_PARAMS:
+            v = op.params.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v:
+                op.params[k] = int(round(v * f)) if isinstance(v, int) else v * f
+            if k in op.keyframes:
+                op.keyframes[k] = [Keyframe(kf.time, kf.value * f, kf.easing) for kf in op.keyframes[k]]
+    return d
+
+
 def render_frame(plan: Plan, source: str, t: float, scale_width: int | None = 960, work_dir: str | None = None, _measuring: bool = False, view: str | None = None) -> bytes:
     """Single processed frame as PNG (same pipeline as export, so preview == render)."""
     t = min(max(0.0, t), max(0.0, plan.timeline_duration - 1.0 / plan.blueprint.output.fps))

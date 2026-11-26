@@ -9,14 +9,15 @@ import type { Op } from "./model";
 export type Mode = "original" | "edited" | "compare";
 
 /** Processed still frame at time t (same engine as export). Debounced; stale responses are dropped. */
-function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled: boolean, width: number | null = 960, view?: string) {
+function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled: boolean, width: number | null = 960, view?: string, draft = false) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // ONE frame renders at a time. While it renders, newer requests only replace the "wanted" one; when it finishes, the latest wanted frame
   // is rendered next and everything in between is skipped. (Firing a request for every slider step made the engine render them all at
   // once, competing for the processor, so the frame you actually wanted came last and slowest.)
-  const want = useRef<{ key: string; run: () => Promise<Blob> } | null>(null);
+  const want = useRef<{ key: string; draft: boolean; run: () => Promise<Blob> } | null>(null);
+  const [shownDraft, setShownDraft] = useState(false);
   const running = useRef(false);
   const shownKey = useRef("");
   const alive = useRef(true);
@@ -26,18 +27,18 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
     const job = want.current; want.current = null; running.current = true; setBusy(true);
     try {
       const blob = await job.run();
-      if (alive.current) { shownKey.current = job.key; setUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); setErr(null); }
+      if (alive.current) { shownKey.current = job.key; setShownDraft(job.draft); setUrl(old => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); setErr(null); }
     } catch (e: any) { if (alive.current && !want.current) setErr(e.message); }
     finally { running.current = false; if (alive.current) { if (want.current) pump(); else setBusy(false); } }
   }, []);
   useEffect(() => {
     if (!enabled) return;
-    const key = JSON.stringify([bp, Math.round(t * 1000), original, width, view ?? ""]);
+    const key = JSON.stringify([bp, Math.round(t * 1000), original, width, view ?? "", draft]);
     if (key === shownKey.current && !running.current) return;
-    const h = setTimeout(() => { want.current = { key, run: () => api.frame(bp, t, original, width, view) }; pump(); }, running.current ? 60 : 160);
+    const h = setTimeout(() => { want.current = { key, draft, run: () => api.frame(bp, t, original, width, view, draft) }; pump(); }, running.current ? 60 : 160);
     return () => clearTimeout(h);
-  }, [api, bp, Math.round(t * 1000), original, enabled, width, view, pump]);
-  return { url, err, busy };
+  }, [api, bp, Math.round(t * 1000), original, enabled, width, view, draft, pump]);
+  return { url, err, busy, draft: shownDraft };
 }
 
 export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks, zone }: {
@@ -63,7 +64,11 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   const full = qcOn ? (qcZoom > 0 ? null : 960) : (mode === "compare" && loupe > 0 ? null : 960);
   const view = useFrame(api, bp, t, false, qcOn && !!video, full, qc);
   const fit = useFitRect(wrap, video?.width ?? 0, video?.height ?? 0);
-  const edited = useFrame(api, bp, t, false, needEditedFrame && !!video, full);
+  // fast draft: the live frame is processed at preview size (key included) instead of full size; key views and 1:1 zooms always stay exact
+  const [draft, setDraftRaw] = useState(() => { try { return localStorage.getItem("evp.draft") === "1"; } catch { return false; } });
+  const setDraft = (v: boolean) => { setDraftRaw(v); try { localStorage.setItem("evp.draft", v ? "1" : "0"); } catch { /* ignore */ } };
+  const bigSource = (video?.width ?? 0) > 960;
+  const edited = useFrame(api, bp, t, false, needEditedFrame && !!video, full, undefined, draft && bigSource && full !== null);
   const orig = useFrame(api, bp, t, true, mode === "compare" && !!video, full);
   const src = mode === "original" ? api.sourceUrl() : proxyUrl;
 
@@ -103,13 +108,14 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
   if (!video) return <div className="preview"><Empty icon="film" title="No video imported">Import a source video from the Media tab to start.</Empty></div>;
 
   const badge = mode === "compare" && loupe > 0 ? `Before/After · full-resolution frames at ${loupe * 100}%` : mode === "original" ? "Original · source quality" : playable ? "Edited · 640px proxy preview (final render is full quality)"
-    : mode === "compare" ? "Compare · 960px live frames" : "Edited · live frame 960px — press Apply to full video to play it";
+    : mode === "compare" ? "Compare · 960px live frames" : (draft && bigSource ? "Edited · DRAFT live frame (fast; export is full quality)" : "Edited · live frame 960px — press Apply to full video to play it");
   return (
     <div className="preview">
       <div className="stage" ref={wrap}>
         {qcOn && qcZoom === 0 && (view.url ? <img className="media" src={view.url} alt="Key view" /> : <div className="media ph">{view.err ? <span className="err-text">{view.err}</span> : "Rendering…"}</div>)}
         {qcOn && qcZoom > 0 && <Loupe before={edited.url} after={view.url} zoom={qcZoom} labels={["NORMAL", qc === "alpha" ? "MATTE" : qc === "edge" ? "EDGE BAND" : "ON " + qc.toUpperCase()]} />}
         {playable && src && <video ref={videoRef} key={src} src={src} className="media" playsInline preload="auto" crossOrigin="anonymous" onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = mediaTime(t); }} />}
+        {mode === "edited" && !playable && !qcOn && edited.draft && edited.url && <span className="draft-tag" title="Fast draft: processed at preview size. Switch Draft off for exact full quality.">DRAFT</span>}
         {mode === "edited" && !playable && !qcOn && (edited.url ? <img className="media" src={edited.url} alt="Edited frame" /> : <div className="media ph">{edited.err ? <span className="err-text">{edited.err}</span> : "Rendering frame…"}</div>)}
         {mode === "compare" && !qcOn && loupe > 0 && <Loupe before={orig.url} after={edited.url} zoom={loupe} />}
         {mode === "compare" && !qcOn && loupe === 0 && (
@@ -149,6 +155,10 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         </select>
         {qcOn && <select className="loupe-sel" value={qcZoom} onChange={e => setQcZoom(+e.target.value)} aria-label="Key view zoom" title="Zoom in on the edge: the normal picture is shown beside the key view">
           <option value={0}>Fit</option><option value={1}>1:1</option><option value={2}>200%</option><option value={4}>400%</option></select>}
+        <button className={"autobtn" + (draft ? " on" : "")} onClick={() => setDraft(!draft)} aria-pressed={draft} disabled={!bigSource}
+          title={!bigSource ? "Draft makes no difference for videos up to 960 px wide (they are already processed at preview size)"
+            : draft ? "Draft is ON: the live frame is processed at preview size (about 2x faster at 1080p, more at 4K). Fine edges are a little less exact than the export. Key views and 1:1 zoom always show full quality. Click for full quality."
+            : "Draft is off: the live frame is processed at full quality, exactly like the export. Click for a faster draft while you try settings."}>{draft ? "Draft: ON" : "Draft: off"}</button>
         <button className={"autobtn" + (auto ? " on" : "")} onClick={() => setAuto(!auto)} aria-pressed={auto}
           title={auto ? "Auto-apply is ON: after every change the WHOLE video is rendered again by itself (slow for long or heavy clips). Click to switch it off." : "Auto-apply is off (recommended): editing renders only the current frame; press Apply to full video when you are happy. Click to switch auto-apply on."}>{auto ? "Auto-apply: ON" : "Auto-apply: off"}</button>
         <span className="badge">{badge}</span>

@@ -91,7 +91,7 @@ export class Api {
   importAsset(path: string): Promise<{ path: string }> { return this.req("POST", "/api/project/asset", { path }); }
   validate(blueprint: unknown): Promise<Validation> { return this.req("POST", "/api/blueprint/validate", { blueprint }); }
   /** width null = full output resolution (used by the 1:1 loupe) */
-  frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960, view?: string): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width, ...(view ? { view } : {}) }, true); }
+  frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960, view?: string, draft = false): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width, ...(view ? { view } : {}), ...(draft ? { draft: true } : {}) }, true); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
   keyDoctor(blueprint: Blueprint, opId: string): Promise<KeyDoctorResult> { return this.req("POST", "/api/key/doctor", { blueprint, op_id: opId }); }
   mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }
