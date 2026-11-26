@@ -307,6 +307,13 @@ _FACE_COMMON = {
     "feather": Param(N, 0.5, 0.0, 1.0, desc="Softness of the face region edge (relative to face size)."),
     "detection_confidence": Param(N, 0.6, 0.3, 0.95, desc="Face detector threshold. Lower finds small/turned faces but may misfire."),
 }
+_reg(OpSpec("skin_retouch", "Skin Retouch", "Face", STAGE_FACE, "effects",
+            "Gently smooths the skin of each face (pores, small blemishes, uneven texture) while the eyes, eyebrows, lips, beard and hair stay "
+            "sharp. Edge-preserving, and part of the real skin texture is kept so it never looks plastic. Never changes face shape.",
+            {"amount": Param(N, 0.5, 0.0, 1.0, desc="How much the skin is smoothed (0 = off)."),
+             "texture": Param(N, 0.35, 0.0, 1.0, desc="How much of the natural skin texture is kept (more = more natural, less = smoother)."),
+             "size": Param(N, 0.5, 0.0, 1.0, desc="Size of what is smoothed: small = pores and fine texture only, large = also larger blemishes and blotches."),
+             **_FACE_COMMON}))
 _reg(OpSpec("face_tone_correction", "Face & Skin Tone Correction", "Face", STAGE_FACE, "effects",
             "Detects and tracks faces (YuNet), balances face exposure automatically and adjusts skin colour only on the "
             "person's own skin tone. Never smooths skin or changes facial features.",

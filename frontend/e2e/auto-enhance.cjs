@@ -77,6 +77,13 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check(hd && hd.start === 0 && Math.abs((hd.end ?? 3) - 3) < 0.05, "Smart HDR is added over the whole clip", JSON.stringify(hd));
     const hf = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
     check(hf === 200, "a live frame with Smart HDR renders", String(hf));
+    // skin retouch: from the Effects list (Face), whole clip, renders (no face in this synthetic clip: the picture is simply unchanged)
+    await page.click("button[aria-label=Effects]"); await page.click(".side button.item:has-text('Skin Retouch')");
+    let sr = null;
+    for (let i = 0; i < 40 && !sr; i++) { await page.waitForTimeout(250); sr = (await bpNow()).operations.find(o => o.type === "skin_retouch"); }
+    check(sr && sr.start === 0 && Math.abs((sr.end ?? 3) - 3) < 0.05, "Skin Retouch is added over the whole clip", JSON.stringify(sr));
+    const sf = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
+    check(sf === 200, "a live frame with Skin Retouch renders", String(sf));
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall auto-enhance checks passed");

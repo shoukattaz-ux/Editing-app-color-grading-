@@ -870,6 +870,22 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         out = g.add([pic, gray3(base)], f"lut2=c0='{e}':c1='{e}':c2='{e}'")
         return g.add([out], cs.rgb_to_yuv())
 
+    def retouch_block(src: str, op: Operation, ref) -> str:
+        """skin retouch: an edge-preserving (bilateral) smoothing of the picture, part of the original fine texture mixed back in, used only
+        where the face analysis says 'skin' (eyes, brows, lips, beard, hair excluded) - so nothing else in the frame changes."""
+        p = op.params
+        ctrl = g.add([cached_stream(ref.path, ref, "start_mode=add:stop_mode=add:color=black")], f"scale={W}:{H}:flags=bilinear,format=gbrp")
+        mask = g.add([ctrl], f"extractplanes=r,lut=y='clip(val*{float(p['amount']):.4f}\\,0\\,255)'")
+        rgb = g.add([src], cs.yuv_to_rgb("gbrp"))
+        a, b, c = splitn(rgb, 3)
+        sig_s = (2.0 + 9.0 * float(p["size"])) * scale_px
+        smooth = g.add([a], f"bilateral=sigmaS={sig_s:.2f}:sigmaR={0.06 + 0.1 * float(p['size']):.3f}:planes=7")      # size: wider and more tolerant (bigger blemishes)
+        keep = float(p["texture"])                                         # part of the real texture goes back in: skin, not plastic
+        if keep > 0.005: textured = g.add([smooth, b], f"blend=all_mode=normal:all_opacity={1 - keep:.4f}")      # top = smoothed, at (1 - keep)
+        else: g.parts.append(f"[{b}]nullsink"); textured = smooth
+        out = g.add([c, textured, gray3(mask)], "maskedmerge")
+        return g.add([out], cs.rgb_to_yuv())
+
     def portrait_block(src: str, op: Operation, ref) -> str:
         """sharp person, blurred real background. The background is blurred by normalised convolution: blur(picture x background-mask) /
         blur(background-mask), so the person's colours never smear into the blur (no halo around the head)."""
@@ -945,6 +961,10 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if plan.measuring: continue
             L = resolve_look(p, plan.look_auto.get(op.id))
             cur = amount_block(cur, op, lambda s_: look_block(s_, L, plan.look_curves.get(op.id)))
+        elif t == "skin_retouch":
+            ref = plan.face_controls.get(op.id)
+            if ref is None: raise RuntimeError(f"face analysis for '{op.id}' was not generated")
+            if float(p["amount"]) > 0: cur = ranged_block(cur, op, lambda src, op=op, ref=ref: retouch_block(src, op, ref))
         elif t in ("face_tone_correction", "face_relighting"):
             ref = plan.face_controls.get(op.id)
             if ref is None:

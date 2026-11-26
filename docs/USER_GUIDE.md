@@ -208,6 +208,13 @@ Both are built from the subject itself, so they follow every movement (a jump li
 * Limits: it only changes brightness and colour. It cannot turn a white (clipped) sky blue, and it does not redraw detail the way AI photo apps do (they invent hair strands and reshape faces); for extra real detail add AI Resolution Enhancement.
 * In a blueprint: `{"type": "color_grading", "parameters": {"auto_enhance": 1.0, "enhance_style": "crisp", "apply_to": "subject"}}` (`apply_to`: both / subject / background).
 
+## Skin retouch: smoother skin, sharp features
+**Effects → Skin Retouch** (Face, over the whole clip). Each face is found and tracked; only its **skin** is smoothed (pores, small blemishes, uneven texture). The eyes, eyebrows and lips are cut out from the face landmarks, and the beard, moustache and hair are left out because they are much darker than the person's own skin, so they all stay exactly as sharp as before. Nothing outside the faces changes and the face shape is never altered.
+* **Amount** (how much), **Texture** (how much of the real skin texture is kept: more = more natural, less = smoother), **Size** (small = pores and fine texture only, large = also larger blemishes and blotches).
+* Edge-preserving (bilateral) smoothing, with part of the original texture mixed back in, so skin looks like skin, not plastic. Start around Amount 50 %, Texture 35 %.
+* The face detector downloads once (230 KB); faces that are very small, strongly turned or covered may not be found in every frame.
+* In a blueprint: `{"type": "skin_retouch", "parameters": {"amount": 0.5, "texture": 0.35, "size": 0.5}}`.
+
 ## Smart HDR: fix backlit and high-contrast shots
 **Color → Smart HDR** (or Effects → Smart HDR, over the whole clip). A normal exposure change cannot fix a face in shadow next to a bright sky: one gets right, the other wrong. Smart HDR works area by area: dark regions (a face in shadow, dark clothes) are brightened, bright regions (sky, a sunlit wall) are held back, mid-grey regions are left alone, and the detail inside each region and every colour are kept.
 * **Amount** (overall), **Shadows** (how much the darks come up), **Highlights** (how much the brights are held back), **Size** (small = more local, the stronger "HDR" look; large = more natural).

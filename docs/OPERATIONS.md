@@ -291,6 +291,20 @@ Timeline track: **audio**
 | `fade_in` | number | `0.0` | 0.0 … 30.0 s |  |
 | `fade_out` | number | `0.0` | 0.0 … 30.0 s |  |
 
+## `skin_retouch` — Skin Retouch
+
+Gently smooths the skin of each face (pores, small blemishes, uneven texture) while the eyes, eyebrows, lips, beard and hair stay sharp. Edge-preserving, and part of the real skin texture is kept so it never looks plastic. Never changes face shape.
+
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `amount` | number | `0.5` | 0.0 … 1.0 | How much the skin is smoothed (0 = off). |
+| `texture` | number | `0.35` | 0.0 … 1.0 | How much of the natural skin texture is kept (more = more natural, less = smoother). |
+| `size` | number | `0.5` | 0.0 … 1.0 | Size of what is smoothed: small = pores and fine texture only, large = also larger blemishes and blotches. |
+| `feather` | number | `0.5` | 0.0 … 1.0 | Softness of the face region edge (relative to face size). |
+| `detection_confidence` | number | `0.6` | 0.3 … 0.95 | Face detector threshold. Lower finds small/turned faces but may misfire. |
+
 ## `face_tone_correction` — Face & Skin Tone Correction
 
 Detects and tracks faces (YuNet), balances face exposure automatically and adjusts skin colour only on the person's own skin tone. Never smooths skin or changes facial features.

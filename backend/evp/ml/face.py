@@ -175,7 +175,35 @@ def _weights_relight(rgb, faces, p, tr_cache) -> tuple[np.ndarray, np.ndarray, n
     return R, G, B
 
 
-KINDS = {"face_tone_correction": _weights_tone, "face_relighting": _weights_relight}
+def _weights_retouch(rgb, faces, p, tr_cache) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """skin retouch: R = where the skin may be smoothed - the person's own skin colour inside the face, WITHOUT the eyes, eyebrows, lips
+    (cut out from the face landmarks) and without beard / hair / brows (much darker than the skin)."""
+    h, w = rgb.shape[:2]
+    R = np.zeros((h, w), np.float32)
+    ycc = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb)
+    for t, vis in faces:
+        ell, _ = face_ellipse((h, w), t, p["feather"])
+        skin = skin_weight(ycc, t, ell)
+        x, y, bw, bh = t.box
+        nose = t.lm[2]
+        x0, x1 = int(max(0, nose[0] - bw * 0.25)), int(min(w, nose[0] + bw * 0.25))
+        y0, y1 = int(max(0, t.lm[0][1])), int(min(h, nose[1] + bh * 0.05))
+        if x1 - x0 > 2 and y1 - y0 > 2:                                       # this person's skin brightness: darker things (beard, brows, hair) are not skin
+            ref_y = float(np.median(ycc[y0:y1, x0:x1, 0]))
+            dark = np.clip((ycc[..., 0].astype(np.float32) - 0.55 * ref_y) / max(1.0, 0.2 * ref_y), 0, 1)
+            skin = skin * dark
+        keep = np.ones((h, w), np.float32)                                    # features that must stay sharp
+        for e in (t.lm[0], t.lm[1]):
+            cv2.ellipse(keep, (int(e[0]), int(e[1])), (max(1, int(bw * 0.17)), max(1, int(bh * 0.09))), 0, 0, 360, 0.0, -1, cv2.LINE_AA)
+            cv2.ellipse(keep, (int(e[0]), int(e[1] - bh * 0.13)), (max(1, int(bw * 0.2)), max(1, int(bh * 0.06))), 0, 0, 360, 0.0, -1, cv2.LINE_AA)
+        (mlx, mly), (mrx, mry) = t.lm[3], t.lm[4]
+        cv2.ellipse(keep, (int((mlx + mrx) / 2), int((mly + mry) / 2)), (max(1, int(abs(mrx - mlx) * 0.65)), max(1, int(bh * 0.09))), 0, 0, 360, 0.0, -1, cv2.LINE_AA)
+        keep = cv2.GaussianBlur(keep, (0, 0), max(1.0, bw * 0.03))
+        R = np.maximum(R, skin * keep * vis)
+    return R, np.zeros_like(R), np.zeros_like(R)
+
+
+KINDS = {"face_tone_correction": _weights_tone, "face_relighting": _weights_relight, "skin_retouch": _weights_retouch}
 
 
 def generate_control(source: str, op, W: int, H: int, fps: float, start_frame: int, frames: int, cache_dir: str,

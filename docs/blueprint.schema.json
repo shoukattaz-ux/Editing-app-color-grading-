@@ -183,6 +183,7 @@
               "portrait_blur",
               "text_overlay",
               "audio_gain",
+              "skin_retouch",
               "face_tone_correction",
               "face_relighting",
               "ai_upscale"
@@ -1718,6 +1719,60 @@
                       "minimum": 0.0,
                       "maximum": 30.0,
                       "default": 0.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "skin_retouch"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "description": "How much the skin is smoothed (0 = off).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "texture": {
+                      "description": "How much of the natural skin texture is kept (more = more natural, less = smoother).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.35
+                    },
+                    "size": {
+                      "description": "Size of what is smoothed: small = pores and fine texture only, large = also larger blemishes and blotches.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "feather": {
+                      "description": "Softness of the face region edge (relative to face size).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "detection_confidence": {
+                      "description": "Face detector threshold. Lower finds small/turned faces but may misfire.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 0.95,
+                      "default": 0.6
                     }
                   },
                   "additionalProperties": false

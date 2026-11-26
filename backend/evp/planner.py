@@ -34,7 +34,7 @@ class Plan:
         return [o for o in self.steps if o.type == "ai_upscale"]
 
     def face_ops(self) -> list[Operation]:
-        return [o for o in self.steps if o.type in ("face_tone_correction", "face_relighting")]
+        return [o for o in self.steps if o.type in ("face_tone_correction", "face_relighting", "skin_retouch")]
 
     def ai_keyers(self) -> list[Operation]:
         return [o for o in self.steps if (o.type == "background_removal" and o.params.get("mode") in ("ai", "screen")) or o.type == "portrait_blur"]    # ops that need a matte file
