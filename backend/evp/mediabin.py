@@ -5,6 +5,7 @@ Assets are copies inside <project>/assets/, so they are listed from that folder 
 referenced (never copied or modified): the project remembers the paths it has used in project.json -> "sources_history".
 """
 from __future__ import annotations
+import re
 import hashlib, json, os, time
 from pathlib import Path
 
@@ -84,7 +85,8 @@ def scan(project, current_source: str | None) -> dict:
         if key in seen: continue
         seen.add(key)
         p = Path(s)
-        srcs.append({"path": str(s), "name": p.name, "kind": "video", "current": bool(current_source) and os.path.normcase(os.path.abspath(current_source)) == key,
+        shown = re.sub(r"_[0-9a-f]{8}\.mkv$", "", p.name) + " (photo)" if p.parent.name == "photo" and re.search(r"_[0-9a-f]{8}\.mkv$", p.name) else p.name
+        srcs.append({"path": str(s), "name": shown, "kind": "video", "current": bool(current_source) and os.path.normcase(os.path.abspath(current_source)) == key,
                      **_describe(p, "video", cache, dirty)})
     if dirty:
         try:

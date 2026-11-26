@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from . import __version__, mediabin
 from .blueprint import VideoInfo
 from .compiler import RenderOptions
+from . import photo
 from .engine import prepare, render_frame, draft_plan, Job, JobManager
 from .media import probe, hardware_report, MediaError
 from .reporter import Reporter
@@ -112,7 +113,8 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         return {"path": str(p.root), "name": p.data["name"], "version": p.data["version"], "source": p.data.get("source"),
                 "video": st.video.__dict__ if st.video else None, "blueprint": p.data["blueprint"], "ui": p.data.get("ui", {}),
                 "missing": p.missing(), "recovery_available": p.recovery_available(),
-                "restored": p.restored_at is not None, "restored_at": p.restored_at, "saved_blueprint": p.saved_blueprint}
+                "restored": p.restored_at is not None, "restored_at": p.restored_at, "saved_blueprint": p.saved_blueprint,
+                "photo": p.data.get("photo")}
 
     @app.post("/api/project/new", dependencies=[api()])
     def new_project(b: NewProject):
@@ -167,6 +169,12 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
 
     def _set_source(path: str):
         p = st.need_project()
+        if photo.is_photo(path):                                    # photo mode: the picture becomes a lossless one-second clip inside the project
+            clip, pinfo = photo.ingest(path, p.root / "photo")
+            p.data["photo"] = pinfo
+            path = str(clip)
+        else:
+            p.data.pop("photo", None)
         info = probe(path)
         p.update(source=str(Path(path).resolve()))
         mediabin.remember_source(p, str(Path(path).resolve()))      # stays in the Media bin after another video replaces it
@@ -317,6 +325,108 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         _FRAMES[ckey] = resp
         while len(_FRAMES) > 32: _FRAMES.popitem(last=False)
         return resp
+
+    class PhotoExport(BaseModel):
+        blueprint: Any
+        filename: str = "photo"
+        format: str = "png"                 # png | jpg | webp
+        quality: int = 95                   # jpg / webp
+        out_dir: str | None = None          # save into this folder instead of the project's exports folder
+
+    @app.post("/api/photo/export", dependencies=[api()])
+    def photo_export(b: PhotoExport):
+        """render the (single) frame of a photo project at the output size and save it as a picture; never overwrites a file"""
+        p = st.need_project()
+        if not p.data.get("photo"): raise HTTPException(409, "This project is not a photo")
+        prep = _prep(b.blueprint)
+        if not prep.plan: raise HTTPException(422, {"errors": [i.message for i in prep.report.errors]})
+        fmt = (b.format or "png").lower()
+        if fmt not in photo.FORMATS: raise HTTPException(422, {"errors": ["format must be png, jpg or webp"]})
+        name = "".join(c for c in b.filename if c.isalnum() or c in " _-").strip()[:80] or "photo"
+        if b.out_dir and b.out_dir.strip():
+            d = Path(b.out_dir.strip()).expanduser()
+            if not d.is_dir(): raise HTTPException(422, {"errors": [f"The folder does not exist: {d}"]})
+            if not os.access(d, os.W_OK): raise HTTPException(422, {"errors": [f"Cannot write to this folder: {d}"]})
+            d = d.resolve()
+        else:
+            d = p.exports_dir
+        out = photo.unique_path(d, name, photo.FORMATS[fmt], {p.data["photo"]["original"], st.source or ""})
+        try:
+            png = render_frame(prep.plan, st.source, 0.0, None, str(p.cache_dir))             # the full output size, the same engine as every preview and export
+        except ValueError as e: raise HTTPException(422, {"errors": [str(e)]})
+        except RuntimeError as e: raise HTTPException(500, str(e))
+        data = photo.encode(png, fmt, b.quality)
+        out.write_bytes(data)
+        return {"output": str(out), "bytes": len(data), "format": fmt}
+
+    # ---- batch: one look on every photo of a folder (runs in the background; the editor polls it)
+    _BATCHES: dict[str, dict] = {}
+
+    class PhotoBatch(BaseModel):
+        blueprint: Any
+        folder: str
+        out_dir: str | None = None          # default: a new "edited" folder inside the photos' folder
+        format: str = "jpg"
+        quality: int = 95
+
+    def _run_batch(bid: str, files: list[Path], out: Path, bp: Any, fmt: str, quality: int, same_dir: bool, p, policy) -> None:
+        bt = _BATCHES[bid]
+        try:
+            for f in files:
+                if bt["cancel"]: bt["state"] = "cancelled"; return
+                bt["current"] = f.name
+                try:
+                    clip, _info = photo.ingest(str(f), p.root / "photo")
+                    prep = prepare(bp, str(clip), policy, p.root, probe(str(clip)))
+                    if not prep.plan: raise ValueError("; ".join(i.message for i in prep.report.errors) or "the blueprint has no usable effects")
+                    png = render_frame(prep.plan, str(clip), 0.0, None, str(p.cache_dir))
+                    dest = photo.unique_path(out, f.stem + (" edited" if same_dir else ""), photo.FORMATS[fmt], {str(f.resolve())})
+                    dest.write_bytes(photo.encode(png, fmt, quality))
+                    bt["done"] += 1; bt["outputs"].append(str(dest))
+                except Exception as e:                                       # one bad photo never stops the others
+                    bt["failed"].append({"file": f.name, "error": str(e)[:300]})
+            bt["state"] = "done"
+        except Exception as e:
+            bt["state"] = "failed"; bt["error"] = str(e)[:300]
+        finally:
+            bt["current"] = ""
+
+    @app.post("/api/photo/batch", dependencies=[api()])
+    def photo_batch(b: PhotoBatch):
+        p = st.need_project()
+        fmt = (b.format or "jpg").lower()
+        if fmt not in photo.FORMATS: raise HTTPException(422, {"errors": ["format must be png, jpg or webp"]})
+        folder = Path(b.folder.strip()).expanduser()
+        if not folder.is_dir(): raise HTTPException(422, {"errors": [f"The folder does not exist: {folder}"]})
+        folder = folder.resolve()
+        files = sorted((f for f in folder.iterdir() if f.is_file() and photo.is_photo(str(f))), key=lambda f: f.name.lower())[:500]
+        if not files: raise HTTPException(422, {"errors": ["There are no photos (JPG, PNG, WebP, BMP) in this folder."]})
+        out = Path(b.out_dir.strip()).expanduser() if b.out_dir and b.out_dir.strip() else folder / "edited"
+        try: out.mkdir(parents=True, exist_ok=True)
+        except OSError as e: raise HTTPException(422, {"errors": [f"Cannot create the output folder: {e}"]})
+        if not os.access(out, os.W_OK): raise HTTPException(422, {"errors": [f"Cannot write to this folder: {out}"]})
+        out = out.resolve()
+        first = files[0]
+        try:                                                              # check the blueprint once, on the first photo, before starting
+            clip, _ = photo.ingest(str(first), p.root / "photo")
+            prep = prepare(b.blueprint, str(clip), st.policy(), p.root, probe(str(clip)))
+        except MediaError as e: raise HTTPException(422, {"errors": [str(e)]})
+        if not prep.plan: raise HTTPException(422, {"errors": [i.message for i in prep.report.errors] or ["Add at least one effect first."]})
+        bid = secrets.token_hex(6)
+        _BATCHES[bid] = {"id": bid, "state": "running", "total": len(files), "done": 0, "failed": [], "outputs": [], "current": "", "out_dir": str(out), "cancel": False, "error": None}
+        threading.Thread(target=_run_batch, args=(bid, files, out, b.blueprint, fmt, b.quality, out == folder, p, st.policy()), daemon=True).start()
+        return _BATCHES[bid]
+
+    @app.get("/api/photo/batch/{bid}", dependencies=[api()])
+    def photo_batch_status(bid: str):
+        if bid not in _BATCHES: raise HTTPException(404, "Unknown batch")
+        return _BATCHES[bid]
+
+    @app.post("/api/photo/batch/{bid}/cancel", dependencies=[api()])
+    def photo_batch_cancel(bid: str):
+        if bid not in _BATCHES: raise HTTPException(404, "Unknown batch")
+        _BATCHES[bid]["cancel"] = True
+        return _BATCHES[bid]
 
     class RenderReq(BaseModel):
         blueprint: Any

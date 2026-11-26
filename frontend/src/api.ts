@@ -23,7 +23,9 @@ export class ApiError extends Error { constructor(msg: string, public status: nu
 export interface Issue { level: string; code: string; message: string; op_id?: string | null; path?: string | null }
 export interface Validation { ok: boolean; errors: Issue[]; warnings: Issue[]; plan: { order: number; id: string; type: string; start: number; end: number; alpha_source: string | null }[]; video: VideoInfo | null; repaired?: Blueprint | null }
 export interface VideoInfo { duration: number; fps: number; width: number; height: number; has_audio: boolean; codec: string }
-export interface ProjectState { path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean; restored?: boolean; restored_at?: number | null; saved_blueprint?: Blueprint | null }
+export interface PhotoInfo { original: string; name: string; width: number; height: number }
+export interface BatchState { id: string; state: string; total: number; done: number; failed: { file: string; error: string }[]; outputs: string[]; current: string; out_dir: string; error: string | null }
+export interface ProjectState { photo?: PhotoInfo | null; path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean; restored?: boolean; restored_at?: number | null; saved_blueprint?: Blueprint | null }
 export interface JobState { id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }
 
 export interface GpuStatus { state: "active" | "ready" | "cpu"; label: string; detail: string; percent: number | null; engines: Record<string, number>; vram_mb: number | null; system_percent: number | null; adapter: string | null; provider: string | null; measurable: boolean; encoder: string | null; encoder_on_gpu: boolean | null; fell_back: boolean; job: string | null; diagnosis?: { topic: string; status: "ok" | "warn" | "info"; text: string; fix?: string }[] }
@@ -96,6 +98,10 @@ export class Api {
   validate(blueprint: unknown): Promise<Validation> { return this.req("POST", "/api/blueprint/validate", { blueprint }); }
   /** width null = full output resolution (used by the 1:1 loupe) */
   frame(blueprint: Blueprint, t: number, original: boolean, width: number | null = 960, view?: string, draft = false): Promise<Blob> { return this.req("POST", "/api/preview/frame", { blueprint, t, original, width, ...(view ? { view } : {}), ...(draft ? { draft: true } : {}) }, true); }
+  photoExport(blueprint: Blueprint, o: { filename: string; format: string; quality: number; out_dir?: string }): Promise<{ output: string; bytes: number; format: string }> { return this.req("POST", "/api/photo/export", { blueprint, ...o }); }
+  photoBatch(blueprint: Blueprint, o: { folder: string; format: string; quality: number; out_dir?: string }): Promise<BatchState> { return this.req("POST", "/api/photo/batch", { blueprint, ...o }); }
+  photoBatchStatus(id: string): Promise<BatchState> { return this.req("GET", "/api/photo/batch/" + id); }
+  photoBatchCancel(id: string): Promise<BatchState> { return this.req("POST", `/api/photo/batch/${id}/cancel`, {}); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
   keyDoctor(blueprint: Blueprint, opId: string): Promise<KeyDoctorResult> { return this.req("POST", "/api/key/doctor", { blueprint, op_id: opId }); }
   mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }

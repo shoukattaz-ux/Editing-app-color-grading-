@@ -243,3 +243,16 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .autoenhance{border:1px solid #22c55e66;background:#22c55e12;border-radius:10px;padding:10px 12px;margin:12px 0}
 .cinematic{border:1px solid #f59e0b66;background:#f59e0b12;border-radius:10px;padding:10px 12px;margin:12px 0}
 .facerestore{border:1px solid #a855f766;background:#a855f712;border-radius:10px;padding:10px 12px;margin:12px 0}.modelbox{margin:8px 0}
+
+/* photo mode */
+.photostrip { display: flex; align-items: center; gap: 14px; height: 64px; padding: 0 16px; border-top: 1px solid var(--line, #2a2f3a); overflow: hidden; }
+.photostrip .ps-name { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.photostrip .ps-name em { color: var(--muted, #8b93a5); font-style: normal; }
+.photostrip .ps-fx { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; align-items: center; }
+.photostrip .ps-chip { border: 1px solid var(--line, #2a2f3a); background: transparent; color: inherit; border-radius: 12px; padding: 4px 10px; cursor: pointer; text-transform: capitalize; white-space: nowrap; }
+.photostrip .ps-chip.on { border-color: var(--accent, #4c8dff); }
+.photostrip .ps-chip.off { opacity: .5; text-decoration: line-through; }
+.ok-line { color: var(--ok, #3ecf8e); }
+.batchbox { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line, #2a2f3a); display: grid; gap: 6px; }
+.batchbox h4 { margin: 0; font-size: 13px; }
+.batchbox progress { width: 100%; }

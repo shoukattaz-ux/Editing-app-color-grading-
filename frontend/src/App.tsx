@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importAssetFile, importBackground, importVideoFile, applyLut, useBackgroundItem } from "./imports";
 import type { MediaDrag } from "./Media";
-import { Api, ApiError, JobState, ProjectState, ReportConfig, Validation, AiDevice, connection } from "./api";
+import { Api, ApiError, JobState, ProjectState, BatchState, ReportConfig, Validation, AiDevice, connection } from "./api";
 import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
@@ -45,6 +45,7 @@ function Editor({ api }: { api: Api }) {
   const [proxy, setProxy] = useState<{ key: string; path: string } | null>(null);      // key = the CONTENT of the edit it was rendered from (undo/redo makes new objects with the same content)
   const [job, setJob] = useState<JobState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [photoSaveOpen, setPhotoSaveOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importMenu, setImportMenu] = useState(false);
   useEffect(() => { if (window.evp?.isElectron) document.body.classList.add("electron"); }, []);
@@ -83,7 +84,7 @@ function Editor({ api }: { api: Api }) {
   const askPath = useCallback((title: string, kind: string) => {
     const b = window.evp;
     if (b?.pickFile && b?.pickFolder) {                      // desktop app: the operating system's own dialog, straight away
-      const filters = kind === "video" ? [{ name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v"] }]
+      const filters = kind === "video" ? [{ name: "Video or photo", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v", "jpg", "jpeg", "png", "webp", "bmp"] }]
         : kind === "image" ? [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }] : undefined;
       return (kind === "any" && /folder/i.test(title) ? b.pickFolder(title) : b.pickFile({ title, filters })) as Promise<string | null>;
     }
@@ -110,7 +111,7 @@ function Editor({ api }: { api: Api }) {
 
   // ---- footage cutting (clips)
   const cutHere = useCallback(() => {
-    const v = project?.video; if (!v) return;
+    const v = project?.video; if (!v || project?.photo) return;
     const r = m.cutAt(bp, t, v.duration, tl.fps);
     if (!r.ids) { toast("Move the playhead inside a clip to cut (not at its very start or end)", "err"); return; }
     edit(() => r.bp); setSelClip(r.ids[1]);
@@ -286,7 +287,7 @@ function Editor({ api }: { api: Api }) {
   };
 
   return (
-    <div className="app" style={{ gridTemplateColumns: `56px ${layout.left}px 5px 1fr 5px ${layout.right}px`, gridTemplateRows: `48px 1fr 5px ${layout.bottom}px 26px` }}>
+    <div className="app" style={{ gridTemplateColumns: `56px ${layout.left}px 5px 1fr 5px ${layout.right}px`, gridTemplateRows: project?.photo ? `48px 1fr 0px 64px 26px` : `48px 1fr 5px ${layout.bottom}px 26px` }}>
       <header className="toolbar" style={{ gridColumn: "1 / -1" }}>
         <span className="logo"><Icon n="film" size={18} /> EVP</span>
         <b className="pname">{project.name}{dirty ? " •" : ""}</b>
@@ -305,8 +306,9 @@ function Editor({ api }: { api: Api }) {
         <Btn icon="redo" onClick={doRedo} disabled={!hist.future.length} title="Redo (Ctrl+Y)" />
         <span className="spacer" />
         <Btn icon="bolt" label="Execute Blueprint" kind={bp.operations.length === 0 ? "primary" : undefined} onClick={() => setTab("blueprint")} title="Open the blueprint panel to paste, validate and execute" />
-        <Btn icon="eye" label="Apply to full video" kind={bp.operations.length > 0 && stale ? "primary" : undefined} onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Happy with this frame? Render the whole timeline (640px preview video for playback). While you edit, only the current frame is rendered. Export makes the final full-quality file." />
-        <Btn icon="export" label="Export" onClick={() => setExportOpen(true)} disabled={!video} />
+        {!project.photo && <Btn icon="eye" label="Apply to full video" kind={bp.operations.length > 0 && stale ? "primary" : undefined} onClick={() => updateProxy()} disabled={!video || (report ? !report.ok : false)} title="Happy with this frame? Render the whole timeline (640px preview video for playback). While you edit, only the current frame is rendered. Export makes the final full-quality file." />}
+        {project.photo ? <Btn icon="export" label="Save photo" kind="primary" onClick={() => setPhotoSaveOpen(true)} disabled={!video} title="Save the edited photo as PNG, JPG or WebP at full size (the original is never changed)" />
+          : <Btn icon="export" label="Export" onClick={() => setExportOpen(true)} disabled={!video} />}
         <GpuChip api={api} working={!!job && ACTIVE.includes(job.state)} />
         <Btn icon="gear" onClick={() => setSettingsOpen(true)} title="Settings: problem reports" />
       </header>
@@ -322,7 +324,7 @@ function Editor({ api }: { api: Api }) {
           <div className="recovery"><Icon n="check" /> Restored your work exactly as you left it{project.restored_at ? ` (${new Date(project.restored_at * 1000).toLocaleString()})` : ""}. It was auto-saved but not yet saved as a version.
             <Btn label="Save now" kind="primary" onClick={save} />
             <Btn label="Back to last saved version" onClick={async () => { try { load(await api.revert()); toast("Went back to the last saved version"); } catch (e: any) { toast(e.message, "err"); } }} /></div>)}
-        <Preview zone={(() => { const o = bp.operations.find(x => x.id === sel); const q = o?.parameters ?? {};
+        <Preview photo={!!project.photo} zone={(() => { const o = bp.operations.find(x => x.id === sel); const q = o?.parameters ?? {};
             if (!o || o.type !== "studio_look" || !(typeof q.colour_light === "number" && q.colour_light > 0) || q.colour_light_place !== "zone") return null;
             const n = (k: string, d: number) => (typeof q[k] === "number" ? q[k] : d);
             return { x0: n("colour_light_zone_x0", 0.25), y0: n("colour_light_zone_y0", 0.1), x1: n("colour_light_zone_x1", 0.75), y1: n("colour_light_zone_y1", 0.9), colour: typeof q.colour_light_color_a === "string" ? q.colour_light_color_a : "#19b8ff",
@@ -335,10 +337,10 @@ function Editor({ api }: { api: Api }) {
       <aside className="side right"><Properties api={api} enhanceNotes={enhanceNotes} floorNotes={floorNotes} hairNotes={hairNotes} cameraNotes={cameraNotes} keyDoctor={(id: string) => api.keyDoctor(bp, id)} importAsset={() => importAssetFile(ctx, "Import the clean plate (a video or picture of the EMPTY green screen)", "any")} plateNotes={plateNotes} bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
           onCut={cutHere} onDeleteClip={() => removeClip()} onReapply={() => updateProxy()} /></aside>
 
-      <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />
+      <div className="hhandle" style={{ gridColumn: "2 / -1", display: project.photo ? "none" : undefined }} onPointerDown={drag("bottom", -1)} />
       <div style={{ gridColumn: "1 / -1" }}>
-        <Timeline onDropMedia={onDropMedia} history={{ canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, undoCount: hist.past.length, redoCount: hist.future.length, undoLabel: labelNext(hist, "undo"), redoLabel: labelNext(hist, "redo"), onUndo: doUndo, onRedo: doRedo }} bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
-          onCut={cutHere} onDeleteClip={(id?: string) => removeClip(id)} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />
+        {project.photo ? <PhotoStrip photo={project.photo} bp={bp} sel={sel} setSel={setSel} /> : <Timeline onDropMedia={onDropMedia} history={{ canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, undoCount: hist.past.length, redoCount: hist.future.length, undoLabel: labelNext(hist, "undo"), redoLabel: labelNext(hist, "redo"), onUndo: doUndo, onRedo: doRedo }} bp={bp} schema={schema} video={video} layout={tl} t={t} setT={setT} sel={sel} setSel={setSel} selClip={selClip} setSelClip={setSelClip} edit={edit} issues={issues} zoom={zoom} setZoom={setZoom}
+          onCut={cutHere} onDeleteClip={(id?: string) => removeClip(id)} sourceName={project.source?.path?.split(/[\\/]/).pop() ?? "source"} />}
       </div>
       <footer className="status" style={{ gridColumn: "1 / -1" }}>
         {(() => {
@@ -351,10 +353,87 @@ function Editor({ api }: { api: Api }) {
         <span className="spacer" /><span>{hist.past.length ? plural(hist.past.length, "undo step") : "Nothing to undo"}</span>
       </footer>
       {settingsOpen && <SettingsDialog api={api} onClose={() => setSettingsOpen(false)} toast={toast} />}
+      {photoSaveOpen && project.photo && <PhotoSaveDialog askPath={askPath} api={api} bp={bp} onClose={() => setPhotoSaveOpen(false)} toast={toast} photo={project.photo} />}
       {exportOpen && <ExportDialog askPath={askPath} api={api} bp={bp} edit={edit} onClose={() => setExportOpen(false)} job={job} setJob={setJob} pollJob={pollJob} toast={toast} projectName={project.name} video={video} />}
       <Toasts toasts={toasts} onClose={id => setToasts(ts => ts.filter(x => x.id !== id))} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} /><ContextMenuHost />
     </div>
   );
+}
+
+function PhotoStrip({ photo, bp, sel, setSel }: { photo: NonNullable<ProjectState["photo"]>; bp: Blueprint; sel: string | null; setSel: (id: string | null) => void }) {
+  return (
+    <div className="photostrip" aria-label="Photo layers">
+      <span className="ps-name" title={photo.original}><Icon n="image" size={15} /> <b>{photo.name}</b> <em>{photo.width} × {photo.height}</em></span>
+      <span className="ps-fx">{bp.operations.length === 0 ? <em>No effects yet: pick one from Effects on the left.</em>
+        : bp.operations.map(o => <button key={o.id} className={"ps-chip" + (o.enabled === false ? " off" : "") + (sel === o.id ? " on" : "")} onClick={() => setSel(o.id)} title={o.enabled === false ? "Switched off" : "Click to edit"}>{o.type.replace(/_/g, " ")}</button>)}</span>
+    </div>);
+}
+
+function PhotoSaveDialog({ askPath, api, bp, onClose, toast, photo }: { askPath: Ctx["askPath"]; api: Api; bp: Blueprint; onClose: () => void; toast: Ctx["toast"]; photo: NonNullable<ProjectState["photo"]> }) {
+  const stem = photo.name.replace(/\.[^.]+$/, "");
+  const [name, setName] = useState(stem + " edited");
+  const [fmt, setFmt] = useState(() => { try { return localStorage.getItem("evp.photoFmt") ?? "jpg"; } catch { return "jpg"; } });
+  const [quality, setQuality] = useState(95);
+  const [dir, setDirRaw] = useState(() => { try { return localStorage.getItem("evp.photoDir") ?? ""; } catch { return ""; } });
+  const setDir = (d: string) => { setDirRaw(d); try { localStorage.setItem("evp.photoDir", d); } catch { /* ignore */ } };
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [bfolder, setBfolder] = useState("");
+  const [batch, setBatch] = useState<BatchState | null>(null);
+  const bRunning = batch?.state === "running";
+  useEffect(() => {
+    if (!batch || batch.state !== "running") return;
+    const h = setTimeout(() => { api.photoBatchStatus(batch.id).then(setBatch).catch(() => {}); }, 700);
+    return () => clearTimeout(h);
+  }, [batch, api]);
+  const pickBatch = async () => { const p = await askPath("Choose the folder with the photos to edit", "any"); if (p) setBfolder(p); };
+  const runBatch = async () => {
+    try { setBatch(await api.photoBatch(bp, { folder: bfolder, format: fmt, quality, ...(dir ? { out_dir: dir } : {}) })); }
+    catch (e: any) { toast(e instanceof ApiError ? e.message : String(e), "err"); }
+  };
+  const browse = async () => { const p = await askPath("Choose the folder to save the photo in", "any"); if (p) setDir(p); };
+  const save = async () => {
+    setBusy(true); setDone(null);
+    try { try { localStorage.setItem("evp.photoFmt", fmt); } catch { /* ignore */ } const r = await api.photoExport(bp, { filename: name, format: fmt, quality, ...(dir ? { out_dir: dir } : {}) }); setDone(r.output); toast("Photo saved: " + r.output); }
+    catch (e: any) { toast(e instanceof ApiError ? e.message : String(e), "err"); }
+    setBusy(false);
+  };
+  return (
+    <div className="modal-bg" onClick={() => !busy && !bRunning && onClose()}>
+      <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Save photo">
+        <h3>Save photo</h3>
+        <div className="grid2">
+          <label className="field"><span className="fl">file name</span><input value={name} onChange={e => setName(e.target.value)} aria-label="Photo file name" /></label>
+          <label className="field"><span className="fl">format</span><select value={fmt} onChange={e => setFmt(e.target.value)} aria-label="Photo format"><option value="jpg">JPG (small, for sharing)</option><option value="png">PNG (lossless)</option><option value="webp">WebP (small, modern)</option></select></label>
+          {fmt !== "png" && <label className="field"><span className="fl">quality {quality}</span><input type="range" min={60} max={100} value={quality} onChange={e => setQuality(+e.target.value)} aria-label="Photo quality" /></label>}
+          <div className="field exportdir" style={{ gridColumn: "1 / -1" }}><span className="fl">save to</span>
+            <div className="slider-row">
+              <input readOnly value={dir || "The project's exports folder"} aria-label="Photo folder" onClick={browse} />
+              <Btn icon="folder" label="Choose folder…" onClick={browse} disabled={busy} />
+              {dir && <Btn label="Project folder" onClick={() => setDir("")} disabled={busy} />}
+            </div>
+            <span className="muted small">Saved at full size ({photo.width} × {photo.height}). The original photo is never changed and an existing file is never overwritten: the new one is saved as “name (2)”.</span></div>
+        </div>
+        <div className="batchbox">
+          <h4>Apply this look to a whole folder</h4>
+          <div className="slider-row">
+            <input readOnly value={bfolder || "Choose a folder of photos…"} aria-label="Batch folder" onClick={pickBatch} />
+            <Btn icon="folder" label="Choose folder…" onClick={pickBatch} disabled={bRunning} />
+            <Btn icon="bolt" label="Edit all" onClick={runBatch} disabled={!bfolder || bRunning} title="Applies the effects you set up now to every photo in the folder, using the format and quality above" />
+          </div>
+          <span className="muted small">{dir ? "Edited copies go to the folder chosen above." : "Edited copies go to a new “edited” folder inside the photos' folder."} Originals are never changed.</span>
+          {batch && <div role="status" aria-label="Batch progress">
+            <progress value={batch.done + batch.failed.length} max={batch.total} />
+            <div className="small">{batch.state === "running" ? `Editing ${batch.done + batch.failed.length + 1} of ${batch.total}: ${batch.current}` : batch.state === "cancelled" ? "Stopped" : `Finished: ${batch.done} of ${batch.total} saved`}{batch.failed.length ? `, ${batch.failed.length} could not be read` : ""}
+              {batch.state !== "running" && batch.done > 0 && <> in <code>{batch.out_dir}</code></>}</div>
+            {batch.failed.map(f => <div key={f.file} className="small err-text">{f.file}: {f.error}</div>)}
+            {bRunning && <Btn label="Stop" onClick={() => api.photoBatchCancel(batch.id).then(setBatch).catch(() => {})} />}
+          </div>}
+        </div>
+        {done && <p className="ok-line" role="status"><Icon n="check" /> Saved: <code>{done}</code></p>}
+        <div className="btn-row"><span className="spacer" /><Btn label={done || batch ? "Close" : "Cancel"} onClick={onClose} disabled={busy || bRunning} /><Btn kind="primary" icon="export" label={busy ? "Saving…" : "Save photo"} onClick={save} disabled={busy || !name.trim()} /></div>
+      </div>
+    </div>);
 }
 
 function JobBar({ job, api, onUpdate, compact }: { job: JobState; api: Api; onUpdate: (j: JobState) => void; compact?: boolean }) {
@@ -520,7 +599,7 @@ function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: Projec
   const [name, setName] = useState("My Project"); const [parent, setParent] = useState(""); const [source, setSource] = useState("");
   useEffect(() => { api.recent().then(setRecent).catch(() => {}); api.defaults().then(setDefs).catch(() => {}); }, [api]);
   const go = async (f: () => Promise<ProjectState>) => { setBusy(true); try { onOpen(await f()); } catch (e: any) { toast(e.message, "err"); } setBusy(false); };
-  const withVideo = async () => { const p = await askPath("Choose your video (MP4, MOV, MKV, AVI, WebM)", "video"); if (p) go(() => api.quickProject(p)); };
+  const withVideo = async () => { const p = await askPath("Choose your video or photo (MP4, MOV, MKV, JPG, PNG, WebP…)", "video"); if (p) go(() => api.quickProject(p)); };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault(); setOver(false);
     const f = e.dataTransfer.files?.[0]; if (!f) return;
@@ -543,9 +622,9 @@ function Welcome({ api, onOpen, toast, askPath }: { api: Api; onOpen: (p: Projec
             onClick={() => !busy && withVideo()} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") withVideo(); }}
             onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}>
             <Icon n="export" size={34} />
-            <b>{busy ? "Creating your project…" : "Drop a video here"}</b>
+            <b>{busy ? "Creating your project…" : "Drop a video or a photo here"}</b>
             <span>{busy ? "one moment" : "or click to choose a file"}</span>
-            <em>MP4 · MOV · MKV · AVI · WebM</em>
+            <em>MP4 · MOV · MKV · AVI · WebM · JPG · PNG · WebP</em>
           </div>
           <div className="btn-row">
             <Btn icon="plus" label="Empty project" disabled={busy} onClick={() => go(() => api.quickProject())} title="Start without a video; add one later" />
@@ -580,7 +659,7 @@ function PathDialog({ dlg, close }: { dlg: { title: string; kind: string; resolv
   const browse = async () => {
     const b = window.evp;
     const p = dlg.kind === "any" && dlg.title.toLowerCase().includes("folder") ? await b?.pickFolder?.(dlg.title)
-      : await b?.pickFile?.({ title: dlg.title, filters: dlg.kind === "video" ? [{ name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm"] }] : dlg.kind === "image" ? [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }] : undefined });
+      : await b?.pickFile?.({ title: dlg.title, filters: dlg.kind === "video" ? [{ name: "Video or photo", extensions: ["mp4", "mov", "mkv", "avi", "webm", "jpg", "jpeg", "png", "webp", "bmp"] }] : dlg.kind === "image" ? [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }] : undefined });
     if (p) done(p);
   };
   return (

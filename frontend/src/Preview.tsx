@@ -41,7 +41,8 @@ function useFrame(api: Api, bp: Blueprint, t: number, original: boolean, enabled
   return { url, err, busy, draft: shownDraft };
 }
 
-export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks, zone }: {
+export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyUrl, stale, onUpdateProxy, proxyBusy, videoRef, playing, setPlaying, auto, setAuto, masks, zone, photo }: {
+  photo?: boolean;
   zone?: { x0: number; y0: number; x1: number; y1: number; colour: string; onChange: (patch: Record<string, any>) => void } | null;
   masks?: { ops: Op[]; selected: string | null; onChange: (id: string, patch: Record<string, any>) => void; onSelect: (id: string) => void };
   auto: boolean; setAuto: (v: boolean) => void;
@@ -130,7 +131,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         {(edited.busy || orig.busy || view.busy || proxyBusy) && <div className="spin" title="Rendering" />}
         {zone && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <ZoneOverlay rect={fit} zone={zone} onChange={zone.onChange} />}
         {masks && masks.ops.length > 0 && !(qcOn && qcZoom > 0) && !(mode === "compare" && !qcOn) && <MaskOverlay rect={fit} masks={masks.ops} selected={masks.selected} onChange={masks.onChange} onSelect={masks.onSelect} />}
-        {mode === "edited" && !playable && !qcOn && bp.operations.length > 0 && (          // small, in the corner: never covers the picture, which is already live (nothing to apply without effects)
+        {mode === "edited" && !photo && !playable && !qcOn && bp.operations.length > 0 && (          // small, in the corner: never covers the picture, which is already live (nothing to apply without effects)
           <div className="chip-top">{proxyBusy ? <><span className="mini-spin" /> Updating preview video…</>
             : <>{auto ? "Preview video updates automatically" : "Live frame: only this frame is rendered while you edit"}<Btn label="Apply to full video" icon="bolt" kind="primary" onClick={onUpdateProxy} disabled={proxyBusy} title="Render the whole timeline for playback" /></>}</div>)}
       </div>
@@ -138,12 +139,12 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         <div className="seg" role="tablist" aria-label="Preview mode">
           {(["original", "edited", "compare"] as Mode[]).map(k => <button key={k} className={mode === k ? "on" : ""} onClick={() => setMode(k)} role="tab" aria-selected={mode === k}>{k === "compare" ? "Before/After" : k[0].toUpperCase() + k.slice(1)}</button>)}
         </div>
-        <Btn icon="stop" title="Stop (return to start)" onClick={stop} />
-        <Btn icon="prev" title="Previous frame (←)" onClick={() => step(-1)} />
-        <Btn icon={playing ? "pause" : "play"} kind="primary" title={playable ? "Play / pause (Space)" : "To play the edited video, press Apply to full video first (editing renders only the current frame)"} onClick={toggle} disabled={!playable} />
-        <Btn icon="next" title="Next frame (→)" onClick={() => step(1)} />
-        <code className="tc">{m.formatTime(t, fps)}</code>
-        <input className="scrub" type="range" min={0} max={Math.max(1, Math.round(dur * fps))} value={Math.round(t * fps)} onChange={e => { setPlaying(false); setT(+e.target.value / fps); }} aria-label="Scrub" />
+        {!photo && <Btn icon="stop" title="Stop (return to start)" onClick={stop} />}
+        {!photo && <Btn icon="prev" title="Previous frame (←)" onClick={() => step(-1)} />}
+        {!photo && <Btn icon={playing ? "pause" : "play"} kind="primary" title={playable ? "Play / pause (Space)" : "To play the edited video, press Apply to full video first (editing renders only the current frame)"} onClick={toggle} disabled={!playable} />}
+        {!photo && <Btn icon="next" title="Next frame (→)" onClick={() => step(1)} />}
+        {!photo && <code className="tc">{m.formatTime(t, fps)}</code>}
+        {!photo ? <input className="scrub" type="range" min={0} max={Math.max(1, Math.round(dur * fps))} value={Math.round(t * fps)} onChange={e => { setPlaying(false); setT(+e.target.value / fps); }} aria-label="Scrub" /> : <span className="spacer" />}
         {mode === "compare" && (
           <select className="loupe-sel" value={loupe} onChange={e => setLoupe(+e.target.value)} aria-label="Zoom loupe" title="Pixel-level before/after at full output resolution">
             <option value={0}>Wipe</option><option value={1}>1:1 zoom</option><option value={2}>200%</option><option value={4}>400%</option>

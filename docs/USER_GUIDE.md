@@ -271,3 +271,12 @@ A scene lights the person too. On a **Studio Look** (with a Background Replaceme
 - **Apply to:** **Subject only (recommended)**, **Background only** or **Both**. With *Subject only* the light is applied to the subject layer before it is composited, so it can never show on the background, even with a large spread; the subject's matte is never changed. (With *Background only* the subject is untouched, the same way.)
 
 It redistributes light, so average brightness stays about the same. **Light pattern asset id** uses your own picture or looping video (bright shapes on a dark ground) instead. Master amount scales it. Recommended strength 0.5–0.7. In a blueprint: `light_pattern`, `light_pattern_style`, `light_pattern_color`, `light_pattern_color2`, `light_pattern_spread`, `light_pattern_warp`, `light_pattern_on`, `light_pattern_scale`, `light_pattern_speed`, `light_pattern_falloff`, `light_pattern_asset_id`. Limits: it is a flat projection (it does not follow the 3D shape of the body); soft edge pixels of the subject blend with the background by their own transparency, so a few edge pixels can pick up background light; generated patterns are regular, a real caustics loop as your own pattern looks more natural.
+
+## Photo mode
+
+Open a photo (JPG, PNG, WebP or BMP) the same way you open a video: drop it on the start screen, or use **Import → Video…** and choose a picture. The editor switches to a simpler screen: no timeline and no play button, just the picture, the effects list under it and every effect you already know (colour, Auto enhance, Cinematic look, Portrait mode, Skin retouch, AI face restoration, Smart HDR, …) with the live preview.
+
+- **Save photo** (top right): choose JPG, PNG or WebP, the quality and the folder. The picture is saved at its full size. The original photo is never changed and an existing file is never overwritten: a second save becomes “name (2)”.
+- **Apply this look to a whole folder**: in the Save dialog choose a folder of photos and press **Edit all**. Every photo gets the effects you have set up (each keeps its own size), saved into a new “edited” folder next to them (or the folder chosen above). A photo that cannot be read is listed and skipped; the others carry on. You can stop the batch at any time.
+- Phone photos keep their rotation. Transparent PNGs are placed on white. Pictures larger than 8192 px on the long side are scaled down.
+- Effects that depend on motion (clean plate, timeline cuts) do not apply to a single picture.
