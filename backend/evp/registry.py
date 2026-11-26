@@ -307,6 +307,15 @@ _FACE_COMMON = {
     "feather": Param(N, 0.5, 0.0, 1.0, desc="Softness of the face region edge (relative to face size)."),
     "detection_confidence": Param(N, 0.6, 0.3, 0.95, desc="Face detector threshold. Lower finds small/turned faces but may misfire."),
 }
+_reg(OpSpec("face_restoration", "AI Face Restoration", "Face", STAGE_UPSCALE + 1, "effects",
+            "AI face restoration (GFPGAN): rebuilds sharp eyes, eyebrows, hair strands, beard and skin detail of small, soft or noisy faces, "
+            "like phone 'enhance' apps. It RE-DRAWS detail, so the result is plausible rather than exact; 'identity' keeps your own colours and "
+            "face shape and takes only the fine detail. Slow without a graphics card; needs a 348 MB model (downloaded once).",
+            {"strength": Param(N, 0.8, 0.0, 1.0, desc="How much of the restored face replaces the original (0 = off)."),
+             "identity": Param(N, 0.5, 0.0, 1.0, desc="Keep the original look: 0 = the AI's face as it is (can change skin tone and features slightly), 1 = only the AI's fine detail on top of your own colours and face shape."),
+             "max_faces": Param(I, 3, 1, 8, desc="Restore at most this many faces per frame (the largest ones). Each face costs processing time."),
+             "min_face": Param(I, 96, 24, 400, unit="px", desc="Faces narrower than this are skipped: on a small or blurry face the AI invents a different face. Lower it only if you want small faces restored anyway."),
+             "detection_confidence": Param(N, 0.6, 0.3, 0.95, desc="Face detector threshold. Lower finds small or turned faces but may misfire.")}))
 _reg(OpSpec("skin_retouch", "Skin Retouch", "Face", STAGE_FACE, "effects",
             "Gently smooths the skin of each face (pores, small blemishes, uneven texture) while the eyes, eyebrows, lips, beard and hair stay "
             "sharp. Edge-preserving, and part of the real skin texture is kept so it never looks plastic. Never changes face shape.",

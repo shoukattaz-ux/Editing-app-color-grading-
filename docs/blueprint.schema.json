@@ -183,6 +183,7 @@
               "portrait_blur",
               "text_overlay",
               "audio_gain",
+              "face_restoration",
               "skin_retouch",
               "face_tone_correction",
               "face_relighting",
@@ -1719,6 +1720,60 @@
                       "minimum": 0.0,
                       "maximum": 30.0,
                       "default": 0.0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "face_restoration"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "strength": {
+                      "description": "How much of the restored face replaces the original (0 = off).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.8
+                    },
+                    "identity": {
+                      "description": "Keep the original look: 0 = the AI's face as it is (can change skin tone and features slightly), 1 = only the AI's fine detail on top of your own colours and face shape.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "max_faces": {
+                      "description": "Restore at most this many faces per frame (the largest ones). Each face costs processing time.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 8,
+                      "default": 3
+                    },
+                    "min_face": {
+                      "description": "Faces narrower than this are skipped: on a small or blurry face the AI invents a different face. Lower it only if you want small faces restored anyway.",
+                      "type": "integer",
+                      "minimum": 24,
+                      "maximum": 400,
+                      "default": 96
+                    },
+                    "detection_confidence": {
+                      "description": "Face detector threshold. Lower finds small or turned faces but may misfire.",
+                      "type": "number",
+                      "minimum": 0.3,
+                      "maximum": 0.95,
+                      "default": 0.6
                     }
                   },
                   "additionalProperties": false

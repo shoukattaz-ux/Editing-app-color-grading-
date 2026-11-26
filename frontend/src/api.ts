@@ -31,6 +31,7 @@ export interface MediaItem { path: string; name: string; kind: "image" | "video"
 export interface MediaBin { sources: MediaItem[]; assets: MediaItem[] }
 export interface KeyFinding { id: string; severity: "problem" | "warn" | "info"; title: string; detail: string; time: number | null; fix: { label: string; set?: Record<string, any>; add_ops?: { type: string; params: Record<string, any> }[]; advice?: string } | null; measure: Record<string, any> }
 export interface KeyDoctorResult { findings: KeyFinding[]; score: number; frames_checked: number; summary: string }
+export interface ModelStatus { name: string; installed: boolean; downloading: boolean; done: number; total: number; size: number; license: string; error: string | null }
 export interface EnhanceNote { measured: Record<string, number>; full: Record<string, number> }
 export interface CameraNote { match_softness: number; subject_grain: number; background_grain: number; match_blacks: number; measured: { subject_edge_blur_px: number; background_edge_blur_px: number; subject_noise_levels: number; background_noise_levels: number; subject_black: number; background_black: number } }
 export interface AiDevice { choice: string; running_on: string; provider: string; wanted: string; actual: string | null; fell_back: boolean; options: { value: string; label: string }[] }
@@ -101,6 +102,8 @@ export class Api {
   thumbUrl(src: "asset" | "source", path: string, w = 192) { return `${this.base}/api/media/thumb?src=${src}&path=${encodeURIComponent(path)}&w=${w}&token=${this.token}`; }
   removeAsset(path: string) { return this.req("POST", "/api/project/asset/remove", { path }); }
   forgetSource(path: string): Promise<{ ok: boolean }> { return this.req("POST", "/api/project/source/forget", { path }); }
+  modelStatus(name: string): Promise<ModelStatus> { return this.req("GET", `/api/models/${name}`); }
+  installModel(name: string): Promise<ModelStatus> { return this.req("POST", `/api/models/${name}/install`); }
   gpu(): Promise<GpuStatus> { return this.req("GET", "/api/gpu"); }
   aiDevice(): Promise<AiDevice> { return this.req("GET", "/api/ai-device"); }
   setAiDevice(device: string): Promise<AiDevice> { return this.req("PUT", "/api/ai-device", { device }); }

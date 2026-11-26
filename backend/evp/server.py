@@ -449,6 +449,19 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         except ValueError as e: raise HTTPException(422, str(e))
         return device.describe()
 
+    @app.get("/api/models/{name}", dependencies=[api()])
+    def model_status(name: str):
+        from .ml import models
+        if name not in models.MODELS: raise HTTPException(404, "unknown model")
+        return models.status(name)
+
+    @app.post("/api/models/{name}/install", dependencies=[api()])
+    def model_install(name: str):
+        """start downloading a model in the background (the UI polls GET /api/models/{name})"""
+        from .ml import models
+        if name not in models.MODELS: raise HTTPException(404, "unknown model")
+        return models.install_async(name)
+
     @app.get("/api/gpu", dependencies=[api()])
     def gpu_status():
         """is the graphics card working right now? (measured on Windows; configured device elsewhere)"""

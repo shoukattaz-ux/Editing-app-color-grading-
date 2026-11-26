@@ -43,6 +43,10 @@ MODELS = {
                               "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth",
                               "b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d", 2504012, "BSD-3-Clause",
                               "Real-ESRGAN anime video v3 (compact) - cartoons, anime, flat-shaded graphics"),
+    "gfpgan": ModelInfo("gfpgan", "GFPGANv1.4.pth",
+                        "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth",
+                        "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad", 348632874, "Apache-2.0",
+                        "GFPGAN v1.4 (TencentARC) - blind face restoration: rebuilds sharp eyes, hair, beard and skin detail of small or soft faces"),
     "yunet": ModelInfo("yunet", "face_detection_yunet_2023mar.onnx",
                        "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
                        "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4", 232589, "MIT",
@@ -106,7 +110,12 @@ def _download(name: str, info: "ModelInfo", p: Path) -> Path:
     tmp = Path(tmp_name)
     try:
         with urllib.request.urlopen(info.url, timeout=120) as r, open(tmp, "wb") as f:
-            shutil.copyfileobj(r, f)
+            _PROGRESS[name] = {"done": 0, "total": int(r.headers.get("Content-Length") or info.size)}
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk: break
+                f.write(chunk)
+                _PROGRESS[name]["done"] += len(chunk)
         if _sha256(tmp) != info.sha256:
             raise ModelError(f"Downloaded model '{name}' failed its SHA-256 check; not used")
         fsutil.replace(tmp, p)
@@ -117,7 +126,36 @@ def _download(name: str, info: "ModelInfo", p: Path) -> Path:
                          f"Download it manually into {models_dir()}") from e
     finally:
         fsutil.unlink(tmp)
+        _PROGRESS.pop(name, None)
     return p
+
+
+# ---- installing a big model in the background, with progress (the UI polls status())
+_PROGRESS: dict[str, dict] = {}
+_INSTALLS: dict[str, dict] = {}
+
+
+def status(name: str) -> dict:
+    """{installed, downloading, done, total, error} for the UI"""
+    info = MODELS[name]
+    inst = _INSTALLS.get(name, {})
+    prog = _PROGRESS.get(name, {})
+    return {"name": name, "installed": is_installed(name), "size": info.size, "license": info.license,
+            "downloading": bool(inst.get("running")), "done": prog.get("done", 0), "total": prog.get("total", info.size), "error": inst.get("error")}
+
+
+def install_async(name: str) -> dict:
+    """start downloading `name` in the background (does nothing if it is installed or already downloading)"""
+    if name not in MODELS: raise ModelError(f"unknown model '{name}'")
+    st = _INSTALLS.setdefault(name, {})
+    if is_installed(name) or st.get("running"): return status(name)
+    st.update(running=True, error=None)
+    def work():
+        try: ensure_model(name)
+        except Exception as e: st["error"] = str(e)
+        finally: st["running"] = False
+    threading.Thread(target=work, daemon=True).start()
+    return status(name)
 
 
 def providers() -> list[str]:

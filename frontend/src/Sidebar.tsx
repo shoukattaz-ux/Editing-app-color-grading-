@@ -125,7 +125,7 @@ function EffectsTab({ ctx }: { ctx: Ctx }) {
     {Object.entries(groups).map(([cat, list]) => (<div key={cat}><h4>{cat}</h4>
       {list.map(([k, s]) => (<button key={k} className="item" disabled={!s.supported || !ctx.video} title={s.supported ? s.description : s.unsupported_reason}
         onClick={() => { if (k === "background_replacement") { addBackground(ctx); return; }
-          const [a0, b0] = span(ctx); const whole = k === "matte_mask" || k === "portrait_blur" || k === "smart_hdr" || k === "skin_retouch";   // a mask corrects the key for the whole clip unless you shorten it
+          const [a0, b0] = span(ctx); const whole = k === "matte_mask" || k === "portrait_blur" || k === "smart_hdr" || k === "skin_retouch" || k === "face_restoration";   // a mask corrects the key for the whole clip unless you shorten it
           const [a, b] = whole ? [0, ctx.duration || ctx.video?.duration || b0] : [a0, b0]; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, s, a, b); id = r.id; return r.bp; }); setTimeout(() => ctx.setSel(id), 0); }}>
         <Icon n={s.supported ? "plus" : "x"} size={14} /> {s.title}{!s.supported && <em> · {/separate operation/i.test(s.unsupported_reason ?? "") ? "included in the background key" : "not available"}</em>}</button>))}</div>))}
   </>);

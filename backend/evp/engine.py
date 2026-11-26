@@ -289,12 +289,28 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
     """Generate (or reuse cached) AI mattes for every 'ai' background_removal in the plan.
     frame=None -> whole operation range (export/proxy). frame=N -> a cheap single-frame matte for live preview,
     unless the full-range matte is already cached."""
-    keyers, faces, ups = plan.ai_keyers(), plan.face_ops(), plan.upscale_ops()
-    if not keyers and not faces and not ups: return
+    keyers, faces, ups, rests = plan.ai_keyers(), plan.face_ops(), plan.upscale_ops(), plan.restore_ops()
+    if not keyers and not faces and not ups and not rests: return
     out = plan.blueprint.output
     W, H, fps = out.width, out.height, out.fps
-    total = sum(k.end_frame - k.start_frame for k in keyers + faces + ups)
+    total = sum(k.end_frame - k.start_frame for k in keyers + faces + ups + rests)
     done = 0
+    if rests:
+        from .ml.restore import generate_restore, restore_key, _paths
+        from .ml.models import is_installed
+        for r in rests:
+            n = r.end_frame - r.start_frame
+            have = all(f.is_file() for f in _paths(cache_dir, restore_key(source, r, W, H, fps, r.start_frame, n, plan.edl)))
+            if not have and frame is not None and not is_installed("gfpgan"):          # a live frame must not freeze on a 348 MB download
+                from .ml.models import ModelError
+                raise ModelError("The AI face restoration model is not installed yet. Open this effect's Properties and press 'Download the model (348 MB)'.")
+            if frame is None or have:
+                cb = (lambda i, _n, d=done, op=r: progress(d + i, total, op.id, "AI face restoration")) if progress else None
+                plan.restorations[r.id] = generate_restore(source, r, W, H, fps, r.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
+            else:
+                fr = min(max(frame, r.start_frame), r.end_frame - 1)
+                plan.restorations[r.id] = generate_restore(source, r, W, H, fps, fr, 1, cache_dir, warmup=2, edl=plan.edl)
+            done += n
     if ups:
         from .ml.upscale import generate_upscale, upscale_key
         v = plan.video
@@ -428,8 +444,9 @@ class Job:
                 raise RuntimeError("Insufficient disk space for the export (need roughly "
                                    f"{estimate_bytes(self.plan) // 1_000_000} MB free).")
             tmp_out = self.out_path + ".part" + Path(self.out_path).suffix
-            if self.plan.ai_keyers() or self.plan.face_ops() or self.plan.upscale_ops():
+            if self.plan.ai_keyers() or self.plan.face_ops() or self.plan.upscale_ops() or self.plan.restore_ops():
                 from .ml.matting import Cancelled
+                from .ml.restore import Cancelled as RestoreCancelled
                 from .ml.face import Cancelled as FaceCancelled
                 from .ml.upscale import Cancelled as UpCancelled
                 self._p0, self._pw = 0.0, 0.75
@@ -443,7 +460,7 @@ class Job:
                     ensure_references(self.plan, self.source, self.work_dir)
                     ensure_floor(self.plan, self.source, self.work_dir); ensure_light_box(self.plan, self.source, self.work_dir); ensure_enhance(self.plan, self.source, self.work_dir)
                     ensure_mattes(self.plan, self.source, self.work_dir, prog, self._cancel)
-                except (Cancelled, FaceCancelled, UpCancelled):
+                except (Cancelled, FaceCancelled, UpCancelled, RestoreCancelled):
                     self.state = self.current = "cancelled"; return
                 if self.plan.mattes: self._log(f"AI mattes ready: {', '.join(self.plan.mattes)}")
                 if self.plan.upscales:
@@ -453,6 +470,12 @@ class Job:
                         if ref.gpu_fallback:
                             self.fallback_used = True
                             self._log(f"WARNING: GPU failed during AI upscaling of '{uid}', finished on CPU: {ref.gpu_fallback}")
+                for rid, ref in self.plan.restorations.items():
+                    self._log(f"AI face restoration '{rid}': faces restored in {ref.faces_found}/{ref.frames} frames")
+                    if ref.faces_found == 0: self._log(f"WARNING: no face large enough was found for '{rid}' - the operation has no visible effect")
+                    if ref.gpu_fallback:
+                        self.fallback_used = True
+                        self._log(f"WARNING: GPU failed during face restoration of '{rid}', finished on CPU: {ref.gpu_fallback}")
                 for fid, ref in self.plan.face_controls.items():
                     self._log(f"Face analysis '{fid}': face found in {ref.faces_found}/{ref.frames} frames")
                     if ref.faces_found == 0:

@@ -242,3 +242,4 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .mcard.selected{outline:2px solid #3b82f6;outline-offset:1px}
 .autoenhance{border:1px solid #22c55e66;background:#22c55e12;border-radius:10px;padding:10px 12px;margin:12px 0}
 .cinematic{border:1px solid #f59e0b66;background:#f59e0b12;border-radius:10px;padding:10px 12px;margin:12px 0}
+.facerestore{border:1px solid #a855f766;background:#a855f712;border-radius:10px;padding:10px 12px;margin:12px 0}.modelbox{margin:8px 0}

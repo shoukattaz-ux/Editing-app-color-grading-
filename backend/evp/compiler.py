@@ -870,6 +870,14 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         out = g.add([pic, gray3(base)], f"lut2=c0='{e}':c1='{e}':c2='{e}'")
         return g.add([out], cs.rgb_to_yuv())
 
+    def restore_block(src: str, op: Operation, ref) -> str:
+        """face restoration: out = frame + (restored layer - frame) x mask. The mask is 0 away from the faces, so the rest of the picture is untouched."""
+        layer = g.add([cached_stream(ref.path, ref, "start_mode=add:stop_mode=add:color=black")], f"scale={W}:{H}:flags=bilinear,format=gbrp")
+        mask = g.add([cached_stream(ref.mask_path, ref, "start_mode=add:stop_mode=add:color=black")], f"scale={W}:{H}:flags=bilinear,format=gray")
+        rgb = g.add([src], cs.yuv_to_rgb("gbrp"))
+        out = g.add([rgb, layer, gray3(mask)], "maskedmerge")
+        return g.add([out], cs.rgb_to_yuv())
+
     def retouch_block(src: str, op: Operation, ref) -> str:
         """skin retouch: an edge-preserving (bilateral) smoothing of the picture, part of the original fine texture mixed back in, used only
         where the face analysis says 'skin' (eyes, brows, lips, beard, hair excluded) - so nothing else in the frame changes."""
@@ -961,6 +969,10 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             if plan.measuring: continue
             L = resolve_look(p, plan.look_auto.get(op.id))
             cur = amount_block(cur, op, lambda s_: look_block(s_, L, plan.look_curves.get(op.id)))
+        elif t == "face_restoration":
+            ref = plan.restorations.get(op.id)
+            if ref is None: raise RuntimeError(f"face restoration for '{op.id}' was not generated")
+            if float(p["strength"]) > 0: cur = ranged_block(cur, op, lambda src, op=op, ref=ref: restore_block(src, op, ref))
         elif t == "skin_retouch":
             ref = plan.face_controls.get(op.id)
             if ref is None: raise RuntimeError(f"face analysis for '{op.id}' was not generated")

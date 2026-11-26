@@ -332,7 +332,7 @@ function Editor({ api }: { api: Api }) {
           stale={stale} onUpdateProxy={() => { failedAuto.current.delete(bpKey); updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />
-      <aside className="side right"><Properties enhanceNotes={enhanceNotes} floorNotes={floorNotes} hairNotes={hairNotes} cameraNotes={cameraNotes} keyDoctor={(id: string) => api.keyDoctor(bp, id)} importAsset={() => importAssetFile(ctx, "Import the clean plate (a video or picture of the EMPTY green screen)", "any")} plateNotes={plateNotes} bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
+      <aside className="side right"><Properties api={api} enhanceNotes={enhanceNotes} floorNotes={floorNotes} hairNotes={hairNotes} cameraNotes={cameraNotes} keyDoctor={(id: string) => api.keyDoctor(bp, id)} importAsset={() => importAssetFile(ctx, "Import the clean plate (a video or picture of the EMPTY green screen)", "any")} plateNotes={plateNotes} bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}
           onCut={cutHere} onDeleteClip={() => removeClip()} onReapply={() => updateProxy()} /></aside>
 
       <div className="hhandle" style={{ gridColumn: "2 / -1" }} onPointerDown={drag("bottom", -1)} />

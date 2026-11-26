@@ -84,6 +84,26 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check(sr && sr.start === 0 && Math.abs((sr.end ?? 3) - 3) < 0.05, "Skin Retouch is added over the whole clip", JSON.stringify(sr));
     const sf = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
     check(sf === 200, "a live frame with Skin Retouch renders", String(sf));
+    // AI face restoration: from the Effects list; the card shows the model state (stubbed here to test the download flow without 348 MB)
+    let phase = "missing";
+    await page.route("**/api/models/gfpgan", r => r.fulfill({ contentType: "application/json", body: JSON.stringify(phase === "missing" ? { name: "gfpgan", installed: false, downloading: false, done: 0, total: 348632874, size: 348632874, license: "Apache-2.0", error: null }
+      : phase === "downloading" ? { name: "gfpgan", installed: false, downloading: true, done: 174316437, total: 348632874, size: 348632874, license: "Apache-2.0", error: null }
+      : { name: "gfpgan", installed: true, downloading: false, done: 0, total: 348632874, size: 348632874, license: "Apache-2.0", error: null }) }));
+    await page.route("**/api/models/gfpgan/install", r => { phase = "downloading"; r.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "gfpgan", installed: false, downloading: true, done: 1000, total: 348632874, size: 348632874, license: "Apache-2.0", error: null }) }); });
+    await page.click("button[aria-label=Effects]"); await page.click(".side button.item:has-text('AI Face Restoration')");
+    await page.waitForSelector(".facerestore");
+    check(/model needed/.test(await page.locator(".facerestore").innerText()) && await page.locator('.facerestore button:has-text("Download the model (349 MB)")').count() === 1, "the card offers 'Download the model (349 MB)' when it is missing");
+    check(/re-draws/.test(await page.locator(".facerestore").innerText()), "the card says honestly that the AI re-draws detail");
+    await page.click('.facerestore button:has-text("Download the model")');
+    await page.waitForSelector(".facerestore .gpubar"); check(/Downloading the model: 174 MB of 349 MB/.test(await page.locator(".facerestore").innerText()), "a download shows its progress");
+    phase = "ready"; await page.waitForFunction(() => /model ready/.test(document.querySelector(".facerestore")?.textContent ?? ""), null, { timeout: 15000 });
+    check(await page.locator(".facerestore .gpubar").count() === 0, "once installed the download box is gone");
+    let fr = null;
+    for (let i = 0; i < 40 && !fr; i++) { await page.waitForTimeout(250); fr = (await bpNow()).operations.find(o => o.type === "face_restoration"); }
+    check(fr && fr.start === 0 && Math.abs((fr.end ?? 3) - 3) < 0.05, "AI Face Restoration is added over the whole clip", JSON.stringify(fr));
+    await page.unroute("**/api/models/gfpgan");
+    const ff = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
+    check(ff === 200, "a live frame with AI Face Restoration renders (no face in this clip: unchanged)", String(ff));
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall auto-enhance checks passed");

@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { Blueprint, Op, OpSpec, ParamSpec, Schema } from "./model";
 import * as m from "./model";
-import type { CameraNote, EnhanceNote, Issue, VideoInfo } from "./api";
+import type { Api, CameraNote, EnhanceNote, Issue, ModelStatus, VideoInfo } from "./api";
 import { Btn, Empty, Icon, resolutionOptions } from "./ui";
 import { KeyframeGraph } from "./Keyframes";
 import { ColorWheels } from "./ColorWheels";
@@ -357,6 +357,35 @@ function Cinematic({ op, edit, video }: { op: Op; edit: Edit; video: VideoInfo |
     </section>);
 }
 
+/** AI face restoration: the model (348 MB) is downloaded on request, with progress; honest guidance on what it does */
+function FaceRestoration({ op, edit, api }: { op: Op; edit: Edit; api?: Api }) {
+  const [st, setSt] = useState<ModelStatus | null>(null);
+  const [err, setErr] = useState("");
+  const pr = op.parameters ?? {};
+  const identity = typeof pr.identity === "number" ? pr.identity : 0.5;
+  useEffect(() => {
+    if (!api) return; let alive = true, timer: ReturnType<typeof setTimeout>;
+    const tick = async () => { try { const r = await api.modelStatus("gfpgan"); if (alive) { setSt(r); if (r.downloading) timer = setTimeout(tick, 700); } } catch { /* engine busy */ } };
+    tick(); return () => { alive = false; clearTimeout(timer); };
+  }, [api, st?.downloading]);
+  const start = async () => { if (!api) return; setErr(""); try { setSt(await api.installModel("gfpgan")); } catch (e: any) { setErr(e.message ?? String(e)); } };
+  const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
+  return (
+    <section className="facerestore">
+      <div className="master-head"><h4>AI face restoration</h4><span className="muted small">{st?.installed ? "model ready" : "model needed"}</span></div>
+      <p className="muted small">Rebuilds sharp eyes, eyebrows, hair strands, beard and skin detail of small, soft or noisy faces, like the "enhance" in phone apps. Only faces are changed; the rest of the picture stays exactly as it is.</p>
+      {st && !st.installed && <div className="modelbox">
+        {st.downloading ? <><div className="gpubar" aria-hidden><span style={{ width: `${Math.min(100, (100 * st.done) / Math.max(1, st.total))}%` }} /></div>
+          <p className="muted small">Downloading the model: {mb(st.done)} of {mb(st.total)}…</p></>
+          : <><Btn icon="export" kind="primary" label={`Download the model (${mb(st.size)})`} onClick={start} title={`GFPGAN v1.4, ${st.license}. Downloaded once from GitHub and converted on this computer.`} />
+            <p className="muted small">Needed once ({st.license}). Until then this effect cannot show a picture.</p></>}
+        {(st.error || err) && <div className="issue error">{st.error || err}</div>}
+      </div>}
+      <p className="muted small"><b>Honest limits:</b> the AI <b>re-draws</b> detail, so the result is plausible rather than exact. {identity < 0.35 ? <>At this <b>Identity</b> value the AI's face is used as it is: it can lighten skin and slightly change eyes. Raise Identity to keep your own colours and face shape.</> : <>Identity keeps your own colours and face shape and takes only the fine detail.</>} Small, blurry faces get a made-up face: that is why faces narrower than <b>Smallest face</b> are skipped.</p>
+      <p className="muted small">Speed: about 1.3 s per face per frame on a 4-core processor (the live frame is one frame; a whole clip takes a while), much faster on a graphics card. The result is cached.</p>
+    </section>);
+}
+
 /** Camera match: make the subject look as if the same camera shot it and the background */
 function CameraMatch({ op, edit, note }: { op: Op; edit: Edit; note?: CameraNote }) {
   const v = (op.parameters?.camera_match as number | undefined) ?? 0;
@@ -459,11 +488,12 @@ function MasterAmount({ op, spec, edit }: { op: Op; spec: ParamSpec; edit: Edit 
     </section>);
 }
 
-export function Properties({ enhanceNotes, bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes, floorNotes }: {
+export function Properties({ api, enhanceNotes, bp, schema, video, layout, sel, selClip, edit, t, setT, issues, onReapply, onSelect, onSelectClip, onCut, onDeleteClip, importAsset, plateNotes, keyDoctor, cameraNotes, hairNotes, floorNotes }: {
   floorNotes?: Record<string, { y: number; cut: boolean }>;
   hairNotes?: Record<string, { used: number; skipped: number }>;
   cameraNotes?: Record<string, CameraNote>;
   enhanceNotes?: Record<string, EnhanceNote>;
+  api?: Api;
   keyDoctor?: (opId: string) => Promise<any>;
   importAsset?: () => Promise<string | null>; plateNotes?: Record<string, { used: number; rejected: number }>;
   bp: Blueprint; schema: Schema; video: VideoInfo | null; layout: m.Layout; sel: string | null; selClip: string | null; edit: Edit; t: number; setT: (t: number) => void; issues: Issue[];
@@ -501,6 +531,7 @@ export function Properties({ enhanceNotes, bp, schema, video, layout, sel, selCl
       </section>
       {op.type === "color_grading" && <AutoEnhance op={op} edit={edit} note={enhanceNotes?.[op.id]} />}
       {op.type === "color_grading" && <Cinematic op={op} edit={edit} video={video} />}
+      {op.type === "face_restoration" && <FaceRestoration op={op} edit={edit} api={api} />}
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
       {op.type === "studio_look" && <ColourLights op={op} edit={edit} />}
