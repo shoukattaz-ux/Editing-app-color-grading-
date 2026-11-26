@@ -55,13 +55,20 @@ def corrections(m: dict, style: str = "crisp") -> dict:
     c["highlights"] = round(-float(np.clip(m["clip"] * 4.0, 0, 0.45)), 3)
     # exposure: dim footage is brightened toward a bright, daylight middle; only really over-exposed footage is darkened
     target = {"natural": 0.6, "crisp": 0.66, "vivid": 0.65}[style]
-    if m["p50"] < target: ev = math.log2(target / max(m["p50"], 0.02))
-    elif m["p50"] > 0.74: ev = math.log2(0.7 / m["p50"])
-    else: ev = 0.0
+    if m["p50"] < target: ev_mid = math.log2(target / max(m["p50"], 0.02))
+    elif m["p50"] > 0.74: ev_mid = math.log2(0.7 / m["p50"])
+    else: ev_mid = 0.0
+    # ... but exposure lifts the bright parts too: a backlit shot with dark clothes has a low middle yet a face / sky already near white.
+    # Brighten only as far as the bright end can take it; the rest comes from lifting the shadows, which never blows anything out.
+    veil = m["p1"] > 0.05                                                       # flare / milky veil: even the darkest parts are not dark
+    head = math.log2((0.93 if veil else 1.0) / max(m["p95"], 0.05)) + (0.0 if veil else 0.15)   # clean blacks: whites may go to white (a white shirt should)
+    ev = min(ev_mid, max(0.0, head)) if ev_mid > 0 else ev_mid
+    c["shadows"] = round(float(np.clip((ev_mid - ev) * 0.45, 0, 0.45)), 3) if (ev_mid > 0 and not veil) else 0.0     # a veiled shot's darks are already too light
     c["exposure"] = round(float(np.clip(ev, -0.6, 0.6)), 3)
     # whites: what should be white (shirt, wall, sky) is lifted toward clean white
     sure = 1.0 if m.get("neutral_share", 0.0) >= 0.02 else 0.5                  # few white / grey things to judge by: be careful (no blown highlights)
-    c["whites"] = round(float(np.clip((0.93 - m.get("white", m["p99"])) * 2.2, 0, 0.45)) * sure, 3)
+    white_after = m.get("white", m["p99"]) * 2 ** c["exposure"]                # how white the whites are AFTER the exposure change
+    c["whites"] = round(float(np.clip((0.93 - white_after) * 2.2, 0, 0.45)) * sure, 3)
     # contrast for a flat shot
     spread = m["p95"] - m["p5"]
     c["contrast"] = round(1.0 + float(np.clip((0.78 - spread) * 0.45, 0, 0.22)) + {"natural": 0.0, "crisp": 0.04, "vivid": 0.06}[style], 4)
@@ -89,7 +96,7 @@ def apply(params: dict, measured: dict | None) -> dict:
     if k <= 0 or not measured: return params
     c = corrections(measured, params.get("enhance_style") or "crisp")
     out = dict(params)
-    lim = {"exposure": (-3, 3), "contrast": (0, 3), "highlights": (-1, 1), "whites": (-1, 1), "blacks": (-1, 1), "temperature": (-100, 100),
+    lim = {"shadows": (-1, 1), "exposure": (-3, 3), "contrast": (0, 3), "highlights": (-1, 1), "whites": (-1, 1), "blacks": (-1, 1), "temperature": (-100, 100),
            "tint": (-100, 100), "saturation": (0, 3), "vibrance": (-2, 2), "texture": (-1, 1), "clarity": (-1, 1), "dehaze": (-1, 1)}
     for key, v in c.items():
         base = float(out.get(key) if out.get(key) is not None else (1.0 if key in MULT else 0.0))

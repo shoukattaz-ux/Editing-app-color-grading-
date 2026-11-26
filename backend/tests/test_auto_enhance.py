@@ -75,3 +75,19 @@ def test_validation(prep):
     from conftest import bp
     ok = lambda **kw: prep(bp(ops=[{"id": "g", "type": "color_grading", "start": 0, "parameters": kw}])).report.ok
     assert ok(auto_enhance=0.8, enhance_style="vivid") and not ok(auto_enhance=2) and not ok(enhance_style="magic")
+
+
+def test_a_backlit_shot_with_dark_clothes_is_not_blown_out(tmp_path):
+    """a low middle (dark clothes) but a face / sky already near white, with a flare veil: brightening must not burn the bright parts"""
+    src = tmp_path / "backlit.mp4"
+    # top 40 %: bright hazy background; middle: a bright face; bottom half: dark purple clothes; plus a veil over everything
+    g = ("color=c=0xe8e4dc:s=640x480:d=2:r=25[bg];color=c=0x2a1f4a:s=640x260:d=2:r=25[cl];color=c=0xd8b49a:s=200x160:d=2:r=25[fc];"
+         "[bg][cl]overlay=0:220[a];[a][fc]overlay=220:90,lutrgb=r='val*0.85+30':g='val*0.85+30':b='val*0.85+30',format=yuv420p")
+    subprocess.run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", g, "-t", "2", str(src)], check=True)
+    before, _ = frame(tmp_path, src)
+    after, plan = frame(tmp_path, src, {"auto_enhance": 1.0, "enhance_style": "crisp"})
+    clipped = lambda x: (x.mean(2) >= 250).mean()                                     # burnt = the brightness itself at white
+    assert clipped(after) < clipped(before) + 0.02                                     # nothing new burnt to white
+    face = lambda x: x[100:240, 230:410].mean()
+    assert face(after) < 245                                                           # the bright face keeps its detail
+    assert np.percentile(after.mean(2), 2) < np.percentile(before.mean(2), 2) - 10    # and the veil is lifted off the darks

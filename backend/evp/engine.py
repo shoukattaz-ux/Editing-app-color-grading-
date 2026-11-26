@@ -138,7 +138,7 @@ def ensure_enhance(plan: Plan, source: str, cache_dir: str) -> None:
         part = part if rep is not None else "both"
         others = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o is not op]
         mtimes = [Path(a.resolved).stat().st_mtime_ns for a in plan.blueprint.assets.values() if a.resolved and Path(a.resolved).is_file()]
-        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, op.start_frame, op.end_frame, plan.edl, w, part, keyed and others, keyed and mtimes, "enh7"], default=str).encode()).hexdigest()[:24]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, op.start_frame, op.end_frame, plan.edl, w, part, keyed and others, keyed and mtimes, "enh12"], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "look" / f"enhance_{key}.json"
         if f.is_file():
             plan.enhance[op.id] = _json.loads(f.read_text(encoding="utf-8")); continue
