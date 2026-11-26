@@ -16,7 +16,7 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
 
 (async () => {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "evp-e2e-ux-")), shot = path.join(work, "gs.mp4");
-  execFileSync(process.env.EVP_PYTHON || "python3", ["-c", `import sys; sys.path.insert(0, ${JSON.stringify(BACKEND)}); from evp.samples import make_greenscreen; make_greenscreen(${JSON.stringify(shot)}, 2, size="640x360")`]);
+  execFileSync(process.env.EVP_PYTHON || "python3", ["-c", `import sys; sys.path.insert(0, ${JSON.stringify(BACKEND)}); from evp.samples import make_greenscreen; make_greenscreen(${JSON.stringify(shot)}, 12, size="1280x720")`]);
   process.env.EVP_PROJECTS_DIR = path.join(work, "proj");
   const be = await startBackend(path.join(work, "data")), web = await serveDist(), browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
@@ -59,6 +59,17 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check(await page.locator("video.media").count() === 1 && renders === r0, "changing it back makes the applied video valid again, with no new render", `${renders - r0} render(s)`);
     await page.click(".tl-bar button[aria-label=Undo]"); await page.waitForTimeout(500); await page.click(".tl-bar button[aria-label=Redo]"); await page.waitForTimeout(800);
     check(await page.locator("video.media").count() === 1, "undo + redo keeps it playable");
+    // a change while the whole video renders stops that (now outdated) render at once; the live frame keeps working
+    await page.click("button[aria-label=Effects]"); await page.click(".side button.item:has-text('Background Removal')"); await page.waitForTimeout(800);
+    await page.click(".timeline .clip.op:has-text('Color Grading')"); await page.waitForSelector(".master input[type=range]");
+    let cancels = 0; page.on("request", r => { if (r.method() === "POST" && /\/api\/job\/.+\/cancel|\/api\/jobs?\/.*cancel/.test(r.url())) cancels++; });
+    await page.click("header >> text=Apply to full video");
+    await page.waitForFunction(() => /Preview: running/.test(document.querySelector("footer.status")?.textContent ?? ""), null, { timeout: 15000 });
+    await setMaster("30"); await page.waitForTimeout(1500);
+    const st = await page.locator("footer.status").innerText();
+    check(/cancel/i.test(st) && await page.locator("text=Stopped the full-video render").count() === 1, "changing a setting stops the running full-video render (it was for the old settings)", st.replace(/\n/g, " "));
+    check(await page.locator(".preview img.media").count() === 1, "the live frame is shown for the new setting");
+    check(!/ON/.test(await page.locator(".autobtn").innerText()), "Auto-apply is off by default and says so", await page.locator(".autobtn").innerText());
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall usability checks passed");

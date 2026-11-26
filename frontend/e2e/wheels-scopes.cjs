@@ -111,8 +111,11 @@ const pngChunks = (buf) => { const n = []; let i = 8; while (i + 8 <= buf.length
     check(await page.locator("[role=menuitem]").count() === 3, "Import opens a menu: video, background, LUT");
     await page.click("[role=menuitem]:has-text('Background image')");
     await page.fill('input[placeholder="Full path"]', pic); await page.keyboard.press("Enter");
-    await page.waitForTimeout(1500);
-    const bpNow = (await (await fetch(`${base}/api/project`, { headers: H })).json()).blueprint;
+    let bpNow = null;
+    for (let i = 0; i < 40; i++) {                 // the import + auto-save reach the engine within a moment (slower on a busy machine)
+      await page.waitForTimeout(250); bpNow = (await (await fetch(`${base}/api/project`, { headers: H })).json()).blueprint;
+      if (bpNow.assets.some(a => a.id === "studio_picture") && bpNow.operations.some(o => o.type === "background_replacement")) break;
+    }
     check(bpNow.assets.some(a => a.id === "studio_picture" && a.type === "image") && fs.readdirSync(path.join(work, "proj")).length > 0, "the picture was imported into the project as an asset (file name with a space is fine)");
     check(bpNow.operations.some(o => o.type === "background_replacement" && o.parameters.asset_id === "studio_picture"), "and it is applied as the background immediately");
     check(errs.length === 0, "no console or page errors", errs.join(" | "));

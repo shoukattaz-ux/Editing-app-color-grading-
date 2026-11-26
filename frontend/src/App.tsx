@@ -174,10 +174,12 @@ function Editor({ api }: { api: Api }) {
     }
     onDone(cur);
   }, [api]);
+  const proxyJob = useRef<{ id: string; key: string } | null>(null);           // the running full-video render and the edit it is for
   const updateProxy = useCallback(async (target: Blueprint = bp, quiet = false): Promise<boolean> => {
     const key = JSON.stringify(target);
     try {
       const r = await api.render(target, "proxy");
+      if (r.job) proxyJob.current = { id: r.job.id, key };
       if (r.cached) { setProxy({ key, path: r.output }); if (!quiet) setMode("edited"); return true; }
       let ok = false;
       await pollJob(r.job!, j => { if (j.state === "done") { ok = true; setProxy({ key, path: r.output }); if (!quiet) { setMode("edited"); toast("Preview ready"); } } else if (j.state === "failed") toast("Preview failed: " + j.error, "err"); });
@@ -187,10 +189,16 @@ function Editor({ api }: { api: Api }) {
 
   // The picture in the preview follows every slider live: only the CURRENT frame is rendered (the same engine as the export). The preview VIDEO
   // (for playback) is rendered only when you press "Apply to full video" (or switch Auto on), so editing never re-processes the whole clip.
-  const [autoPreview, setAutoPreviewRaw] = useState(() => { try { return localStorage.getItem("evp.autoApply") === "1"; } catch { return false; } });        // off by default: while you edit, only the current frame is rendered
-  const setAutoPreview = (v: boolean) => { setAutoPreviewRaw(v); try { localStorage.setItem("evp.autoApply", v ? "1" : "0"); } catch { /* ignore */ } };
+  const [autoPreview, setAutoPreviewRaw] = useState(() => { try { return localStorage.getItem("evp.autoApply2") === "1"; } catch { return false; } });        // off by default: while you edit, only the current frame is rendered
+  const setAutoPreview = (v: boolean) => { setAutoPreviewRaw(v); try { localStorage.setItem("evp.autoApply2", v ? "1" : "0"); } catch { /* ignore */ } };
   const bpKey = useMemo(() => JSON.stringify(bp), [bp]);
-  const failedAuto = useRef<Set<string>>(new Set());                     // edits whose automatic render FAILED: not retried in a loop (the button always retries)
+  const failedAuto = useRef<Set<string>>(new Set());
+  useEffect(() => {          // you changed something while the whole video renders: that render is for the OLD settings, so stop it (it only slows the live frame)
+    const pj = proxyJob.current;
+    if (!pj || pj.key === bpKey || !job || job.id !== pj.id || !ACTIVE.includes(job.state)) return;
+    proxyJob.current = null;
+    api.jobAction(pj.id, "cancel").then(j => { setJob(j); toast("Stopped the full-video render: you changed something. Press Apply to full video when you are happy."); }).catch(() => {});
+  }, [bpKey]);                     // edits whose automatic render FAILED: not retried in a loop (the button always retries)
   useEffect(() => {
     if (!project || !project.video || !autoPreview || mode !== "edited") return;
     if (proxy && proxy.key === bpKey) return;                              // already up to date (same content, whatever object)
@@ -201,7 +209,7 @@ function Editor({ api }: { api: Api }) {
     return () => clearTimeout(h);
   }, [bpKey, proxy, report, mode, autoPreview, job?.state, project?.path, tl.duration]);
   useEffect(() => {          // reopened on the edited preview: show it again (cached previews come back instantly)
-    if (project && restoreView.current) { restoreView.current = false; updateProxy(project.blueprint); }
+    if (project && restoreView.current) { restoreView.current = false; setMode("edited"); }       // back on the live frame; no render starts by itself (Apply is instant if this video was rendered before)
   }, [project?.path, project?.version]);
   const executeBlueprint = useCallback(async (nb: Blueprint, o: ExecOptions = { how: "add", applyOutput: false, clip: null }) => {
     nb = applyStrength(nb, schema, o.strength ?? 1);               // "Strength" slider of the Blueprint tab: the master Amount of every pasted effect

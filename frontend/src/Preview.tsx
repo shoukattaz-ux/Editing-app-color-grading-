@@ -141,7 +141,7 @@ export function Preview({ api, bp, video, layout, t, setT, mode, setMode, proxyU
         {qcOn && <select className="loupe-sel" value={qcZoom} onChange={e => setQcZoom(+e.target.value)} aria-label="Key view zoom" title="Zoom in on the edge: the normal picture is shown beside the key view">
           <option value={0}>Fit</option><option value={1}>1:1</option><option value={2}>200%</option><option value={4}>400%</option></select>}
         <button className={"autobtn" + (auto ? " on" : "")} onClick={() => setAuto(!auto)} aria-pressed={auto}
-          title="Auto-apply (off by default): re-render the whole preview video by itself shortly after you stop editing (videos up to 90 s). With it off, editing renders only the current frame and you press Apply to full video when you are happy.">Auto-apply</button>
+          title={auto ? "Auto-apply is ON: after every change the WHOLE video is rendered again by itself (slow for long or heavy clips). Click to switch it off." : "Auto-apply is off (recommended): editing renders only the current frame; press Apply to full video when you are happy. Click to switch auto-apply on."}>{auto ? "Auto-apply: ON" : "Auto-apply: off"}</button>
         <span className="badge">{badge}</span>
         <Btn icon="full" title="Full screen" onClick={() => wrap.current?.requestFullscreen?.()} />
       </div>
