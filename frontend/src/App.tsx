@@ -42,7 +42,7 @@ function Editor({ api }: { api: Api }) {
   const [zoom, setZoom] = useState(60);
   const [report, setReport] = useState<Validation | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [proxy, setProxy] = useState<{ bp: Blueprint; path: string } | null>(null);
+  const [proxy, setProxy] = useState<{ key: string; path: string } | null>(null);      // key = the CONTENT of the edit it was rendered from (undo/redo makes new objects with the same content)
   const [job, setJob] = useState<JobState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -166,31 +166,40 @@ function Editor({ api }: { api: Api }) {
   const pollJob = useCallback(async (j: JobState, onDone: (j: JobState) => void) => {
     setJob(j);
     let cur = j;
-    while (ACTIVE.includes(cur.state)) { await new Promise(r => setTimeout(r, 300)); try { cur = await api.job(cur.id); setJob(cur); } catch { break; } }
+    let misses = 0;
+    while (ACTIVE.includes(cur.state)) {
+      await new Promise(r => setTimeout(r, misses ? Math.min(3000, 300 * 2 ** misses) : 300));
+      try { cur = await api.job(cur.id); setJob(cur); misses = 0; }
+      catch { if (++misses > 12) { cur = { ...cur, state: "failed", error: "lost contact with the engine while rendering" } as JobState; break; } }   // a busy engine is not a failure: keep asking
+    }
     onDone(cur);
   }, [api]);
-  const updateProxy = useCallback(async (target: Blueprint = bp, quiet = false) => {
+  const updateProxy = useCallback(async (target: Blueprint = bp, quiet = false): Promise<boolean> => {
+    const key = JSON.stringify(target);
     try {
       const r = await api.render(target, "proxy");
-      if (r.cached) { setProxy({ bp: target, path: r.output }); if (!quiet) setMode("edited"); return; }
-      await pollJob(r.job!, j => { if (j.state === "done") { setProxy({ bp: target, path: r.output }); if (!quiet) { setMode("edited"); toast("Preview ready"); } } else if (j.state === "failed") toast("Preview failed: " + j.error, "err"); });
-    } catch (e: any) { toast(e.message, "err"); }
+      if (r.cached) { setProxy({ key, path: r.output }); if (!quiet) setMode("edited"); return true; }
+      let ok = false;
+      await pollJob(r.job!, j => { if (j.state === "done") { ok = true; setProxy({ key, path: r.output }); if (!quiet) { setMode("edited"); toast("Preview ready"); } } else if (j.state === "failed") toast("Preview failed: " + j.error, "err"); });
+      return ok;
+    } catch (e: any) { toast(e.message, "err"); return false; }
   }, [api, bp, pollJob, toast]);
 
   // The picture in the preview follows every slider live: only the CURRENT frame is rendered (the same engine as the export). The preview VIDEO
   // (for playback) is rendered only when you press "Apply to full video" (or switch Auto on), so editing never re-processes the whole clip.
   const [autoPreview, setAutoPreviewRaw] = useState(() => { try { return localStorage.getItem("evp.autoApply") === "1"; } catch { return false; } });        // off by default: while you edit, only the current frame is rendered
   const setAutoPreview = (v: boolean) => { setAutoPreviewRaw(v); try { localStorage.setItem("evp.autoApply", v ? "1" : "0"); } catch { /* ignore */ } };
-  const lastAuto = useRef<Blueprint | null>(null);
+  const bpKey = useMemo(() => JSON.stringify(bp), [bp]);
+  const failedAuto = useRef<Set<string>>(new Set());                     // edits whose automatic render FAILED: not retried in a loop (the button always retries)
   useEffect(() => {
     if (!project || !project.video || !autoPreview || mode !== "edited") return;
-    if (proxy && proxy.bp === bp) return;                                  // already up to date
+    if (proxy && proxy.key === bpKey) return;                              // already up to date (same content, whatever object)
     if (!report?.ok || tl.duration > 90) return;                           // invalid edits: nothing to render; very long videos: use the button
     if (job && job.kind === "proxy" && ACTIVE.includes(job.state)) return; // one at a time; re-checked when it finishes
-    if (lastAuto.current === bp) return;                                   // never retry the same failed edit in a loop
-    const h = setTimeout(() => { lastAuto.current = bp; updateProxy(bp, true); }, 1200);
+    if (failedAuto.current.has(bpKey)) return;
+    const h = setTimeout(async () => { const k = bpKey; if (!(await updateProxy(bp, true))) failedAuto.current.add(k); }, 1200);
     return () => clearTimeout(h);
-  }, [bp, proxy, report, mode, autoPreview, job?.state, project?.path, tl.duration]);
+  }, [bpKey, proxy, report, mode, autoPreview, job?.state, project?.path, tl.duration]);
   useEffect(() => {          // reopened on the edited preview: show it again (cached previews come back instantly)
     if (project && restoreView.current) { restoreView.current = false; updateProxy(project.blueprint); }
   }, [project?.path, project?.version]);
@@ -246,7 +255,7 @@ function Editor({ api }: { api: Api }) {
   if (!project) return <><Welcome api={api} onOpen={load} toast={toast} askPath={askPath} /><Toasts toasts={toasts} onClose={id => setToasts(ts => ts.filter(x => x.id !== id))} /><PathDialog dlg={pathDlg} close={() => setPathDlg(null)} /></>;
 
   const video = project.video;
-  const stale = !proxy || proxy.bp !== bp;
+  const stale = !proxy || proxy.key !== bpKey;
   const issues = [...(report?.errors ?? []), ...(report?.warnings ?? [])];
   const ctx: Ctx = { api, project, bp, schema, video, duration: tl.duration, t, mode, playing, videoRef, edit, setSel, askPath, toast, reload: load, issues, report, executeBlueprint, setReport, selClip, layout: tl };
   // a card from the Media bin dropped on the timeline: backgrounds on the Background track, LUTs on the Effects track, source videos on the Video track
@@ -311,7 +320,7 @@ function Editor({ api }: { api: Api }) {
               onChange: (patch: Record<string, any>) => edit(b => Object.entries(patch).reduce((acc, [k, v]) => m.setParam(acc, o.id, k, v), b), `zone:${o.id}`) }; })()}
           masks={{ ops: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? bp.operations.filter(o => o.type === "matte_mask" && o.enabled !== false) : [], selected: bp.operations.find(o => o.id === sel)?.type === "matte_mask" ? sel : null,
             onChange: (id, patch) => edit(b => Object.entries(patch).reduce((acc, [k, v]) => m.setParam(acc, id, k, v), b), `mask:${id}`), onSelect: setSel }} playing={playing} setPlaying={setPlaying} api={api} bp={bp} video={video} layout={tl} t={t} setT={setT} mode={mode} setMode={setMode} proxyUrl={proxy ? api.mediaUrl(proxy.path) : null}
-          stale={stale} onUpdateProxy={() => { lastAuto.current = null; updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
+          stale={stale} onUpdateProxy={() => { failedAuto.current.delete(bpKey); updateProxy(); }} auto={autoPreview} setAuto={setAutoPreview} proxyBusy={!!job && job.kind === "proxy" && ACTIVE.includes(job.state)} videoRef={videoRef} />
       </main>
       <div className="vhandle" onPointerDown={drag("right", -1)} />
       <aside className="side right"><Properties floorNotes={floorNotes} hairNotes={hairNotes} cameraNotes={cameraNotes} keyDoctor={(id: string) => api.keyDoctor(bp, id)} importAsset={() => importAssetFile(ctx, "Import the clean plate (a video or picture of the EMPTY green screen)", "any")} plateNotes={plateNotes} bp={bp} schema={schema} video={video} layout={tl} sel={sel} selClip={selClip} edit={edit} t={t} setT={setT} issues={issues} onSelect={setSel} onSelectClip={setSelClip}

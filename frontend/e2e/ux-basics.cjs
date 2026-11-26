@@ -46,6 +46,19 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check((await bpNow()).operations.length === n0, "keys do not reach the timeline behind an open dialog");
     await page.keyboard.press("Escape");
     check(!/\b(Db|S)\b$/.test((await page.locator("aside.right").innerText())), "no unit mangling like 'Gain Db DB'");
+    // the applied preview video stays valid when an edit is undone back to the same content (it is compared by content, not by object)
+    let renders = 0; page.on("request", r => { if (r.method() === "POST" && r.url().endsWith("/api/render")) renders++; });
+    await page.click(".timeline .clip.op:has-text('Color Grading')"); await page.waitForSelector(".master input[type=range]");
+    const setMaster = v => page.locator(".master input[type=range]").evaluate((el, v) => { const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; s.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); }, v);
+    await setMaster("60"); await page.waitForTimeout(500);
+    await page.click("header >> text=Apply to full video"); await page.waitForSelector("video.media", { timeout: 60000 });
+    const r0 = renders;
+    await setMaster("80"); await page.waitForTimeout(500);
+    check(await page.locator("video.media").count() === 0, "a real change makes the preview video out of date (live frame shown)");
+    await setMaster("60"); await page.waitForTimeout(800);
+    check(await page.locator("video.media").count() === 1 && renders === r0, "changing it back makes the applied video valid again, with no new render", `${renders - r0} render(s)`);
+    await page.click(".tl-bar button[aria-label=Undo]"); await page.waitForTimeout(500); await page.click(".tl-bar button[aria-label=Redo]"); await page.waitForTimeout(800);
+    check(await page.locator("video.media").count() === 1, "undo + redo keeps it playable");
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall usability checks passed");
