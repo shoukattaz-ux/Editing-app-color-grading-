@@ -10,7 +10,7 @@ from typing import Any, Callable
 from .blueprint import parse_blueprint, Report, VideoInfo
 from .repair import parse_lenient
 from .compiler import compile_plan, RenderOptions, Compiled
-from .media import probe, MediaError
+from .media import probe, MediaError, ffmpeg_bin
 from .planner import build_plan, Plan
 from .security import PathPolicy, safe_output_path, PathError
 
@@ -332,6 +332,10 @@ class Job:
     def cancel(self):
         self._cancel.set()
         with self._lock:
+            for sp in list(getattr(self, "_seg_procs", [])):
+                try:
+                    if sp.poll() is None: sp.terminate()
+                except Exception: pass
             if self._proc and self._proc.poll() is None:
                 if self.state == "paused" and hasattr(signal, "SIGCONT"):
                     os.kill(self._proc.pid, signal.SIGCONT)
@@ -397,7 +401,13 @@ class Job:
                     if ref.faces_found == 0:
                         self._log(f"WARNING: no face detected for '{fid}' - the operation has no visible effect")
                 self._p0, self._pw = 0.75, 0.25
-            ok = self._attempt(tmp_out, self.opts)
+            nseg = self._segment_count(self.opts)
+            ok = self._attempt_segments(tmp_out, self.opts, nseg) if nseg > 1 else False
+            if nseg > 1 and not ok and not self._cancel.is_set():
+                self._log("Parallel render did not complete; rendering in one piece instead.")
+                self.progress = self._p0
+            if not ok and not self._cancel.is_set():
+                ok = self._attempt(tmp_out, self.opts)
             if not ok and not self._cancel.is_set() and "-hwaccel" in (self.compiled.args if self.compiled else []):
                 self._log("Hardware decoding failed; retrying with the processor decoding the source.")
                 self.fallback_used = True
@@ -428,6 +438,115 @@ class Job:
             if self.state == "failed" and Job.failure_hook:
                 try: Job.failure_hook(self)
                 except Exception: pass                                  # reporting must never break a job
+
+    # ---- parallel render: the timeline in time segments, one ffmpeg each (a single ffmpeg keeps only ~2 cores busy), joined without
+    #      re-encoding; the sound is rendered once over the whole range and added, so it has no joins at all.
+    def _segment_count(self, opts: RenderOptions) -> int:
+        env = os.environ.get("EVP_RENDER_SEGMENTS")
+        out, fps = self.plan.blueprint.output, self.plan.blueprint.output.fps
+        if opts.frame_only or opts.audio_only: return 1
+        if self.plan.transparent_key is not None and not opts.scale_width: return 1          # see-through exports (ProRes 4444 / WebM) stay in one piece
+        if out.codec not in ("h264", "h265", "prores"): return 1
+        for o in self.plan.steps:                                                            # effects that look at neighbouring frames
+            if o.type == "video_enhancement" and (o.params.get("stabilize") or o.params.get("denoise", 0) > 0): return 1
+        t0 = opts.t_start or 0.0
+        t1 = opts.t_end if opts.t_end is not None else self.plan.total_frames / fps
+        dur = max(0.0, t1 - t0)
+        if env: return max(1, min(int(env), int(dur // 1) or 1))
+        if dur < 6: return 1
+        n = max(1, (os.cpu_count() or 2) // 2)
+        if opts.encoder not in ("cpu", "libx264", "libx265") and "prores" not in out.codec: n = min(n, 2)     # graphics cards allow few encoder sessions
+        return max(1, min(n, 6, int(dur // 3)))
+
+    def _attempt_segments(self, tmp_out: str, opts: RenderOptions, n: int) -> bool:
+        from dataclasses import replace
+        fps = self.plan.blueprint.output.fps
+        f0 = round((opts.t_start or 0.0) * fps)
+        f1 = round((opts.t_end if opts.t_end is not None else self.plan.total_frames / fps) * fps)
+        f1 = min(f1, self.plan.total_frames)
+        bounds = [f0 + (f1 - f0) * i // n for i in range(n + 1)]
+        ext = Path(tmp_out).suffix
+        parts = [f"{tmp_out}.seg{i}{ext}" for i in range(n)]
+        compiled = []
+        self._seg_procs = []
+        try:
+            for i in range(n):
+                o = replace(opts, t_start=bounds[i] / fps, t_end=bounds[i + 1] / fps, audio=False)
+                compiled.append(compile_plan(self.plan, self.source, parts[i], o, self.work_dir))
+            self.compiled = compiled[0]
+            self._log(f"rendering in {n} parallel segments: " + ", ".join(f"{bounds[i] / fps:.2f}-{bounds[i + 1] / fps:.2f}s" for i in range(n)))
+            self.current = f"encoding in {n} parallel parts: " + (", ".join(o.id for o in self.plan.steps) or "no operations (re-encode)")
+            done = [0.0] * n
+            total = max(1e-3, sum(c.out_duration for c in compiled))
+            errs: list[list[str]] = [[] for _ in range(n)]
+
+            def watch(i: int, pr):
+                for line in pr.stdout:
+                    line = line.strip()
+                    if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
+                        try: done[i] = min(compiled[i].out_duration, int(line.split("=")[1]) / 1_000_000)
+                        except ValueError: continue
+                        self.progress = min(0.97, self._p0 + self._pw * 0.97 * sum(done) / total)
+                        el = time.time() - self.started
+                        if self.progress > 0.03: self.eta = el * (1 - self.progress) / self.progress
+            threads = []
+            with self._lock:
+                if self._cancel.is_set(): return False
+                for i, c in enumerate(compiled):
+                    pr = proc.Popen(c.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
+                    self._seg_procs.append(pr)
+                    threads.append(threading.Thread(target=watch, args=(i, pr), daemon=True))
+                    threading.Thread(target=lambda pr=pr, i=i: errs[i].extend(pr.stderr), daemon=True).start()
+            for t_ in threads: t_.start()
+            codes = [pr.wait() for pr in self._seg_procs]
+            for t_ in threads: t_.join(timeout=2)
+            if self._cancel.is_set(): return False
+            if any(codes):
+                k = next(i for i, c in enumerate(codes) if c)
+                self._log(f"segment {k} failed: " + "".join(errs[k][-5:]).strip()[:600])
+                return False
+            # join the picture without re-encoding, then add the sound (rendered once, uninterrupted)
+            self.current = "joining the parts"
+            lst = tmp_out + ".segs.txt"
+            Path(lst).write_text("".join(f"file '{Path(x).resolve().as_posix()}'\n" for x in parts), encoding="utf-8")
+            joined = f"{tmp_out}.joined{ext}"
+            r = proc.run([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", joined], capture_output=True, text=True)
+            if r.returncode != 0: self._log("joining failed: " + r.stderr[-400:]); return False
+            out = self.plan.blueprint.output
+            mux = [ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-i", joined]
+            sound = None
+            if self.plan.video.has_audio and opts.audio:
+                self.current = "sound"
+                sound = f"{tmp_out}.sound.mka"
+                ac = compile_plan(self.plan, self.source, sound, replace(opts, audio_only=True), self.work_dir)
+                compiled.append(ac)
+                r = proc.run(ac.args, capture_output=True, text=True)
+                if r.returncode != 0: self._log("sound failed: " + r.stderr[-400:]); return False
+                mux += ["-i", sound, "-map", "0:v:0", "-map", "1:a:0"]
+            else:
+                mux += ["-map", "0:v:0"]
+            if sound:
+                prores = out.codec == "prores" and not opts.scale_width
+                mux += ["-c:v", "copy"] + (["-c:a", "pcm_s16le"] if prores else ["-c:a", "aac", "-b:a", out.audio_bitrate])
+            else:
+                mux += ["-c", "copy"]
+            mux += (["-tag:v", "hvc1"] if out.codec == "h265" and not opts.scale_width else []) + (["-movflags", "+faststart"] if ext.lower() in (".mp4", ".mov") else []) + [tmp_out]
+            r = proc.run(mux, capture_output=True, text=True)
+            if r.returncode != 0: self._log("final join failed: " + r.stderr[-400:]); return False
+            for x in [joined, lst] + ([sound] if sound else []): _rm(x)
+            return True
+        except Exception as e:  # noqa
+            self._log(f"parallel render error: {e}")
+            return False
+        finally:
+            for pr in self._seg_procs:
+                try:
+                    if pr.poll() is None: pr.kill()
+                except Exception: pass
+            self._seg_procs = []
+            for c in compiled:
+                for f in c.work_files: _rm(f)
+            for x in parts + [f"{tmp_out}.joined{ext}", tmp_out + ".segs.txt", f"{tmp_out}.sound.mka"]: _rm(x)
 
     def _attempt(self, tmp_out: str, opts: RenderOptions) -> bool:
         self.compiled = compile_plan(self.plan, self.source, tmp_out, opts, self.work_dir)

@@ -172,6 +172,8 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
         keyer2 = ScreenKeyer(p, None) if (pl is not None and 0.0 < ps < 1.0) else None      # partial strength: mix the plate key with the plain key
     else:
         model = _model()
+    if keyer is not None and frames >= PARALLEL_MIN_FRAMES and _workers(frames) > 1:
+        return _screen_parallel(source, op, W, H, fps, start_frame, frames, edl, plate, out, fgr_out, side, ds, progress, cancel, warmup)
     n = 0
     try:
         # a live-preview frame (one frame + warm-up): the decoded frames are remembered, so a slider tweak at the same playhead decodes nothing
@@ -182,9 +184,10 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
             if keyer is not None:
                 warm = first + n < start_frame                      # (n counts frames done so far) a warm-up frame: its matte primes the keyer, its colours are never written
                 a, fg = keyer(rgb, need_fg=not warm)
-                if hair > 0 and not warm:                              # warm-up frames are never written: no AI hair pass for them
+                if hair > 0:
+                    a_ai, fg_ai = model(rgb, ds)                       # warm-up frames too: the network is recurrent and needs its history
+                if hair > 0 and not warm:                              # ... but only real frames are blended and written
                     from .hair import blend_hair
-                    a_ai, fg_ai = model(rgb, ds)
                     a, fg, used = blend_hair(a, fg, a_ai, fg_ai, hair, float(p["hair_width"]), keyer.c if p.get("spill_suppression", True) else None)
                     hair_used += 1 if used else 0; hair_seen += 1
                 if keyer2 is not None:
@@ -224,3 +227,122 @@ def _generate_matte(source: str, op, W: int, H: int, fps: float, start_frame: in
             except Exception: pass
         fsutil.unlink(tmp)
         raise
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# Full-range green-screen keys run on every processor core: the range is split into one piece per core, each piece is keyed with its own keyer
+# (primed on the 6 frames before it - the same warm-up a live preview frame uses, which matches an uninterrupted run to within 0.2 of 255),
+# written to its own lossless part file, and the parts are joined without re-encoding.
+PARALLEL_MIN_FRAMES = 48
+CHUNK_WARMUP = 6
+
+
+def _workers(frames: int) -> int:
+    n = int(os.environ.get("EVP_KEY_THREADS") or 0) or (os.cpu_count() or 1)
+    return max(1, min(n, 16, frames // 24))
+
+
+def _screen_parallel(source, op, W, H, fps, start_frame, frames, edl, plate, out, fgr_out, side, ds, progress, cancel, warmup) -> MatteRef:
+    from concurrent.futures import ThreadPoolExecutor
+    from .screenkey import ScreenKeyer
+    p = op.params
+    pl = None
+    if plate:
+        from .cleanplate import load_plate
+        pl = load_plate(plate, W, H)
+    ps = float(p.get("clean_plate_strength", 1.0))
+    hair = float(p.get("hair_detail", 0.0))
+    base_model = _model() if hair > 0 else None
+    model_lock = threading.Lock()                     # one network, called by one piece at a time (a graphics-card session must not run concurrently)
+    nw = _workers(frames)
+    size = -(-frames // nw)
+    pieces = [(start_frame + i * size, min(size, frames - i * size)) for i in range(nw) if frames - i * size > 0]
+    lock = threading.Lock()
+    done = [0]
+    stats = {"plate": [0, 0], "hair": [0, 0], "screen": None}
+    stop = threading.Event()
+
+    def piece(i: int, a0: int, cnt: int):
+        part = out.with_name(f"{out.stem}.part{i}.mkv"); fpart = fgr_out.with_name(f"{fgr_out.stem}.part{i}.mkv") if fgr_out else None
+        enc = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{W}x{H}", "-r", f"{fps:g}", "-i", "-",
+                          "-c:v", "ffv1", "-pix_fmt", "gray", str(part)], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        fenc = proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", f"{fps:g}", "-i", "-",
+                           "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(fpart)], stdin=subprocess.PIPE, stderr=subprocess.PIPE) if fpart else None
+        keyer = ScreenKeyer(p, pl if ps > 0 else None)
+        keyer2 = ScreenKeyer(p, None) if (pl is not None and 0.0 < ps < 1.0) else None
+        model = None
+        if base_model is not None:
+            import copy
+            model = copy.copy(base_model); model.reset()            # shares the loaded network, keeps its OWN recurrent memory
+        warm_n = warmup if i == 0 else CHUNK_WARMUP
+        first = max(0, a0 - warm_n)
+        n = 0
+        try:
+            for rgb in decode(source, W, H, fps, first, cnt + (a0 - first), edl, flags="lanczos"):
+                if stop.is_set() or (cancel is not None and cancel.is_set()): raise Cancelled()
+                warm = first + n < a0
+                a, fg = keyer(rgb, need_fg=not warm)
+                if hair > 0:
+                    with model_lock: a_ai, fg_ai = model(rgb, ds)      # warm-up frames too: the network is recurrent and needs its history
+                if hair > 0 and not warm:
+                    from .hair import blend_hair
+                    a, fg, used = blend_hair(a, fg, a_ai, fg_ai, hair, float(p["hair_width"]), keyer.c if p.get("spill_suppression", True) else None)
+                    with lock: stats["hair"][0] += 1 if used else 0; stats["hair"][1] += 1
+                if keyer2 is not None:
+                    a2, fg2 = keyer2(rgb, need_fg=not warm)
+                    a = (ps * a + (1.0 - ps) * a2).astype(np.float32)
+                    if fg is not None and fg2 is not None: fg = (ps * fg + (1.0 - ps) * fg2).astype(np.float32)
+                n += 1
+                if warm: continue
+                a = solidify(a, float(p.get("solidity", 0.0)))
+                enc.stdin.write((np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
+                if fenc and fg is not None: fenc.stdin.write((np.clip(fg, 0, 1) * 255.0 + 0.5).astype(np.uint8).tobytes())
+                with lock:
+                    done[0] += 1
+                    if progress: progress(done[0], frames)
+            for e in (enc, fenc):
+                if e is None: continue
+                e.stdin.close()
+                if e.wait() != 0: raise RuntimeError("matte encode failed: " + e.stderr.read().decode(errors="replace")[-300:])
+            if n - (a0 - first) != cnt: raise RuntimeError(f"keying produced {n - (a0 - first)} of {cnt} frames (could not decode the source in this range)")
+            with lock:
+                if keyer.plate is not None: stats["plate"][0] += keyer.plate_frames; stats["plate"][1] += keyer.plate_rejected
+                if stats["screen"] is None or i == 0: stats["screen"] = keyer.screen_name
+            return part, fpart
+        except BaseException:
+            stop.set()
+            for e in (enc, fenc):
+                if e is None: continue
+                try: e.kill()
+                except Exception: pass
+            raise
+
+    parts: list = []
+    try:
+        with ThreadPoolExecutor(len(pieces)) as ex:
+            futs = [ex.submit(piece, i, a0, cnt) for i, (a0, cnt) in enumerate(pieces)]
+            parts = [f.result() for f in futs]
+        _join([pt[0] for pt in parts], out)
+        if fgr_out: _join([pt[1] for pt in parts], fgr_out)
+    finally:
+        for i in range(len(pieces)):
+            fsutil.unlink(out.with_name(f"{out.stem}.part{i}.mkv"))
+            if fgr_out: fsutil.unlink(fgr_out.with_name(f"{fgr_out.stem}.part{i}.mkv"))
+    pinfo = {"used": stats["plate"][0], "rejected": stats["plate"][1]} if pl is not None and ps > 0 else None
+    hinfo = {"used": stats["hair"][0], "skipped": stats["hair"][1] - stats["hair"][0]} if hair > 0 else None
+    scr = stats["screen"] or "green"
+    side.write_text(json.dumps({"screen": scr, **({"plate": pinfo} if pinfo else {}), **({"hair": hinfo} if hinfo else {})}), encoding="utf-8")
+    return MatteRef(str(out), str(fgr_out) if fgr_out else None, start_frame, frames, scr, pinfo, hinfo)
+
+
+def _join(parts: list, dest: Path) -> None:
+    """join part files (same size / codec / settings) into dest without re-encoding; atomic"""
+    lst = dest.with_suffix(".parts.txt")
+    lst.write_text("".join(f"file '{Path(x).as_posix()}'\n" for x in parts), encoding="utf-8")
+    tmp = dest.with_name(dest.stem + ".joining.mkv")
+    try:
+        r = proc.run([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(tmp)], capture_output=True)
+        if r.returncode != 0: raise RuntimeError("joining the key parts failed: " + r.stderr.decode(errors="replace")[-300:])
+        fsutil.replace(tmp, dest)
+    finally:
+        fsutil.unlink(lst); fsutil.unlink(tmp)

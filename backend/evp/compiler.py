@@ -26,6 +26,7 @@ class RenderOptions:
     audio: bool = True
     encoder: str = "cpu"                 # cpu | auto | explicit encoder name
     frame_only: bool = False             # emit one PNG to stdout
+    audio_only: bool = False             # render ONLY the sound of this range (parallel renders: video in segments, sound once, then joined)
     hwdecode: bool | None = None         # decode the source on the graphics card (None = automatic: Windows renders when d3d11va / dxva2 exist; never for single frames)
     view: str | None = None              # key QC view (single frames): alpha | edge | red | white | grey | checker - shows the matte instead of the finished picture
 
@@ -921,7 +922,11 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         cur = g.add([cur, alpha_stream[0]], "alphamerge")
         g.add([cur], cs.finish("yuva444p10le" if out.codec == "prores4444" else "yuva420p"), "vout")
     else:
-        g.add([cur], cs.finish("yuv422p10le" if (out.codec == "prores" and not opts.scale_width) else "yuv420p"), "vout")
+        # a render that starts later in the timeline (a parallel segment) keeps the timeline time for every effect above (animation,
+        # light patterns ...), but the FILE must start at 0 - otherwise the output fills the gap by repeating the first frame
+        restart = "setpts=PTS-STARTPTS," if (seek_f > 0 and not opts.frame_only) else ""
+        g.add([cur], restart + cs.finish("yuv422p10le" if (out.codec == "prores" and not opts.scale_width) else "yuv420p"), "vout")
+    audio_from = len(g.parts)                       # the audio part of the graph starts here (used by audio_only renders)
     if pieces is not None and vid.has_audio and opts.audio and not opts.frame_only:
         # audio follows the same cuts, sample-accurately; a 4 ms fade at every real joint avoids clicks
         FADE = 0.004
@@ -960,6 +965,18 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
     if hw and not opts.frame_only: args += ["-hwaccel", "auto"]                     # decoded frames come back to memory: the filters are unchanged
     args += ["-i", source]
     for grp in inputs: args += grp
+    if opts.audio_only:
+        # the same inputs and the same audio processing as the full render, without any picture work
+        if not (vid.has_audio and opts.audio): raise RuntimeError("audio_only render of a video without sound")
+        tl_dur = plan.total_frames / fps
+        a_dur = max(0.0, min(opts.t_end if opts.t_end is not None else tl_dur, tl_dur) - (opts.t_start or 0.0))
+        if pieces is None:
+            args += ["-map", "0:a:0"] + (["-af", ",".join(audio_filters)] if audio_filters and not opts.t_start else [])
+        else:
+            args += ["-filter_complex", ";".join(g.parts[audio_from:]), "-map", "[aout]"]
+        # uncompressed: the final join encodes it once, exactly as a one-piece render does (an AAC file copied in would lose its start-up delay: +23 ms)
+        args += ["-vn", "-c:a", "pcm_s16le", "-t", f"{a_dur:.4f}", out_path]
+        return Compiled(args, graph, work_files, a_dur)
     args += ["-filter_complex", graph, "-map", "[vout]"]
     if opts.frame_only:
         args += ["-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "pipe:1"]

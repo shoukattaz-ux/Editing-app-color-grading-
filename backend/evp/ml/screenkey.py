@@ -99,9 +99,8 @@ class ScreenKeyer:
         # a measured plate can be trusted in dark parts of the screen where a guessed model cannot: a lower floor there keeps the matte clean in shadows
         a = alpha_from(B, PLATE_FLOOR if (self.plate is not None and Bpl is not None) else 0.1)
         if need_fg:
-            f_clean = self._despill(f, c, p) if p.get("spill_suppression", True) else f      # borrowed colours must not carry spill
             core = cv2.erode((a > 0.995).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(np.float32)      # safely inside the subject: no mixed pixels
-            near, got = self._nearest_solid(f_clean, core, h, w)
+            near, got = self._nearest_solid(f, core, h, w, c if p.get("spill_suppression", True) else None, p)      # (spill removed: borrowed colours must not carry it)
         a = self._clean(a, p)
         # temporal smoothing where nothing moved (large changes pass straight through: no ghosting)
         ts = float(p.get("temporal_smooth", 0.5))
@@ -111,13 +110,21 @@ class ScreenKeyer:
         self.prev_a = a
         if not need_fg:
             return a, None
-        # solve the subject colour back out of the mix and despill it
-        F = np.clip((f - (1.0 - a)[..., None] * B) / np.maximum(a, 0.05)[..., None], 0, 1)
-        # where almost everything is screen the solve divides noise by a tiny alpha: lean on the nearest solid subject colour instead
-        conf = np.clip(a / 0.6, 0.0, 1.0)[..., None]
-        F = np.where(got, F * conf + np.clip(near, 0, 1) * (1 - conf), F)
-        t = np.clip((1.0 - a) * 8.0, 0.0, 1.0)[..., None]
-        fg = np.clip(f * (1 - t) + F * t, 0, 1)
+        # solve the subject colour back out of the mix and despill it - only in the edge band where it matters:
+        #   solid subject (a = 1): the frame itself;   clear screen (a ~ 0, invisible): the nearest subject colour, so nothing green can bleed
+        #   into the edge if the subject is blurred later;   in between: the full solve.  (Same result as solving every pixel.)
+        # (thresholds: at alpha >= 0.996 the solved colour equals the frame to within 1/1000 of a level; at alpha < 0.01 the pixel is invisible)
+        bg_ = (a < 0.01) & got[..., 0]
+        fg = np.where(bg_[..., None], near, f)
+        idx = np.flatnonzero((a < 0.996) & ~bg_)                       # the mixed edge pixels: usually around 1 % of the frame
+        if idx.size:
+            ab = a.ravel()[idx][:, None]; fb = f.reshape(-1, 3)[idx]; Bb = B.reshape(-1, 3)[idx]
+            F = np.clip((fb - (1.0 - ab) * Bb) / np.maximum(ab, 0.05), 0, 1)
+            # where almost everything is screen the solve divides noise by a tiny alpha: lean on the nearest solid subject colour instead
+            conf = np.clip(ab / 0.6, 0.0, 1.0)
+            F = np.where(got.reshape(-1, 1)[idx], F * conf + near.reshape(-1, 3)[idx] * (1 - conf), F)
+            t = np.clip((1.0 - ab) * 8.0, 0.0, 1.0)
+            fg.reshape(-1, 3)[idx] = np.clip(fb * (1 - t) + F * t, 0, 1)
         if p.get("spill_suppression", True):
             fg = self._despill(fg, c, p)
             # thin edge band only: motion-blurred fingers and fabric fringes keep an olive-yellow rim (red about equal to green) that the rule
@@ -155,26 +162,36 @@ class ScreenKeyer:
         return B_pl.astype(np.float32)
 
     @staticmethod
-    def _nearest_solid(f_clean: np.ndarray, solid: np.ndarray, h: int, w: int):
-        """colour of the nearest solid subject pixels (blurred, widening until every pixel has one) and where such a colour exists"""
+    def _nearest_solid(f_src: np.ndarray, solid: np.ndarray, h: int, w: int, c: int | None = None, p: dict | None = None):
+        """colour of the nearest solid subject pixels (blurred, widening until every pixel has one) and where such a colour exists.
+        The colour field is smooth, so it is built entirely on shrunken copies (each level blurred at its own size, combined at the finest
+        small size) and scaled up ONCE - the full-size version spent most of the keyer's time on whole-frame array work.
+        f_src is the frame; when c is given the screen colour is removed from it first (borrowed colours must not carry spill)."""
         sig = max(3.0, min(h, w) / 120)
-        near = np.zeros_like(f_clean); got = np.zeros((h, w, 1), bool)
-
-        def blur(img: np.ndarray, sg: float) -> np.ndarray:
-            # a wide Gaussian costs time proportional to its width AND the picture size (90 % of the keyer's time at 720p). The colour field it makes
-            # is smooth anyway, so blur a shrunken copy (sigma ~3 px there) and scale back up: same result to within rounding, far faster.
-            d = int(min(32, max(1, sg // 3)))
-            if d == 1: return cv2.GaussianBlur(img, (0, 0), sg)
-            small = cv2.resize(img, (max(1, w // d), max(1, h // d)), interpolation=cv2.INTER_AREA)
-            small = cv2.GaussianBlur(small, (0, 0), sg / d)
-            return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
-
+        d0 = int(min(32, max(1, sig // 3)))
+        w0, h0 = max(1, w // d0), max(1, h // d0)
+        f_small = cv2.resize(f_src, (w0, h0), interpolation=cv2.INTER_AREA)
+        if c is not None: f_small = ScreenKeyer._despill(f_small, c, p or {})
+        s_small = cv2.resize(solid, (w0, h0), interpolation=cv2.INTER_AREA)
+        near = np.zeros_like(f_small); got = np.zeros((h0, w0, 1), bool)
         for sg in (sig, sig * 4, sig * 16):
-            den = blur(solid, sg)[..., None]
-            cand = blur(f_clean * solid[..., None], sg) / np.maximum(den, 1e-4)
+            d = int(min(32, max(1, sg // 3)))
+            k = max(1, d // d0)                                   # this level's extra shrink relative to the finest small size
+            if k == 1:
+                den = cv2.GaussianBlur(s_small, (0, 0), sg / d0)[..., None]
+                num = cv2.GaussianBlur(f_small * s_small[..., None], (0, 0), sg / d0)
+            else:
+                ws, hs = max(1, w0 // k), max(1, h0 // k)
+                ss = cv2.resize(s_small, (ws, hs), interpolation=cv2.INTER_AREA)
+                fs = cv2.resize(f_small * s_small[..., None], (ws, hs), interpolation=cv2.INTER_AREA)
+                den = cv2.resize(cv2.GaussianBlur(ss, (0, 0), sg / (d0 * k)), (w0, h0), interpolation=cv2.INTER_LINEAR)[..., None]
+                num = cv2.resize(cv2.GaussianBlur(fs, (0, 0), sg / (d0 * k)), (w0, h0), interpolation=cv2.INTER_LINEAR)
+            cand = num / np.maximum(den, 1e-4)
             use = (den > 0.02) & ~got
             near = np.where(use, cand, near); got |= den > 0.02
-        return np.clip(near, 0, 1), got
+        near = cv2.resize(np.clip(near, 0, 1).astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+        got = cv2.resize(got[..., 0].astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)[..., None]
+        return near, got
 
     @staticmethod
     def _despill(x: np.ndarray, c: int, p: dict) -> np.ndarray:
