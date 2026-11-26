@@ -208,6 +208,14 @@ Both are built from the subject itself, so they follow every movement (a jump li
 * Limits: it only changes brightness and colour. It cannot turn a white (clipped) sky blue, and it does not redraw detail the way AI photo apps do (they invent hair strands and reshape faces); for extra real detail add AI Resolution Enhancement.
 * In a blueprint: `{"type": "color_grading", "parameters": {"auto_enhance": 1.0, "enhance_style": "crisp", "apply_to": "subject"}}` (`apply_to`: both / subject / background).
 
+## Smart HDR: fix backlit and high-contrast shots
+**Color → Smart HDR** (or Effects → Smart HDR, over the whole clip). A normal exposure change cannot fix a face in shadow next to a bright sky: one gets right, the other wrong. Smart HDR works area by area: dark regions (a face in shadow, dark clothes) are brightened, bright regions (sky, a sunlit wall) are held back, mid-grey regions are left alone, and the detail inside each region and every colour are kept.
+* **Amount** (overall), **Shadows** (how much the darks come up), **Highlights** (how much the brights are held back), **Size** (small = more local, the stronger "HDR" look; large = more natural).
+* No halos: the brightness of each region is found with an edge-aware (bilateral) filter, so a dark person in front of a bright window gets no glowing outline.
+* It evens out the light, so it lowers the overall punch a little: pair it with a gentle Auto enhance (Natural) or some Clarity rather than a strong one.
+* In a blueprint: `{"type": "smart_hdr", "parameters": {"amount": 0.7, "shadows": 0.6, "highlights": 0.5, "size": 0.5}}`.
+* Auto enhance now measures the picture exactly as it reaches it (after Smart HDR, Portrait mode and any other effect before it), not the untouched source.
+
 ## Portrait mode: sharp person, blurred real background
 **Effects → Portrait Mode (background blur)** (added over the whole clip). The person is found by the same AI matting model the background removal uses (no green screen), stays sharp, and the real background behind them is blurred like a portrait lens.
 * **Blur:** how soft the background gets. **Falloff:** background close to the person is a little less blurred than background far away, like a real lens (0 = the same everywhere). **Edge:** softness of the sharp / blurred transition.

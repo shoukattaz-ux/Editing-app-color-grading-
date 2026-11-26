@@ -227,6 +227,19 @@ Timeline track: **effects**
 | `stabilize` | boolean | `False` |  | Single-pass deshake. Modest results; fully-featured stabilisation is not claimed. |
 | `stabilize_strength` | integer | `16` | 1 … 64 | Max shift in px searched by deshake. |
 
+## `smart_hdr` — Smart HDR
+
+Fixes backlit and high-contrast shots area by area: dark regions (a face in shadow, dark clothes) are brightened and bright regions (sky, a sunlit wall) are held back, while fine detail and colour are kept. Edge-aware, so no glowing halos around a person.
+
+Timeline track: **effects**
+
+| parameter | type | default | range / values | description |
+|---|---|---|---|---|
+| `amount` | number | `0.7` | 0.0 … 1.0 | Overall strength (0 = off). |
+| `shadows` | number | `0.6` | 0.0 … 1.0 | How much the dark regions are brightened. |
+| `highlights` | number | `0.5` | 0.0 … 1.0 | How much the bright regions are held back (more sky / wall detail). |
+| `size` | number | `0.5` | 0.0 … 1.0 | Size of the regions that are balanced: small = more local (more 'HDR' look), large = more natural. |
+
 ## `portrait_blur` — Portrait Mode (background blur)
 
 Keeps the person sharp and blurs the REAL background behind them, like a portrait lens - no green screen needed. The person is found by the AI matting model; the background is blurred with the person masked out, so no halo.

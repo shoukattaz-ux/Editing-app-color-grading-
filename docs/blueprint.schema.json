@@ -179,6 +179,7 @@
               "color_grading",
               "studio_look",
               "video_enhancement",
+              "smart_hdr",
               "portrait_blur",
               "text_overlay",
               "audio_gain",
@@ -1470,6 +1471,53 @@
                       "minimum": 1,
                       "maximum": 64,
                       "default": 16
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "smart_hdr"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "description": "Overall strength (0 = off).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.7
+                    },
+                    "shadows": {
+                      "description": "How much the dark regions are brightened.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.6
+                    },
+                    "highlights": {
+                      "description": "How much the bright regions are held back (more sky / wall detail).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
+                    },
+                    "size": {
+                      "description": "Size of the regions that are balanced: small = more local (more 'HDR' look), large = more natural.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.5
                     }
                   },
                   "additionalProperties": false

@@ -125,7 +125,7 @@ function EffectsTab({ ctx }: { ctx: Ctx }) {
     {Object.entries(groups).map(([cat, list]) => (<div key={cat}><h4>{cat}</h4>
       {list.map(([k, s]) => (<button key={k} className="item" disabled={!s.supported || !ctx.video} title={s.supported ? s.description : s.unsupported_reason}
         onClick={() => { if (k === "background_replacement") { addBackground(ctx); return; }
-          const [a0, b0] = span(ctx); const whole = k === "matte_mask" || k === "portrait_blur";   // a mask corrects the key for the whole clip unless you shorten it
+          const [a0, b0] = span(ctx); const whole = k === "matte_mask" || k === "portrait_blur" || k === "smart_hdr";   // a mask corrects the key for the whole clip unless you shorten it
           const [a, b] = whole ? [0, ctx.duration || ctx.video?.duration || b0] : [a0, b0]; let id = ""; ctx.edit(bp => { const r = m.addOp(bp, s, a, b); id = r.id; return r.bp; }); setTimeout(() => ctx.setSel(id), 0); }}>
         <Icon n={s.supported ? "plus" : "x"} size={14} /> {s.title}{!s.supported && <em> · {/separate operation/i.test(s.unsupported_reason ?? "") ? "included in the background key" : "not available"}</em>}</button>))}</div>))}
   </>);
@@ -171,6 +171,9 @@ function ColorTab({ ctx }: { ctx: Ctx }) {
             for (const [k, x] of Object.entries({ auto_enhance: 0.7, enhance_style: "natural", cinematic: 1, cinematic_style: "teal_orange" })) b2 = m.setParam(b2, r.id, k, x);
             return b2; });
           setTimeout(() => ctx.setSel(id), 0); }} />
+      <Btn icon="bolt" label="Smart HDR" disabled={!ctx.video} title="Backlit or high-contrast shot? Brightens the dark parts (a face in shadow) and holds back the bright ones (sky, sunlit wall), area by area, over the whole video."
+        onClick={() => { const d = ctx.duration || ctx.video?.duration || 5; let id = "";
+          ctx.edit(bp => { const r = m.addOp(bp, ctx.schema.operations["smart_hdr"], 0, d); id = r.id; return r.bp; }); setTimeout(() => ctx.setSel(id), 0); }} />
       <Btn icon="plus" label="Blank grade" onClick={() => add()} disabled={!ctx.video} />
     </div>
     <h4>Cinematic presets</h4>

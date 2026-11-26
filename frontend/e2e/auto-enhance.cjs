@@ -70,6 +70,13 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check(pm && pm.start === 0 && Math.abs((pm.end ?? 3) - 3) < 0.05, "Portrait Mode is added over the whole clip", JSON.stringify(pm));
     const pf = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
     check(pf === 200, "a live frame with Portrait Mode renders (AI person detection + background blur)", String(pf));
+    // smart HDR: one click in the Color panel, whole clip, renders
+    await page.click("button[aria-label=Color]"); await page.click(".side >> text=Smart HDR");
+    let hd = null;
+    for (let i = 0; i < 40 && !hd; i++) { await page.waitForTimeout(250); hd = (await bpNow()).operations.find(o => o.type === "smart_hdr"); }
+    check(hd && hd.start === 0 && Math.abs((hd.end ?? 3) - 3) < 0.05, "Smart HDR is added over the whole clip", JSON.stringify(hd));
+    const hf = await page.evaluate(async ([base, token, bp]) => { const r = await fetch(base + "/api/preview/frame", { method: "POST", headers: { "x-evp-token": token, "content-type": "application/json" }, body: JSON.stringify({ blueprint: bp, t: 1, width: 480 }) }); return r.status; }, [base, be.token, await bpNow()]);
+    check(hf === 200, "a live frame with Smart HDR renders", String(hf));
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall auto-enhance checks passed");

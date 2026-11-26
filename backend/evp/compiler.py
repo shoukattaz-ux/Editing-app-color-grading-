@@ -853,6 +853,23 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         a, b, c = splitn(x, 3)
         return g.add([a, b, c], "mergeplanes=0x001020:gbrp")
 
+    def hdr_block(src: str, op: Operation) -> str:
+        """local tone mapping: a gain per pixel from the EDGE-AWARE local brightness (bilateral at quarter size), so a dark region is lifted and
+        a bright one held back as a whole, while the detail inside it (and every colour ratio) is kept. Edge-aware = no halo at a person's outline."""
+        from .hdr import gain_expr
+        p = op.params
+        rgb = g.add([src], cs.yuv_to_rgb("gbrp"))
+        pic, lum_src = splitn(rgb, 2)
+        r_, g_, b_ = (g.add([x], f"extractplanes={c}") for x, c in zip(splitn(lum_src, 3), "rgb"))   # exact plane values (no range conversion)
+        rg = g.add([r_, g_], "lut2=c0='(2*x+5*y)/7'")
+        lum = g.add([rg, b_], "lut2=c0='(7*x+y)/8'")                                                 # ~ luminance
+        w4, h4 = max(8, W // 4), max(8, H // 4)
+        sig_s = (6 + 30 * float(p["size"])) * w4 / 480
+        base = g.add([lum], f"scale={w4}:{h4}:flags=area,bilateral=sigmaS={min(512, sig_s):.2f}:sigmaR=0.12,scale={W}:{H}:flags=bicubic,setsar=1")
+        e = gain_expr(float(p["amount"]), float(p["shadows"]), float(p["highlights"])).replace(",", "\\,")
+        out = g.add([pic, gray3(base)], f"lut2=c0='{e}':c1='{e}':c2='{e}'")
+        return g.add([out], cs.rgb_to_yuv())
+
     def portrait_block(src: str, op: Operation, ref) -> str:
         """sharp person, blurred real background. The background is blurred by normalised convolution: blur(picture x background-mask) /
         blur(background-mask), so the person's colours never smear into the blur (no halo around the head)."""
@@ -915,6 +932,8 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             continue                                                      # applied inside the keyer's matte (make_keyed), not a stage of its own
         elif t == "background_replacement":
             cur = composite(cur, next(o for o in plan.steps if o.id == plan.alpha_source[op.id]), op)
+        elif t == "smart_hdr":
+            if float(p.get("amount", 0)) > 0: cur = ranged_block(cur, op, lambda src, op=op: hdr_block(src, op))
         elif t == "portrait_blur":
             ref = plan.mattes.get(op.id)
             if ref is None: raise RuntimeError(f"person detection for '{op.id}' was not generated")

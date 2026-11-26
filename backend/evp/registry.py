@@ -268,6 +268,13 @@ _reg(OpSpec("video_enhancement", "Video Enhancement", "Enhance", STAGE_RESTORE, 
              "sharpen": Param(N, 0.0, 0.0, 2.0, desc="Unsharp-mask amount."),
              "stabilize": Param(B, False, desc="Single-pass deshake. Modest results; fully-featured stabilisation is not claimed."),
              "stabilize_strength": Param(I, 16, 1, 64, desc="Max shift in px searched by deshake.")}))
+_reg(OpSpec("smart_hdr", "Smart HDR", "Color", STAGE_GRADE - 1, "effects",
+            "Fixes backlit and high-contrast shots area by area: dark regions (a face in shadow, dark clothes) are brightened and bright regions "
+            "(sky, a sunlit wall) are held back, while fine detail and colour are kept. Edge-aware, so no glowing halos around a person.",
+            {"amount": Param(N, 0.7, 0.0, 1.0, desc="Overall strength (0 = off)."),
+             "shadows": Param(N, 0.6, 0.0, 1.0, desc="How much the dark regions are brightened."),
+             "highlights": Param(N, 0.5, 0.0, 1.0, desc="How much the bright regions are held back (more sky / wall detail)."),
+             "size": Param(N, 0.5, 0.0, 1.0, desc="Size of the regions that are balanced: small = more local (more 'HDR' look), large = more natural.")}))
 _reg(OpSpec("portrait_blur", "Portrait Mode (background blur)", "Enhance", STAGE_KEY - 1, "effects",
             "Keeps the person sharp and blurs the REAL background behind them, like a portrait lens - no green screen needed. "
             "The person is found by the AI matting model; the background is blurred with the person masked out, so no halo.",
