@@ -260,7 +260,7 @@ function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
   const addBox = () => {
     if (zones.length >= 6) return;
     const n = zones.length, w = 0.22, x0 = Math.min(0.78, 0.2 + 0.12 * n);
-    setZones([...zones, { x0, y0: 0.2, x1: x0 + w, y1: 0.85, color: BOX_COLOURS[n % BOX_COLOURS.length], side: n % 2 ? "right" : "left", reach: 0.6, intensity: 1, soft: 0.3, follow: false }]);
+    setZones([...zones, { x0, y0: 0.2, x1: x0 + w, y1: 0.85, color: BOX_COLOURS[n % BOX_COLOURS.length], side: n % 2 ? "right" : "left", reach: 0.6, intensity: 1, soft: 0.3, follow: false, scale: false }]);
     setBoxSel(n);
   };
   const cur = Math.min(boxSel, zones.length - 1), zb = zones[cur];
@@ -319,6 +319,8 @@ function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
                 <select value={zb.side} onChange={e => patchZone(cur, { side: e.target.value })} aria-label={`Box ${cur + 1} side`}>{(["left", "right", "top", "bottom"] as const).map(sd => <option key={sd} value={sd}>from the {sd}</option>)}</select></span></label>
             <label className="field cl-follow"><span className="fl"><input type="checkbox" checked={!!zb.follow} onChange={e => patchZone(cur, { follow: e.target.checked })} aria-label={`Box ${cur + 1} follow the subject`} /> Follow the subject</span>
               <span className="muted small">{zb.follow ? "The box travels with the subject. Place it where you want it when the subject is in the middle of the clip; it keeps that position relative to the subject." : "The box stays where you drew it, like a stage light."}</span></label>
+            <label className="field cl-follow"><span className="fl"><input type="checkbox" checked={!!zb.scale} disabled={!zb.follow} onChange={e => patchZone(cur, { scale: e.target.checked })} aria-label={`Box ${cur + 1} grow and shrink with the subject`} /> Grow and shrink with the subject</span>
+              <span className="muted small">{!zb.follow ? "Tick “Follow the subject” first." : zb.scale ? "The box also gets bigger when the subject comes closer and smaller when it moves away, keeping its place on the subject." : "The box moves with the subject but keeps its own size."}</span></label>
             {([["reach", "How far it reaches", 0, 1], ["intensity", "Strength", 0, 1.5], ["soft", "Soft edge of the box", 0, 1]] as const).map(([k, label, lo, hi]) =>
               <label className="field" key={k}><span className="fl">{label} <em>{Math.round((zb[k] ?? 0) * 100)}%</em></span>
                 <input type="range" min={lo} max={hi} step={0.01} value={zb[k] ?? 0} onChange={e => patchZone(cur, { [k]: +e.target.value })} aria-label={`Box ${cur + 1} ${label}`} /></label>)}

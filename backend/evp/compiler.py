@@ -592,9 +592,16 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
         for z in zones:                                                                           # extra boxes: each its own rectangle, colour and side
             zx0, zy0, zx1, zy1 = (float(z[k_]) for k_ in ("x0", "y0", "x1", "y1"))
             if z.get("follow") and tr and ref:                                                    # the box travels with the subject: moved by how far its centre has moved from the middle frame
-                dx = f"(({pw(1)}+{pw(2)})/2-{(ref['x0'] + ref['x1']) / 2:.4f})"
-                dy = f"(({pw(3)}+{pw(4)})/2-{(ref['y0'] + ref['y1']) / 2:.4f})"
-                zb = {"x0": f"({zx0:.4f}+{dx})", "x1": f"({zx1:.4f}+{dx})", "y0": f"({zy0:.4f}+{dy})", "y1": f"({zy1:.4f}+{dy})"}
+                rcx, rcy = (ref["x0"] + ref["x1"]) / 2, (ref["y0"] + ref["y1"]) / 2
+                cx, cy = f"(({pw(1)}+{pw(2)})/2)", f"(({pw(3)}+{pw(4)})/2)"
+                rw, rh = max(0.02, ref["x1"] - ref["x0"]), max(0.02, ref["y1"] - ref["y0"])
+                if z.get("scale"):                                                                # ... and sized with it: the box keeps its place and proportions relative to the subject's outline
+                    sx = f"clip(({pw(2)}-{pw(1)})/{rw:.4f},0.25,4)"
+                    sy = f"clip(({pw(4)}-{pw(3)})/{rh:.4f},0.25,4)"
+                    zb = {"x0": f"({cx}+({zx0 - rcx:.4f})*{sx})", "x1": f"({cx}+({zx1 - rcx:.4f})*{sx})", "y0": f"({cy}+({zy0 - rcy:.4f})*{sy})", "y1": f"({cy}+({zy1 - rcy:.4f})*{sy})"}
+                else:
+                    dx, dy = f"({cx}-{rcx:.4f})", f"({cy}-{rcy:.4f})"
+                    zb = {"x0": f"({zx0:.4f}+{dx})", "x1": f"({zx1:.4f}+{dx})", "y0": f"({zy0:.4f}+{dy})", "y1": f"({zy1:.4f}+{dy})"}
             else:
                 zb = {"x0": num_(zx0), "x1": num_(zx1), "y0": num_(zy0), "y1": num_(zy1)}
             specs.append((z.get("side", "top"), _rgb01(z["color"]), zb, inside_box(zb["x0"], zb["y0"], zb["x1"], zb["y1"], float(z.get("soft", 0.3)), (zx1 - zx0, zy1 - zy0)),

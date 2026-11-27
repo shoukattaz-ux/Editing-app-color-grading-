@@ -52,6 +52,10 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check((await zones())[1].color === "#00ff00", "a box's colour is set on its own");
     await page.check("[aria-label='Box 2 follow the subject']"); await page.waitForTimeout(700);
     check((await zones())[1].follow === true && (await zones())[0].follow === false, "a box can be set to follow the subject, on its own", JSON.stringify((await zones()).map(z => z.follow)));
+    check(await page.locator("[aria-label='Box 2 grow and shrink with the subject']").isEnabled(), "the sizing tick is available once the box follows");
+    await page.check("[aria-label='Box 2 grow and shrink with the subject']"); await page.waitForTimeout(700);
+    check((await zones())[1].scale === true && (await zones())[0].scale === false, "a box can be set to grow and shrink with the subject, on its own");
+    await page.click(".cl-tab >> nth=0"); check(await page.locator("[aria-label='Box 1 grow and shrink with the subject']").isDisabled(), "the sizing tick is off-limits until Follow is ticked"); await page.click(".cl-tab >> nth=1");
     await page.click(".colourlights button:has-text('Boxes only')"); await page.waitForTimeout(2500);
     const sl = (await bpNow()).operations.find(o => o.type === "studio_look").parameters;
      check(sl.colour_light_side_a === "off" && sl.colour_light_side_b === "off", "Boxes only switches Light A and B off");

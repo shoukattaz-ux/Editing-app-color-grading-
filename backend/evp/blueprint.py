@@ -200,9 +200,11 @@ def _coerce(name: str, spec: Param, v: Any) -> Any:
             if side not in ("left", "right", "top", "bottom"): raise ValueError(f"'{name}'[{i}].side must be left, right, top or bottom")
             follow = z.get("follow", False)
             if not isinstance(follow, bool): raise ValueError(f"'{name}'[{i}].follow must be true or false")
+            scale = z.get("scale", False)
+            if not isinstance(scale, bool): raise ValueError(f"'{name}'[{i}].scale must be true or false")
             out.append({"x0": x0, "y0": y0, "x1": x1, "y1": y1, "color": normalize_color(z.get("color", "#19b8ff")), "side": side,
                         "reach": num("reach", 0.5, 0, 1), "intensity": num("intensity", 1.0, 0, 1.5), "soft": num("soft", 0.3, 0, 1),
-                        "follow": follow})
+                        "follow": follow, "scale": scale})
         return out
     if t == "points" and name == "polygon":
         if not isinstance(v, list) or not (3 <= len(v) <= 64): raise ValueError(f"'{name}' needs 3 to 64 points [x, y]")

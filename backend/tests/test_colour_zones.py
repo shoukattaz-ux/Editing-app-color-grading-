@@ -89,3 +89,55 @@ def test_follow_must_be_true_or_false():
         _coerce("colour_zones", SPEC, [{"follow": "yes"}])
     assert _coerce("colour_zones", SPEC, [{"follow": True}])[0]["follow"] is True
     assert _coerce("colour_zones", SPEC, [{}])[0]["follow"] is False
+
+
+# ---------------------------------------------------------------------------------------------------- boxes that also grow and shrink with the subject
+@pytest.fixture(scope="module")
+def growing(tmp_path_factory):
+    """a skin-toned disc on green whose radius grows from 25 to 70 px in 3 s (it stays centred), 320x180, 30 fps"""
+    import subprocess, cv2
+    from evp.media import ffmpeg_bin
+    d = tmp_path_factory.mktemp("grow"); out = d / "grow.mp4"
+    ff = subprocess.Popen([ffmpeg_bin(), "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", "320x180", "-r", "30", "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "12", str(out)], stdin=subprocess.PIPE)
+    for f in range(90):
+        im = np.zeros((180, 320, 3), np.uint8); im[:, :] = (0, 255, 0)
+        cv2.circle(im, (160, 90), int(round(25 + 45 * f / 89)), (122, 160, 210), -1)              # BGR of 0xd2a07a
+        ff.stdin.write(im.tobytes())
+    ff.stdin.close(); ff.wait()
+    return {"video": str(out), "dir": d}
+
+
+def _grow_comp(prep, growing, t, **look):
+    import io
+    from PIL import Image
+    from evp.engine import render_frame
+    ops = [{"id": "k", "type": "background_removal", "start": 0, "parameters": {"mode": "chroma", "spill_suppression": False}},
+           {"id": "r", "type": "background_replacement", "start": 0, "parameters": {"color": "#3a5a80"}, "depends_on": ["k"]},
+           {"id": "l", "type": "studio_look", "start": 0, "depends_on": ["r"], "parameters": {"preset": "none", **look}}]
+    from conftest import bp
+    p = prep(bp(ops=ops), growing["video"])
+    assert p.plan, [e.message for e in p.report.errors]
+    return np.asarray(Image.open(io.BytesIO(render_frame(p.plan, growing["video"], t, None, str(growing["dir"])))).convert("RGB"), dtype=float)
+
+
+def _grow_gain(prep, growing, t, scale):
+    box = dict(colour_light=1.0, colour_light_side_a="off", colour_light_side_b="off", colour_light_edge=0.0,
+               colour_zones=[{"x0": 0.28, "y0": 0.1, "x1": 0.72, "y1": 0.95, "color": "#0000ff", "side": "left", "reach": 0.9, "soft": 0.1, "follow": True, "scale": scale}])
+    base = _grow_comp(prep, growing, t, **dict(box, colour_light=0.0))
+    lit = _grow_comp(prep, growing, t, **box)
+    r = 25 + 45 * (t * 30) / 89; left = int(160 - r)
+    sl = (slice(84, 96), slice(left + 5, left + 15))
+    return float((lit[sl] - base[sl])[..., 2].mean())
+
+
+def test_a_scaling_box_keeps_its_light_on_the_subjects_edge_as_it_grows(prep, growing):
+    with_scale = [_grow_gain(prep, growing, t, True) for t in (0.2, 1.5, 2.8)]
+    without = [_grow_gain(prep, growing, t, False) for t in (0.2, 1.5, 2.8)]
+    assert min(with_scale) > 6 and max(with_scale) - min(with_scale) < 0.5 * max(with_scale)       # the same light on the edge at every size
+    assert max(without) - min(without) > max(with_scale) - min(with_scale)                          # without the tick the box keeps its size, so it drifts off the edge
+
+
+def test_scale_must_be_true_or_false():
+    with pytest.raises(ValueError):
+        _coerce("colour_zones", SPEC, [{"scale": 1}])
+    assert _coerce("colour_zones", SPEC, [{}])[0]["scale"] is False
