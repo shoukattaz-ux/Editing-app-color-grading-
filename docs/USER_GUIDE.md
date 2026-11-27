@@ -303,3 +303,7 @@ In **Studio Look → Colour lights** you can draw up to **six boxes** on the pre
 4. Press **Boxes only** to switch Light A and B off so that only your boxes light the subject. Otherwise the boxes are added to Light A and B.
 
 The boxes stay in the same place in the picture for the whole video (like stage lights). The Ready-made tab has a three-box example: *Club lights: three coloured boxes*.
+
+## When a render is waiting
+
+The editor renders one video at a time (previews, exports and the AI analysis share one slot). If you press **Apply to full video** while an earlier render is still running, the bar at the bottom says **Waiting for the earlier preview/export render** and shows what that render is doing and how far it is. Press **Stop the earlier render** to cancel it so yours starts now, or just wait. **Cancel** on a waiting render takes effect at once.

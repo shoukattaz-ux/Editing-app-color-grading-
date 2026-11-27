@@ -385,9 +385,10 @@ class Job:
         self.started = 0.0
         self.compiled: Compiled | None = None
         self._p0, self._pw = 0.0, 1.0          # progress window of the encode phase
+        self._mgr: "JobManager | None" = None
 
     def to_json(self) -> dict:
-        return {"id": self.id, "kind": self.kind, "state": self.state, "progress": round(self.progress, 4),
+        return {"waiting_for": self._mgr.blocker_of(self) if self._mgr and self.state == "queued" else None, "id": self.id, "kind": self.kind, "state": self.state, "progress": round(self.progress, 4),
                 "eta_seconds": self.eta, "current": self.current, "error": self.error, "output": self.out_path,
                 "log": self.log[-200:], "hardware_fallback": self.fallback_used, "encoder": self._encoder_name(),
                 "operations": [o.id for o in self.plan.steps]}
@@ -404,6 +405,7 @@ class Job:
     # --- control
     def cancel(self):
         self._cancel.set()
+        if self.state == "queued": self.state = self.current = "cancelled"          # still waiting in line: it is cancelled now, not when its turn would have come
         with self._lock:
             for sp in list(getattr(self, "_seg_procs", [])):
                 try:
@@ -714,13 +716,26 @@ class JobManager:
     def __init__(self, max_parallel: int = 1):
         self.jobs: dict[str, Job] = {}
         self._sem = threading.Semaphore(max_parallel)
+        self._running: list[Job] = []                  # the jobs that hold a slot right now
+
+    def blocker_of(self, job: "Job") -> dict | None:
+        """the render a queued job is waiting for (so the editor can say so and offer to stop it)"""
+        for j in list(self._running):
+            if j is not job and j.state in ("running", "paused", "queued"):
+                return {"id": j.id, "kind": j.kind, "state": j.state, "current": j.current, "progress": round(j.progress, 4), "eta_seconds": j.eta}
+        return None
 
     def submit(self, job: Job) -> Job:
         self.jobs[job.id] = job
+        job._mgr = self
         def worker():
             with self._sem:
-                if job._cancel.is_set(): job.state = "cancelled"; return
-                job.run()
+                self._running.append(job)
+                try:
+                    if job._cancel.is_set(): job.state = "cancelled"; return
+                    job.run()
+                finally:
+                    if job in self._running: self._running.remove(job)
         threading.Thread(target=worker, daemon=True).start()
         return job
 

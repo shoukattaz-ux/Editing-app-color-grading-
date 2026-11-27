@@ -445,10 +445,16 @@ function PhotoSaveDialog({ askPath, api, bp, onClose, toast, photo }: { askPath:
 function JobBar({ job, api, onUpdate, compact }: { job: JobState; api: Api; onUpdate: (j: JobState) => void; compact?: boolean }) {
   const act = async (a: "pause" | "resume" | "cancel" | "retry") => { try { onUpdate(await api.jobAction(job.id, a)); } catch { /* shown via state */ } };
   const live = ACTIVE.includes(job.state);
+  const w = job.state === "queued" ? job.waiting_for : null;
+  const kindName = (k: string) => (k === "proxy" ? "preview" : "export");
+  const stopEarlier = async () => { if (!w) return; try { await api.jobAction(w.id, "cancel"); } catch { /* the next poll shows what happened */ } };
   return (
     <div className={`jobbar ${job.state}`}>
-      <span>{job.kind === "proxy" ? "Preview" : "Export"}: {job.state}</span>
-      <progress value={job.progress} max={1} aria-label="progress" /><span>{Math.round(job.progress * 100)}%</span>{live && <span>ETA {fmtEta(job.eta_seconds)}</span>}
+      <span>{job.kind === "proxy" ? "Preview" : "Export"}: {w ? "waiting" : job.state}</span>
+      {w ? <>
+        <span className="muted" role="status" aria-label="Waiting for the earlier render">Waiting for the earlier {kindName(w.kind)} render{w.state === "paused" ? " (paused)" : ""}: {w.current && w.current !== "queued" ? w.current + " · " : ""}{Math.round(w.progress * 100)}%{w.eta_seconds ? ` · about ${fmtEta(w.eta_seconds)} left` : ""}</span>
+        <Btn label="Stop the earlier render" onClick={stopEarlier} title="Cancels the render that is in front of this one, so this one starts now" /></>
+      : <><progress value={job.progress} max={1} aria-label="progress" /><span>{Math.round(job.progress * 100)}%</span>{live && <span>ETA {fmtEta(job.eta_seconds)}</span>}</>}
       {live && job.current.startsWith("AI matting") && <span className="muted">{job.current}</span>}
       {live && job.state === "running" && <Btn label="Pause" onClick={() => act("pause")} />}{job.state === "paused" && <Btn label="Resume" onClick={() => act("resume")} />}
       {live && <Btn label="Cancel" kind="danger" onClick={() => act("cancel")} />}{(job.state === "failed" || job.state === "cancelled") && <Btn label="Retry" onClick={() => act("retry")} />}
