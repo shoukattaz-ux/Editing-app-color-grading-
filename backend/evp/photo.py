@@ -16,7 +16,19 @@ from .media import ffmpeg_bin, MediaError
 
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 MAX_SIDE = 8192            # larger pictures (a 100 MP panorama) are scaled down to this on their long side
-FPS, SECONDS = 25, 1
+FPS, FRAMES = 25, 3       # a photo is a 3-frame clip: the AI steps (upscale, face restoration, matting) run per frame, so fewer frames = proportionally faster
+
+
+def whole_clip(blueprint):
+    """a photo has no timeline: every effect covers the whole (3-frame) clip, whatever times the blueprint or an AI wrote (a 0-5 s effect must not fail on a 0.12 s clip)"""
+    import copy
+    if not isinstance(blueprint, dict) or not isinstance(blueprint.get("operations"), list): return blueprint
+    b = copy.deepcopy(blueprint)
+    for o in b["operations"]:
+        if isinstance(o, dict):
+            o["start"] = 0; o.pop("end", None); o.pop("keyframes", None)
+    b.pop("clips", None)
+    return b
 
 
 def is_photo(path: str | Path) -> bool:
@@ -45,7 +57,7 @@ def ingest(path: str | Path, dest_dir: str | Path) -> tuple[Path, dict]:
     """photo -> lossless one-second clip in dest_dir; returns (clip path, {"original", "name", "width", "height"}). Reuses an earlier conversion of the same file."""
     p = Path(path).resolve()
     st = p.stat()
-    key = hashlib.sha1(f"{p}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:8]
+    key = hashlib.sha1(f"{p}|{st.st_size}|{st.st_mtime_ns}|f{FRAMES}".encode()).hexdigest()[:8]
     dest = Path(dest_dir); dest.mkdir(parents=True, exist_ok=True)
     out = dest / f"{p.stem}_{key}.mkv"
     img = read_photo(p)
@@ -55,11 +67,11 @@ def ingest(path: str | Path, dest_dir: str | Path) -> tuple[Path, dict]:
     tmp = out.with_suffix(".part.mkv")
     cmd = [ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-framerate", str(FPS), "-i", "-",
            "-vf", "scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv444p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv",
-           "-frames:v", str(FPS * SECONDS), "-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuv444p", str(tmp)]
+           "-frames:v", str(FRAMES), "-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuv444p", str(tmp)]
     pr = proc.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         frame = img.tobytes()
-        for _ in range(FPS * SECONDS): pr.stdin.write(frame)
+        for _ in range(FRAMES): pr.stdin.write(frame)
         pr.stdin.close()
         if pr.wait() != 0: raise MediaError("Could not convert the picture: " + pr.stderr.read().decode(errors="replace")[-300:])
         os.replace(tmp, out)

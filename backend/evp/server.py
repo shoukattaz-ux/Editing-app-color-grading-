@@ -267,6 +267,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
 
     def _prep(bp: Any):
         p = st.need_project()
+        if p.data.get("photo"): bp = photo.whole_clip(bp)                       # a photo has no timeline: effects cover the whole clip
         return prepare(bp, st.source, st.policy(), p.root, st.video)
 
     @app.post("/api/blueprint/validate", dependencies=[api()])
@@ -377,7 +378,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
                 bt["current"] = f.name
                 try:
                     clip, _info = photo.ingest(str(f), p.root / "photo")
-                    prep = prepare(bp, str(clip), policy, p.root, probe(str(clip)))
+                    prep = prepare(photo.whole_clip(bp), str(clip), policy, p.root, probe(str(clip)))
                     if not prep.plan: raise ValueError("; ".join(i.message for i in prep.report.errors) or "the blueprint has no usable effects")
                     png = render_frame(prep.plan, str(clip), 0.0, None, str(p.cache_dir))
                     dest = photo.unique_path(out, f.stem + (" edited" if same_dir else ""), photo.FORMATS[fmt], {str(f.resolve())})
@@ -409,7 +410,7 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         first = files[0]
         try:                                                              # check the blueprint once, on the first photo, before starting
             clip, _ = photo.ingest(str(first), p.root / "photo")
-            prep = prepare(b.blueprint, str(clip), st.policy(), p.root, probe(str(clip)))
+            prep = prepare(photo.whole_clip(b.blueprint), str(clip), st.policy(), p.root, probe(str(clip)))
         except MediaError as e: raise HTTPException(422, {"errors": [str(e)]})
         if not prep.plan: raise HTTPException(422, {"errors": [i.message for i in prep.report.errors] or ["Add at least one effect first."]})
         bid = secrets.token_hex(6)

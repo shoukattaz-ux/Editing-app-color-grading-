@@ -30,7 +30,7 @@ def test_a_photo_becomes_a_lossless_one_second_clip_with_the_same_picture(tmp_pa
     cv2.imwrite(str(tmp_path / "p.png"), img)
     clip, info = photo.ingest(tmp_path / "p.png", tmp_path / "proj")
     v = probe(clip)
-    assert (v.width, v.height) == (300, 200) and abs(v.duration - 1.0) < 0.05 and info["name"] == "p.png"
+    assert (v.width, v.height) == (300, 200) and abs(v.duration - 3 / 25) < 0.05 and info["name"] == "p.png"
     assert photo.ingest(tmp_path / "p.png", tmp_path / "proj")[0] == clip                            # converted once, reused
 
 
@@ -146,3 +146,23 @@ def test_batch_rejects_an_empty_or_missing_folder(client, proj, tmp_path):
     (tmp_path / "empty").mkdir()
     assert client.post("/api/photo/batch", headers=H, json={"blueprint": b, "folder": str(tmp_path / "empty")}).status_code == 422
     assert client.post("/api/photo/batch", headers=H, json={"blueprint": b, "folder": str(tmp_path / "nope")}).status_code == 422
+
+
+def test_effects_written_for_a_long_video_still_work_on_a_photo(client, proj, tmp_path):
+    ops = [{"id": "g", "type": "color_grading", "start": 2, "end": 9, "parameters": {"exposure": 1.0}},
+           {"id": "v", "type": "video_enhancement", "start": 0, "end": 5, "parameters": {"sharpen": 0.3}}]
+    b = bp(ops=ops)
+    assert client.post("/api/blueprint/validate", headers=H, json={"blueprint": b}).json()["ok"]
+    assert client.post("/api/preview/frame", headers=H, json={"blueprint": b, "t": 0, "width": 640}).status_code == 200
+    r = client.post("/api/photo/export", headers=H, json={"blueprint": b, "filename": "long", "format": "png"})
+    assert r.status_code == 200, r.text
+    base = cv2.imread(str(tmp_path / "me.jpg")).astype(float)
+    assert cv2.imread(r.json()["output"]).astype(float).mean() > base.mean() + 15
+
+
+def test_the_ai_steps_of_a_photo_run_on_three_frames_only(prep, tmp_path, img):
+    cv2.imwrite(str(tmp_path / "q.png"), img)
+    clip, _ = photo.ingest(tmp_path / "q.png", tmp_path / "proj")
+    p = prep(photo.whole_clip(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 5, "parameters": {}}])), str(clip))
+    up = [o for o in p.plan.steps if o.type == "ai_upscale"]
+    assert up and up[0].end_frame - up[0].start_frame == 3                                         # not 25: every AI step is ~8x cheaper
