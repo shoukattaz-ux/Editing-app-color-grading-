@@ -329,3 +329,7 @@ In **AI face restoration** you can now pick the face AI:
 Each model is downloaded once (280 to 380 MB) with the button in the effect's Properties. Check the licence shown there before using GPEN or CodeFormer in paid work. For a photo, a good starting point is: AI upscale (Best) + face restoration with **GPEN**, Identity about 0.35, Strength 1.0 + a little skin retouch and Auto enhance. Speed on a 4-core processor: about 1.3 s per face per frame for GFPGAN, 2.2 s for GPEN and 2.7 s for CodeFormer; much faster on a graphics card.
 
 Photos are stored as a 3-frame clip, and every effect covers the whole clip whatever start and end times it was written with, so a blueprint written for a video also works on a photo.
+
+### One-click Enhance
+
+The **Enhance** section of the Ready-made tab has two looks for soft, old or low-quality photos and videos of people: **Enhance photo (the 'enhance app' look)** (2x AI upscale, GPEN face detail, a little skin smoothing, automatic exposure and colour) and **Enhance photo, natural** (the same with the natural GFPGAN face AI, safe for commercial use). In the face restoration card, **Include small faces** also restores people in the background (up to 8 faces); on a very small or blurry face the AI invents features, so check the result.

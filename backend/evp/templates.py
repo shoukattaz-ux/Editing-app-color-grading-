@@ -6,7 +6,7 @@ edited afterwards like any other effects. They never contain files: a background
 from __future__ import annotations
 from typing import Any
 
-SECTIONS = ("Start to finish", "Green screen", "Face", "Colour", "Quality")
+SECTIONS = ("Enhance", "Start to finish", "Green screen", "Face", "Colour", "Quality")
 
 
 def _op(i: str, t: str, **p: Any) -> dict:
@@ -27,6 +27,19 @@ def _t(id: str, section: str, title: str, text: str, ops: list[dict], needs: str
 
 
 TEMPLATES: list[dict] = [
+    _t("enhance_photo", "Enhance", "Enhance photo (the 'enhance app' look)",
+       "One click for a soft, old or low-quality photo or video of a person: 2x AI upscale, the strongest face detail (GPEN: eyes, eyebrows, skin texture, hair), a little skin smoothing and an automatic exposure and colour fix. "
+       "Slow without a graphics card. The face AI is for non-commercial use.",
+       [_op("up", "ai_upscale", model="general", quality="fast", face_detail=1.0, denoise=0.7),
+        _op("faces", "face_restoration", model="gpen512", strength=1.0, identity=0.35, min_face=48, max_faces=6),
+        _op("skin", "skin_retouch", amount=0.3),
+        _op("fix", "color_grading", auto_enhance=0.5, enhance_style="natural")], "A photo or video with a visible face", 2),
+    _t("enhance_natural", "Enhance", "Enhance photo, natural (safe for any use)",
+       "The same as above with the natural GFPGAN face AI (free for commercial use): less dramatic, keeps the face closer to the original.",
+       [_op("up", "ai_upscale", model="general", quality="fast", face_detail=0.8),
+        _op("faces", "face_restoration", model="gfpgan", strength=0.8, identity=0.5, min_face=64, max_faces=4),
+        _op("skin", "skin_retouch", amount=0.25),
+        _op("fix", "color_grading", auto_enhance=0.4, enhance_style="natural")], "A photo or video with a visible face", 2),
     _t("club_night_full", "Start to finish", "Club night: green screen to finished video",
        "The complete look: removes the green (fine hair strands included), puts the person in a club scene, restores and retouches the face, "
        "adds a cinematic grade and a finishing look. Then pick your own club picture or video in Backgrounds.",

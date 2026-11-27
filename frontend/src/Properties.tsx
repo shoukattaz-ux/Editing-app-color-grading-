@@ -418,6 +418,7 @@ function FaceRestoration({ op, edit, api }: { op: Op; edit: Edit; api?: Api }) {
   const identity = typeof pr.identity === "number" ? pr.identity : 0.5;
   const model = (typeof pr.model === "string" ? pr.model : "gfpgan") as "gfpgan" | "gpen512" | "codeformer";
   const fidelity = typeof pr.fidelity === "number" ? pr.fidelity : 0.6;
+  const minFace = typeof pr.min_face === "number" ? pr.min_face : 96;
   const setP = (k: string, v: any) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
   const MODELS_UI: Record<string, { label: string; hint: string }> = {
     gfpgan: { label: "Natural (GFPGAN)", hint: "Safe and natural. Free for commercial use." },
@@ -438,6 +439,12 @@ function FaceRestoration({ op, edit, api }: { op: Op; edit: Edit; api?: Api }) {
         <select value={model} onChange={e => setP("model", e.target.value === "gfpgan" ? undefined : e.target.value)} aria-label="Face AI model">
           {Object.entries(MODELS_UI).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <span className="muted small">{MODELS_UI[model].hint}</span></label>
+      <div className="btn-row" role="group" aria-label="Which faces">
+        <Btn label={minFace <= 48 ? "Small faces: included" : "Include small faces"} kind={minFace <= 48 ? "primary" : undefined}
+          onClick={() => { if (minFace <= 48) { setP("min_face", undefined); setP("max_faces", undefined); } else { setP("min_face", 40); setP("max_faces", 8); } }}
+          title="Also restore small faces (people in the background, up to 8 faces per frame). On a small, blurry face the AI invents features, so check the result." />
+      </div>
+      {minFace <= 48 && <p className="muted small">Small faces are restored too. On a very small or blurry face the AI invents a plausible face, so look at the result.</p>}
       {model === "codeformer" && <label className="field"><span className="fl">Fidelity <em>{Math.round(fidelity * 100)}%</em></span>
         <input type="range" min={0} max={1} step={0.01} value={fidelity} onChange={e => setP("fidelity", +e.target.value)} aria-label="CodeFormer fidelity" />
         <span className="muted small">Low = a more redrawn face (can change the look of the eyes); high = closest to your own face.</span></label>}

@@ -29,7 +29,7 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     const n = await page.locator(".rm-card").count();
     check(n >= 10, "the Ready-made tab lists the looks", String(n));
     const text = await page.locator(".side-content").innerText();
-    check(["Start to finish", "Green screen", "Face", "Colour", "Quality"].every(s => text.toLowerCase().includes(s.toLowerCase())), "all five sections are present");
+    check(["Enhance", "Start to finish", "Green screen", "Face", "Colour", "Quality"].every(s => text.toLowerCase().includes(s.toLowerCase())), "all six sections are present");
     await page.locator(".rm-card", { hasText: "Clean and sharp" }).locator("button:has-text('Add to project')").click();
     await page.waitForTimeout(2500);      await page.waitForSelector("text=Added 1 effect", { timeout: 15000 });
     check(true, "one click adds the look ('Added 1 effect')");
@@ -37,6 +37,14 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check(true, "the project check accepts it");
     await page.click("nav.rail button[aria-label='Color']"); await page.waitForSelector(".rm-card");
     check(await page.locator(".rm-card", { hasText: "Cinematic teal and orange" }).count() === 1, "the Color panel shows the colour looks");
+    await page.click("nav.rail button[aria-label='Ready-made']"); await page.waitForSelector(".rm-card");
+    await page.locator(".rm-card", { hasText: "Enhance photo, natural" }).locator("button:has-text('Add to project')").click();
+    await page.waitForSelector("text=Added 4 effects", { timeout: 15000 });
+    check(true, "the one-click Enhance look adds its four effects");
+    await page.click(".timeline .clip.op:has-text('Face Restoration')"); await page.waitForSelector("[aria-label='Face AI model']");
+    await page.click("button:has-text('Include small faces')");
+    await page.waitForSelector("button:has-text('Small faces: included')", { timeout: 5000 });
+    check(true, "the small-faces switch is in the face restoration card");
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall ready-made checks passed");

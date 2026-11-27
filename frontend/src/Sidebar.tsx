@@ -145,7 +145,7 @@ function ReadyTab({ ctx }: { ctx: Ctx }) {
     <h3>Ready-made looks</h3>
     <MasterLight ops={ctx.bp.operations} edit={ctx.edit} title="Master light (all lights)" />
     <p className="muted">One click adds a finished, tested set of effects. You can change every setting afterwards, or remove them again with Undo.</p>
-    {["Start to finish", "Green screen", "Face", "Colour", "Quality"].map(s => <ReadyMade key={s} ctx={ctx} sections={[s]} title={s} />)}
+    {["Enhance", "Start to finish", "Green screen", "Face", "Colour", "Quality"].map(s => <ReadyMade key={s} ctx={ctx} sections={[s]} title={s} />)}
   </>);
 }
 
@@ -154,7 +154,7 @@ function EffectsTab({ ctx }: { ctx: Ctx }) {
   Object.entries(ctx.schema.operations).forEach(([k, s]) => (groups[s.category] ??= []).push([k, s]));
   return (<>
     <MasterLight ops={ctx.bp.operations} edit={ctx.edit} title="Master light (all lights)" />
-    <ReadyMade ctx={ctx} sections={["Face", "Quality"]} title="Ready-made looks" />
+    <ReadyMade ctx={ctx} sections={["Enhance", "Face", "Quality"]} title="Ready-made looks" />
     <h3>Effects</h3><p className="muted">Click an effect to add it at the playhead (5 seconds, or to the end of a shorter video; a Garbage / Keep Mask covers the whole clip). Then adjust it in the Properties panel on the right.</p>
     {!ctx.video && <div className="issue warning">Import a video first.</div>}
     {Object.entries(groups).map(([cat, list]) => (<div key={cat}><h4>{cat}</h4>
