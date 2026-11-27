@@ -232,6 +232,7 @@ function Editor({ api }: { api: Api }) {
       msg = `Added ${plural(r.added.length, "effect")}; your ${plural(bp.operations.length, "existing effect")} ${bp.operations.length === 1 ? "was" : "were"} kept` + (r.notes.length ? ` — note: ${r.notes[0]}` : "") + ". Showing the current frame; press Apply to full video to render it all.";
     }
     edit(() => next); setSel(null); setTab("effects");
+    if (nb.operations.some(x => x.type === "studio_look" || x.type === "face_relighting")) msg += " Use the Master light slider (Effects panel) to make all the lights stronger or softer.";
     toast(msg);                                                    // only the current frame is rendered (live); the whole timeline waits for "Apply to full video"
   }, [edit, toast, bp, schema, tl.duration, api]);
 

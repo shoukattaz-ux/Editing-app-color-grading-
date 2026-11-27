@@ -599,6 +599,9 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
             rep.err("INVALID_STRUCTURE", "'depends_on' must be an array of operation ids", oid, f"{p}.depends_on"); continue
         en = o.get("enabled", True)
         if not isinstance(en, bool): rep.err("INVALID_PARAMETER", "'enabled' must be boolean", oid, p); continue
+        if otype == "face_relighting" and params.get("light_master", 1.0) != 1.0:          # master light: the three relighting strengths together (each capped at its own maximum)
+            for pn in ("key_intensity", "fill", "shadow_depth"):
+                if isinstance(params.get(pn), (int, float)): params[pn] = min(float(spec.params[pn].max), float(params[pn]) * float(params["light_master"]))
         ops.append(Operation(oid, otype, sf / fps_for_grid, ef / fps_for_grid, sf, ef, params, list(deps), en,
                              str(o.get("label", ""))[:120], kfs))
 

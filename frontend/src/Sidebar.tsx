@@ -6,6 +6,7 @@ import { MediaBinPanel } from "./Media";
 import * as m from "./model";
 import { importAssetFile, importBackground, importVideoFile, addBackground } from "./imports";
 import { Btn, Empty, Icon } from "./ui";
+import { MasterLight } from "./Properties";
 import { ScopesPanel } from "./ScopesPanel";
 
 export type Tab = "media" | "projects" | "blueprint" | "ready" | "effects" | "backgrounds" | "color" | "scopes" | "assets";
@@ -142,6 +143,7 @@ export function ReadyMade({ ctx, sections, title }: { ctx: Ctx; sections?: strin
 function ReadyTab({ ctx }: { ctx: Ctx }) {
   return (<>
     <h3>Ready-made looks</h3>
+    <MasterLight ops={ctx.bp.operations} edit={ctx.edit} title="Master light (all lights)" />
     <p className="muted">One click adds a finished, tested set of effects. You can change every setting afterwards, or remove them again with Undo.</p>
     {["Start to finish", "Green screen", "Face", "Colour", "Quality"].map(s => <ReadyMade key={s} ctx={ctx} sections={[s]} title={s} />)}
   </>);
@@ -151,6 +153,7 @@ function EffectsTab({ ctx }: { ctx: Ctx }) {
   const groups: Record<string, [string, any][]> = {};
   Object.entries(ctx.schema.operations).forEach(([k, s]) => (groups[s.category] ??= []).push([k, s]));
   return (<>
+    <MasterLight ops={ctx.bp.operations} edit={ctx.edit} title="Master light (all lights)" />
     <ReadyMade ctx={ctx} sections={["Face", "Quality"]} title="Ready-made looks" />
     <h3>Effects</h3><p className="muted">Click an effect to add it at the playhead (5 seconds, or to the end of a shorter video; a Garbage / Keep Mask covers the whole clip). Then adjust it in the Properties panel on the right.</p>
     {!ctx.video && <div className="issue warning">Import a video first.</div>}

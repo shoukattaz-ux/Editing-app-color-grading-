@@ -68,6 +68,12 @@ def resolve(params: dict, auto: dict | None = None) -> dict:
         base[f"colour_light_zone_{_k}"] = float(params.get(f"colour_light_zone_{_k}") if params.get(f"colour_light_zone_{_k}") is not None else _d)
     base["colour_zones"] = list(params.get("colour_zones") or [])
     base["colour_light_edge"] = float(params.get("colour_light_edge") if params.get("colour_light_edge") is not None else 0.6)
+    lm = params.get("light_master")                                   # MASTER LIGHT: one slider for every light of the look
+    lm = 1.0 if lm is None else float(lm)
+    if lm != 1.0:
+        for k in ("ambient_match", "light_wrap", "glow", "light_pattern", "colour_light"):
+            base[k] = float(base.get(k) or 0.0) * lm
+        base["colour_zones"] = [{**z, "intensity": min(1.5, float(z.get("intensity", 1.0)) * lm)} for z in base["colour_zones"]]
     return base
 
 

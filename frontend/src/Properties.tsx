@@ -249,6 +249,23 @@ function LightPattern({ op, edit }: { op: Op; edit: Edit }) {
     </section>);
 }
 
+/** MASTER LIGHT: one slider for all the lights of the given effects (studio looks and face relighting) */
+export function MasterLight({ ops, edit, title }: { ops: Op[]; edit: Edit; title?: string }) {
+  const lit = ops.filter(o => o.type === "studio_look" || o.type === "face_relighting");
+  if (!lit.length) return null;
+  const val = (o: Op) => (typeof o.parameters?.light_master === "number" ? (o.parameters.light_master as number) : 1);
+  const v = val(lit[0]), mixed = lit.some(o => Math.abs(val(o) - v) > 1e-6);
+  const set = (x: number) => edit(b => lit.reduce((acc, o) => m.setParam(acc, o.id, "light_master", x === 1 ? undefined : +x.toFixed(3)), b), "master-light");
+  return (
+    <section className="masterlight" aria-label="Master light">
+      <div className="master-head"><h4>{title ?? "Master light"}</h4><span className="muted small">{mixed ? "mixed" : `${Math.round(v * 100)}%`}</span></div>
+      <input type="range" min={0} max={1.5} step={0.01} value={v} onChange={e => set(+e.target.value)} aria-label="Master light" />
+      <div className="master-scale muted small"><span>off</span><span>as set (100%)</span><span>stronger</span></div>
+      <p className="muted small">One slider for {lit.length === 1 ? "all the lights of this effect" : `all the lights in this project (${lit.length} effects)`}: the coloured lights and boxes, the colour from the background, the light wrap, the light pattern, the glow and the face relighting. Their own sliders keep their values.</p>
+      {mixed || v !== 1 ? <Btn label="Back to 100%" onClick={() => set(1)} /> : null}
+    </section>);
+}
+
 const BOX_COLOURS = ["#ff2a55", "#19b8ff", "#ffc21a", "#7dff4a", "#b01cff", "#ff7a1a"];
 /** Colour lights: stage-style coloured lights from the sides, on the subject only */
 function ColourLights({ op, edit }: { op: Op; edit: Edit }) {
@@ -570,6 +587,7 @@ export function Properties({ api, enhanceNotes, bp, schema, video, layout, sel, 
       {op.type === "face_restoration" && <FaceRestoration op={op} edit={edit} api={api} />}
       {op.type === "matte_mask" && <MaskTools op={op} edit={edit} />}
       {op.type === "background_replacement" && <FloorFx op={op} edit={edit} note={floorNotes?.[op.id]} />}
+      {(op.type === "studio_look" || op.type === "face_relighting") && <MasterLight ops={[op]} edit={edit} />}
       {op.type === "studio_look" && <ColourLights op={op} edit={edit} />}
       {op.type === "studio_look" && <LightPattern op={op} edit={edit} />}
       {op.type === "studio_look" && <CameraMatch op={op} edit={edit} note={cameraNotes?.[op.id]} />}

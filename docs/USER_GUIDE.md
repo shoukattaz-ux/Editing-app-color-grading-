@@ -313,3 +313,7 @@ The editor renders one video at a time (previews, exports and the AI analysis sh
 Tick **Follow the subject** on a box and it travels with the subject instead of staying put. Place the box where you want it when the subject is in the **middle of the clip**; it then keeps that position relative to the subject (the app measures where the subject is about every quarter second). Boxes without the tick stay fixed, and you can mix both on the same look.
 
 Next to it, **Grow and shrink with the subject** (available once Follow is ticked) also changes the box's size with the subject: it gets bigger when the subject comes closer and smaller when it moves away, and keeps its place on the subject's outline. Without it the box moves with the subject but keeps its own size.
+
+## Master light
+
+One slider controls **all the lights** of a project. It is at the top of the **Ready-made** and **Effects** panels (and also on each Studio Look / Face relighting effect). 100% is the look as set, 0% switches every light off, and above 100% makes them stronger. It scales the coloured lights and boxes, the colour taken from the background, the light wrap, the light pattern, the glow and the face relighting together, and every effect's own sliders keep their values. Use it after adding a ready-made look to make the lights stronger or softer in one move.

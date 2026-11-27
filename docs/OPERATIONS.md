@@ -164,6 +164,7 @@ Timeline track: **effects**
 |---|---|---|---|---|
 | `amount` | number | `1.0` | 0.0 … 1.5 x | Master amount. 1.0 = the effect as set below, 0 = the original footage (the effect is mixed out), above 1 = pushed further. The sliders below keep their own values. |
 | `preset` | enum | `studio_warm` | none, studio_warm, studio_cool, cinematic, clean_bright | Starting look. Controls you set override it; 'none' starts from nothing. |
+| `light_master` | number | `1.0` | 0.0 … 1.5 x | MASTER LIGHT: one slider for all the lights of this effect. 1 = as set, 0 = every light off, above 1 = stronger. It scales the coloured lights and boxes, the ambient colour from the background, the light wrap, the light pattern and the glow without changing their own sliders. |
 | `ambient_match` | number |  | 0.0 … 1.0 | [needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene. |
 | `light_wrap` | number |  | 0.0 … 1.0 | [needs background_replacement] Background light spilling over the subject's edges - removes the 'cut-out' look. |
 | `wrap_width` | number |  | 1.0 … 60.0 px at 1080p | [needs background_replacement] How far the light wrap reaches into the subject. |
@@ -355,6 +356,7 @@ Timeline track: **effects**
 |---|---|---|---|---|
 | `key_angle` ◆ | number | `-45.0` | -90.0 … 90.0 deg | Key light side: -90 frame-left, 0 front, +90 frame-right. |
 | `key_elevation` ◆ | number | `20.0` | 0.0 … 60.0 deg | Key light height (raises the bright side toward the forehead). |
+| `light_master` | number | `1.0` | 0.0 … 1.5 x | MASTER LIGHT: scales the key light, the fill and the shadow depth together. 1 = as set, 0 = no relighting, above 1 = stronger (each still limited to its own maximum). |
 | `key_intensity` ◆ | number | `0.5` | 0.0 … 1.0 | Key light strength (up to +1.5 EV on the lit side). |
 | `fill` ◆ | number | `0.3` | 0.0 … 1.0 | Lifts dark areas of the face (up to +1 EV). |
 | `shadow_depth` ◆ | number | `0.0` | 0.0 … 1.0 | Darkens the side away from the key for more contrast. |

@@ -64,6 +64,17 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     for (let i = 0; i < 6; i++) { if (await page.locator(".colourlights >> text=Add a box").isEnabled()) await page.click(".colourlights >> text=Add a box"); }
     await page.waitForTimeout(700);
     check((await zones()).length === 6 && await page.locator(".colourlights >> text=Add a box").isDisabled(), "six boxes is the limit", String((await zones()).length));
+    // master light: one slider for every light, in the Ready-made / Effects panel and on the effect itself
+    await page.click("nav.rail button[aria-label='Ready-made']"); await page.waitForSelector("aside.side:not(.right) .masterlight");
+    check(/100%/.test(await page.locator("aside.side:not(.right) .masterlight").innerText()), "the Ready-made panel has a Master light slider at 100%");
+    const ml = page.locator("aside.side:not(.right) .masterlight input[type=range]");
+    await ml.evaluate((el, v) => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); }, "0.4"); await page.waitForTimeout(900);
+    const lm = (await bpNow()).operations.find(o => o.type === "studio_look").parameters.light_master;
+    check(Math.abs(lm - 0.4) < 0.01, "moving it sets the master light on the studio look", String(lm));
+    await page.click(".timeline .clip.op:has-text('Studio Look')");
+    check(/40%/.test(await page.locator("aside.side.right .masterlight").innerText()), "the effect's own Properties show the same Master light value");
+    await page.click("aside.side:not(.right) .masterlight button:has-text('Back to 100%')"); await page.waitForTimeout(900);
+    check((await bpNow()).operations.find(o => o.type === "studio_look").parameters.light_master === undefined, "Back to 100% clears it");
     check(errs.length === 0, "no page errors", errs.join(" | ").slice(0, 200));
   } finally { await browser.close(); be.proc.kill(); web.close(); }
   if (failures) { console.log(`\n${failures} check(s) FAILED`); process.exit(1); } console.log("\nall colour-box checks passed");

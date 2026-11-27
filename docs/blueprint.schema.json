@@ -1100,6 +1100,13 @@
                       ],
                       "default": "studio_warm"
                     },
+                    "light_master": {
+                      "description": "MASTER LIGHT: one slider for all the lights of this effect. 1 = as set, 0 = every light off, above 1 = stronger. It scales the coloured lights and boxes, the ambient colour from the background, the light wrap, the light pattern and the glow without changing their own sliders.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.5,
+                      "default": 1.0
+                    },
                     "ambient_match": {
                       "description": "[needs background_replacement] Subject picks up the background's colour cast, following where the light is in the scene.",
                       "type": "number",
@@ -1973,6 +1980,13 @@
                       "maximum": 60.0,
                       "default": 20.0,
                       "x-animatable": true
+                    },
+                    "light_master": {
+                      "description": "MASTER LIGHT: scales the key light, the fill and the shadow depth together. 1 = as set, 0 = no relighting, above 1 = stronger (each still limited to its own maximum).",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.5,
+                      "default": 1.0
                     },
                     "key_intensity": {
                       "description": "Key light strength (up to +1.5 EV on the lit side).",
