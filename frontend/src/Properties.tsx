@@ -416,26 +416,40 @@ function FaceRestoration({ op, edit, api }: { op: Op; edit: Edit; api?: Api }) {
   const [err, setErr] = useState("");
   const pr = op.parameters ?? {};
   const identity = typeof pr.identity === "number" ? pr.identity : 0.5;
+  const model = (typeof pr.model === "string" ? pr.model : "gfpgan") as "gfpgan" | "gpen512" | "codeformer";
+  const fidelity = typeof pr.fidelity === "number" ? pr.fidelity : 0.6;
+  const setP = (k: string, v: any) => edit(b => m.setParam(b, op.id, k, v), `p:${op.id}:${k}`);
+  const MODELS_UI: Record<string, { label: string; hint: string }> = {
+    gfpgan: { label: "Natural (GFPGAN)", hint: "Safe and natural. Free for commercial use." },
+    gpen512: { label: "Strongest detail (GPEN)", hint: "The most 'enhance app' look: redraws eyes, brows, skin pores and hair. Non-commercial use." },
+    codeformer: { label: "CodeFormer", hint: "Natural detail with a fidelity control. Non-commercial use." } };
   useEffect(() => {
-    if (!api) return; let alive = true, timer: ReturnType<typeof setTimeout>;
-    const tick = async () => { try { const r = await api.modelStatus("gfpgan"); if (alive) { setSt(r); if (r.downloading) timer = setTimeout(tick, 700); } } catch { /* engine busy */ } };
+    if (!api) return; let alive = true, timer: ReturnType<typeof setTimeout>; setSt(null);
+    const tick = async () => { try { const r = await api.modelStatus(model); if (alive) { setSt(r); if (r.downloading) timer = setTimeout(tick, 700); } } catch { /* engine busy */ } };
     tick(); return () => { alive = false; clearTimeout(timer); };
-  }, [api, st?.downloading]);
-  const start = async () => { if (!api) return; setErr(""); try { setSt(await api.installModel("gfpgan")); } catch (e: any) { setErr(e.message ?? String(e)); } };
+  }, [api, model, st?.downloading]);
+  const start = async () => { if (!api) return; setErr(""); try { setSt(await api.installModel(model)); } catch (e: any) { setErr(e.message ?? String(e)); } };
   const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
   return (
     <section className="facerestore">
       <div className="master-head"><h4>AI face restoration</h4><span className="muted small">{st?.installed ? "model ready" : "model needed"}</span></div>
       <p className="muted small">Rebuilds sharp eyes, eyebrows, hair strands, beard and skin detail of small, soft or noisy faces, like the "enhance" in phone apps. Only faces are changed; the rest of the picture stays exactly as it is.</p>
+      <label className="field"><span className="fl">Face AI</span>
+        <select value={model} onChange={e => setP("model", e.target.value === "gfpgan" ? undefined : e.target.value)} aria-label="Face AI model">
+          {Object.entries(MODELS_UI).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+        <span className="muted small">{MODELS_UI[model].hint}</span></label>
+      {model === "codeformer" && <label className="field"><span className="fl">Fidelity <em>{Math.round(fidelity * 100)}%</em></span>
+        <input type="range" min={0} max={1} step={0.01} value={fidelity} onChange={e => setP("fidelity", +e.target.value)} aria-label="CodeFormer fidelity" />
+        <span className="muted small">Low = a more redrawn face (can change the look of the eyes); high = closest to your own face.</span></label>}
       {st && !st.installed && <div className="modelbox">
         {st.downloading ? <><div className="gpubar" aria-hidden><span style={{ width: `${Math.min(100, (100 * st.done) / Math.max(1, st.total))}%` }} /></div>
           <p className="muted small">Downloading the model: {mb(st.done)} of {mb(st.total)}…</p></>
-          : <><Btn icon="export" kind="primary" label={`Download the model (${mb(st.size)})`} onClick={start} title={`GFPGAN v1.4, ${st.license}. Downloaded once from GitHub and converted on this computer.`} />
+          : <><Btn icon="export" kind="primary" label={`Download the model (${mb(st.size)})`} onClick={start} title={`${MODELS_UI[model].label}, ${st.license}. Downloaded once from GitHub.`} />
             <p className="muted small">Needed once ({st.license}). Until then this effect cannot show a picture.</p></>}
         {(st.error || err) && <div className="issue error">{st.error || err}</div>}
       </div>}
       <p className="muted small"><b>Honest limits:</b> the AI <b>re-draws</b> detail, so the result is plausible rather than exact. {identity < 0.35 ? <>At this <b>Identity</b> value the AI's face is used as it is: it can lighten skin and slightly change eyes. Raise Identity to keep your own colours and face shape.</> : <>Identity keeps your own colours and face shape and takes only the fine detail.</>} Small, blurry faces get a made-up face: that is why faces narrower than <b>Smallest face</b> are skipped.</p>
-      <p className="muted small">Speed: about 1.3 s per face per frame on a 4-core processor (the live frame is one frame; a whole clip takes a while), much faster on a graphics card. The result is cached.</p>
+      <p className="muted small">Speed: about 1.3 s (GFPGAN) to 2.7 s (CodeFormer) per face per frame on a 4-core processor (the live frame is one frame; a whole clip takes a while), much faster on a graphics card. The result is cached.</p>
     </section>);
 }
 

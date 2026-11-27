@@ -317,3 +317,13 @@ Next to it, **Grow and shrink with the subject** (available once Follow is ticke
 ## Master light
 
 One slider controls **all the lights** of a project. It is at the top of the **Ready-made** and **Effects** panels (and also on each Studio Look / Face relighting effect). 100% is the look as set, 0% switches every light off, and above 100% makes them stronger. It scales the coloured lights and boxes, the colour taken from the background, the light wrap, the light pattern, the glow and the face relighting together, and every effect's own sliders keep their values. Use it after adding a ready-made look to make the lights stronger or softer in one move.
+
+## Choosing the face AI (closer to the "enhance" apps)
+
+In **AI face restoration** you can now pick the face AI:
+
+- **Natural (GFPGAN)**: the default. Safe and natural, and free for commercial use.
+- **Strongest detail (GPEN)**: the most "enhance app" look. It redraws eyes, eyebrows, skin pores and hair, so the result is much more detailed, but it can change small features. For non-commercial use.
+- **CodeFormer**: natural detail with a **Fidelity** slider (low = a more redrawn face, high = closest to your own face). For non-commercial use (S-Lab licence).
+
+Each model is downloaded once (280 to 380 MB) with the button in the effect's Properties. Check the licence shown there before using GPEN or CodeFormer in paid work. For a photo, a good starting point is: AI upscale (Best) + face restoration with **GPEN**, Identity about 0.35, Strength 1.0 + a little skin retouch and Auto enhance. Speed on a 4-core processor: about 1.3 s per face per frame for GFPGAN, 2.2 s for GPEN and 2.7 s for CodeFormer; much faster on a graphics card.

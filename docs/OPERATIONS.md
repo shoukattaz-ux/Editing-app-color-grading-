@@ -295,12 +295,14 @@ Timeline track: **audio**
 
 ## `face_restoration` — AI Face Restoration
 
-AI face restoration (GFPGAN): rebuilds sharp eyes, eyebrows, hair strands, beard and skin detail of small, soft or noisy faces, like phone 'enhance' apps. It RE-DRAWS detail, so the result is plausible rather than exact; 'identity' keeps your own colours and face shape and takes only the fine detail. Slow without a graphics card; needs a 348 MB model (downloaded once).
+AI face restoration (GFPGAN): rebuilds sharp eyes, eyebrows, hair strands, beard and skin detail of small, soft or noisy faces, like phone 'enhance' apps. It RE-DRAWS detail, so the result is plausible rather than exact; 'identity' keeps your own colours and face shape and takes only the fine detail. Choose the face AI with 'model'. Slow without a graphics card; needs a 280-380 MB model (downloaded once).
 
 Timeline track: **effects**
 
 | parameter | type | default | range / values | description |
 |---|---|---|---|---|
+| `model` | enum | `gfpgan` | gfpgan, gpen512, codeformer | Which face AI: gfpgan = natural and safe (default, Apache licence); gpen512 = the strongest redrawn detail, the most 'enhance app' look; codeformer = natural detail with the fidelity control. gpen512 and codeformer are for non-commercial use (each needs its own download). |
+| `fidelity` | number | `0.6` | 0.0 … 1.0 | [codeformer] 0 = the AI's more redrawn face, 1 = stays closest to your own face. Low values can change the look of the eyes. |
 | `strength` | number | `0.8` | 0.0 … 1.0 | How much of the restored face replaces the original (0 = off). |
 | `identity` | number | `0.5` | 0.0 … 1.0 | Keep the original look: 0 = the AI's face as it is (can change skin tone and features slightly), 1 = only the AI's fine detail on top of your own colours and face shape. |
 | `max_faces` | integer | `3` | 1 … 8 | Restore at most this many faces per frame (the largest ones). Each face costs processing time. |

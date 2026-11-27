@@ -54,7 +54,11 @@ _NET_CACHE: "_OD[bytes, np.ndarray]" = _OD()
 _NET_LOCK = threading.Lock()
 
 
-def onnx_path() -> Path:
+ONNX_MODELS = ("gfpgan", "gpen512", "codeformer")
+
+
+def onnx_path(model: str = "gfpgan") -> Path:
+    if model in ("gpen512", "codeformer"): return ensure_model(model)          # these ship as ONNX files already
     p = models_dir() / "gfpgan_v1.4.onnx"
     if not p.is_file():
         with _BUILD_LOCK:
@@ -65,8 +69,8 @@ def onnx_path() -> Path:
     return p
 
 
-def session():
-    p = onnx_path()
+def session(model: str = "gfpgan"):
+    p = onnx_path(model)
     with _LOCK:
         if str(p) not in _SESS: _SESS[str(p)] = make_session(p)
         return _SESS[str(p)]
@@ -105,20 +109,27 @@ class FaceRestorer:
         self.fell_back: str | None = None
         self.frames_with_faces = 0
         self.model_path: Path | None = None
+        self.model = str(p.get("model", "gfpgan"))
+        self.fidelity = float(p.get("fidelity", 0.6))
+
+    def _feed(self, x: np.ndarray, sess) -> np.ndarray:
+        if self.model == "codeformer":                        # CodeFormer also takes its fidelity weight (a float64 scalar) and returns three tensors
+            return sess.run(["output"], {"input": x, "weight": np.array(self.fidelity, dtype=np.float64)})[0]
+        return sess.run(None, {"input": x})[0]
 
     def _run(self, x: np.ndarray) -> np.ndarray:
         sess = self.sess
         try:
-            return sess.run(None, {"input": x})[0]
+            return self._feed(x, sess)
         except Exception as e:                              # GPU out of memory / driver error -> carry on with the processor
             if sess.get_providers()[0] == "CPUExecutionProvider": raise
-            self.sess = make_session_cpu(self.model_path or onnx_path())
+            self.sess = make_session_cpu(self.model_path or onnx_path(self.model))
             self.fell_back = str(e)[:200]
-            return self.sess.run(None, {"input": x})[0]
+            return self._feed(x, self.sess)
 
     def net(self, crop_rgb01: np.ndarray) -> np.ndarray:
         # the network's answer depends only on the aligned face crop, not on the sliders: dragging Strength / Identity at the same playhead reuses it
-        key = hashlib.blake2b(np.ascontiguousarray(crop_rgb01).tobytes(), digest_size=16).digest()
+        key = hashlib.blake2b(np.ascontiguousarray(crop_rgb01).tobytes() + f"|{self.model}|{self.fidelity:.3f}".encode(), digest_size=16).digest()
         with _NET_LOCK:
             if key in _NET_CACHE:
                 _NET_CACHE.move_to_end(key); return _NET_CACHE[key]
@@ -195,9 +206,10 @@ def _generate(source, op, W, H, fps, start_frame, frames, cache_dir, progress, c
         return RestoreRef(str(out), str(mout), start_frame, frames, sd.get("faces", 0), sd.get("gpu_fallback"))
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp, mtmp = out.with_suffix(".part.mkv"), mout.with_suffix(".part.mkv")
-    sess = session()
+    model = str(op.params.get("model", "gfpgan"))
+    sess = session(model)
     rs = FaceRestorer(W, H, op.params, sess)
-    rs.model_path = onnx_path()
+    rs.model_path = onnx_path(model)
     enc = _proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", f"{fps:g}", "-i", "-",
                        "-c:v", "libx264rgb", "-crf", "8", "-preset", "veryfast", str(tmp)], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     menc = _proc.Popen([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{W}x{H}", "-r", f"{fps:g}", "-i", "-",
@@ -228,6 +240,9 @@ def _generate(source, op, W, H, fps, start_frame, frames, cache_dir, progress, c
         raise
 
 
-def estimate_seconds_per_frame(gpu: bool, faces: int = 1) -> float:
-    """CPU: about 1.3 s per face on a 4-thread machine (measured); a graphics card is assumed ~10x faster (not measured here)"""
-    return (0.13 if gpu else 1.3) * max(1, faces)
+CPU_SECONDS = {"gfpgan": 1.3, "gpen512": 2.2, "codeformer": 2.7}      # per face on a 4-thread machine (measured)
+
+
+def estimate_seconds_per_frame(gpu: bool, faces: int = 1, model: str = "gfpgan") -> float:
+    """CPU: measured per face on a 4-thread machine; a graphics card is assumed ~10x faster (not measured here)"""
+    return (CPU_SECONDS.get(model, 1.3) * (0.1 if gpu else 1.0)) * max(1, faces)

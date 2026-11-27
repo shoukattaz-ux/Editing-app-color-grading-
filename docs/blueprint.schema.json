@@ -1750,6 +1750,23 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "model": {
+                      "description": "Which face AI: gfpgan = natural and safe (default, Apache licence); gpen512 = the strongest redrawn detail, the most 'enhance app' look; codeformer = natural detail with the fidelity control. gpen512 and codeformer are for non-commercial use (each needs its own download).",
+                      "type": "string",
+                      "enum": [
+                        "gfpgan",
+                        "gpen512",
+                        "codeformer"
+                      ],
+                      "default": "gfpgan"
+                    },
+                    "fidelity": {
+                      "description": "[codeformer] 0 = the AI's more redrawn face, 1 = stays closest to your own face. Low values can change the look of the eyes.",
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "default": 0.6
+                    },
                     "strength": {
                       "description": "How much of the restored face replaces the original (0 = off).",
                       "type": "number",

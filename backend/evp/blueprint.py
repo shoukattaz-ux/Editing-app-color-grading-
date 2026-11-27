@@ -550,18 +550,20 @@ def parse_blueprint(text_or_obj: Any, video: VideoInfo | None, policy: PathPolic
         if otype == "face_restoration":
             from .ml.models import runtime_available, is_installed, MODELS, providers
             ok, why = runtime_available()
-            try:
-                import onnx  # noqa: F401  (needed once, to convert the official weights)
-            except Exception:
-                ok, why = False, "the 'onnx' package is not installed (pip install onnx)"
+            if params.get("model", "gfpgan") == "gfpgan":
+                try:
+                    import onnx  # noqa: F401  (needed once, to convert the official weights)
+                except Exception:
+                    ok, why = False, "the 'onnx' package is not installed (pip install onnx)"
             if not hasattr(__import__("cv2"), "FaceDetectorYN"): ok, why = False, "OpenCV >= 4.8 with the DNN module is needed (pip install opencv-python-headless)"
             if not ok:
                 rep.err("MODEL_RUNTIME_MISSING", f"AI face restoration unavailable: {why}", oid, p); continue
-            if not is_installed("gfpgan"):
-                rep.warn("MODEL_DOWNLOAD", f"The face restoration model ({MODELS['gfpgan'].size // 1_000_000} MB, {MODELS['gfpgan'].license}) is downloaded once and converted before first use (button in the effect's Properties)", oid)
+            fmodel = params.get("model", "gfpgan")
+            if not is_installed(fmodel):
+                rep.warn("MODEL_DOWNLOAD", f"The face restoration model ({MODELS[fmodel].size // 1_000_000} MB, {MODELS[fmodel].license}) is downloaded once{' and converted' if fmodel == 'gfpgan' else ''} before first use (button in the effect's Properties)", oid)
             from .ml.restore import estimate_seconds_per_frame as _est
             gpu = providers()[:1] != ["CPUExecutionProvider"]
-            est = _est(gpu, 1) * (ef - sf)
+            est = _est(gpu, 1, fmodel) * (ef - sf)
             if est > 60:
                 rep.warn("AI_SLOW", f"AI face restoration of {ef - sf} frames is estimated at ~{est / 60:.0f} min for one face per frame on "
                          f"{'the graphics card' if gpu else 'the processor (no GPU in use; see Settings > AI device)'}; the result is cached for later previews and exports.", oid)

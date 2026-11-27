@@ -305,9 +305,9 @@ def ensure_mattes(plan: Plan, source: str, cache_dir: str, progress=None, cancel
         for r in rests:
             n = r.end_frame - r.start_frame
             have = all(f.is_file() for f in _paths(cache_dir, restore_key(source, r, W, H, fps, r.start_frame, n, plan.edl)))
-            if not have and frame is not None and not is_installed("gfpgan"):          # a live frame must not freeze on a 348 MB download
+            if not have and frame is not None and not is_installed(r.params.get("model", "gfpgan")):          # a live frame must not freeze on a 348 MB download
                 from .ml.models import ModelError
-                raise ModelError("The AI face restoration model is not installed yet. Open this effect's Properties and press 'Download the model (348 MB)'.")
+                raise ModelError("The AI face restoration model is not installed yet. Open this effect's Properties and press the Download button.")
             if frame is None or have:
                 cb = (lambda i, _n, d=done, op=r: progress(d + i, total, op.id, "AI face restoration")) if progress else None
                 plan.restorations[r.id] = generate_restore(source, r, W, H, fps, r.start_frame, n, cache_dir, cb, cancel, edl=plan.edl)
