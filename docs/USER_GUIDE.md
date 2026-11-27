@@ -307,3 +307,7 @@ The boxes stay in the same place in the picture for the whole video (like stage 
 ## When a render is waiting
 
 The editor renders one video at a time (previews, exports and the AI analysis share one slot). If you press **Apply to full video** while an earlier render is still running, the bar at the bottom says **Waiting for the earlier preview/export render** and shows what that render is doing and how far it is. Press **Stop the earlier render** to cancel it so yours starts now, or just wait. **Cancel** on a waiting render takes effect at once.
+
+### Boxes that follow the subject
+
+Tick **Follow the subject** on a box and it travels with the subject instead of staying put. Place the box where you want it when the subject is in the **middle of the clip**; it then keeps that position relative to the subject (the app measures where the subject is about every quarter second). Boxes without the tick stay fixed, and you can mix both on the same look.

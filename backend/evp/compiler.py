@@ -571,25 +571,33 @@ def compile_plan(plan: Plan, source: str, out_path: str, opts: RenderOptions | N
             bx = {"x0": num_(zx0), "x1": num_(zx1), "y0": num_(zy0), "y1": num_(zy1)}
             fx, fy = max(0.002, float(L.get("colour_light_zone_soft", 0.3)) * 0.5 * (zx1 - zx0)), max(0.002, float(L.get("colour_light_zone_soft", 0.3)) * 0.5 * (zy1 - zy0))
             inside = f"*clip((X/W-{zx0:.4f})/{fx:.4f},0,1)*clip(({zx1:.4f}-X/W)/{fx:.4f},0,1)*clip((Y/H-{zy0:.4f})/{fy:.4f},0,1)*clip(({zy1:.4f}-Y/H)/{fy:.4f},0,1)"
-        elif box and box.get("track"):                                                 # follow: piecewise-linear in time through the measured moments
-            tr = box["track"]
-            def pw(i: int) -> str:
-                e = num_(tr[-1][i])
-                for j in range(len(tr) - 2, -1, -1):
-                    t0, t1 = tr[j][0], tr[j + 1][0]
-                    e = f"if(lt(T,{t1:.4f}),{tr[j][i]:.4f}+({tr[j + 1][i] - tr[j][i]:.4f})*clip((T-{t0:.4f})/{max(1e-3, t1 - t0):.4f},0,1),{e})"
-                return f"({e})"
+        tr = box.get("track") if box else None
+        def pw(i: int) -> str:                                                         # piecewise-linear in time through the measured moments
+            e = num_(tr[-1][i])
+            for j in range(len(tr) - 2, -1, -1):
+                t0, t1 = tr[j][0], tr[j + 1][0]
+                e = f"if(lt(T,{t1:.4f}),{tr[j][i]:.4f}+({tr[j + 1][i] - tr[j][i]:.4f})*clip((T-{t0:.4f})/{max(1e-3, t1 - t0):.4f},0,1),{e})"
+            return f"({e})"
+        if place == "zone": pass
+        elif place == "follow" and tr:                                                 # follow: the lights travel with the subject
             bx = {"x0": pw(1), "x1": pw(2), "y0": pw(3), "y1": pw(4)}
         else:
-            b = box or {"x0": 0.0, "x1": 1.0, "y0": 0.0, "y1": 1.0}                    # the subject's bounds (measured on the middle frame), else the whole frame
+            b = (box or {}).get("ref") or box or {"x0": 0.0, "x1": 1.0, "y0": 0.0, "y1": 1.0}      # the subject's bounds (measured on the middle frame), else the whole frame
             bx = {k_: num_(v) for k_, v in b.items() if k_ in ("x0", "x1", "y0", "y1")}
-        def inside_box(x0, y0, x1, y1, soft):
-            fx, fy = max(0.002, soft * 0.5 * (x1 - x0)), max(0.002, soft * 0.5 * (y1 - y0))
-            return f"*clip((X/W-{x0:.4f})/{fx:.4f},0,1)*clip(({x1:.4f}-X/W)/{fx:.4f},0,1)*clip((Y/H-{y0:.4f})/{fy:.4f},0,1)*clip(({y1:.4f}-Y/H)/{fy:.4f},0,1)"
+        def inside_box(x0, y0, x1, y1, soft, size):                                    # x0..y1 are numbers or time expressions (strings); size = the box's width and height
+            fx, fy = max(0.002, soft * 0.5 * size[0]), max(0.002, soft * 0.5 * size[1])
+            return f"*clip((X/W-{x0})/{fx:.4f},0,1)*clip(({x1}-X/W)/{fx:.4f},0,1)*clip((Y/H-{y0})/{fy:.4f},0,1)*clip(({y1}-Y/H)/{fy:.4f},0,1)"
         specs = [(side, c, bx, inside, reach, 1.0) for side, c in lights]                         # light A / B: the main box (fixed, follow or zone)
+        ref = (box or {}).get("ref")
         for z in zones:                                                                           # extra boxes: each its own rectangle, colour and side
-            zb = {"x0": num_(z["x0"]), "x1": num_(z["x1"]), "y0": num_(z["y0"]), "y1": num_(z["y1"])}
-            specs.append((z.get("side", "top"), _rgb01(z["color"]), zb, inside_box(float(z["x0"]), float(z["y0"]), float(z["x1"]), float(z["y1"]), float(z.get("soft", 0.3))),
+            zx0, zy0, zx1, zy1 = (float(z[k_]) for k_ in ("x0", "y0", "x1", "y1"))
+            if z.get("follow") and tr and ref:                                                    # the box travels with the subject: moved by how far its centre has moved from the middle frame
+                dx = f"(({pw(1)}+{pw(2)})/2-{(ref['x0'] + ref['x1']) / 2:.4f})"
+                dy = f"(({pw(3)}+{pw(4)})/2-{(ref['y0'] + ref['y1']) / 2:.4f})"
+                zb = {"x0": f"({zx0:.4f}+{dx})", "x1": f"({zx1:.4f}+{dx})", "y0": f"({zy0:.4f}+{dy})", "y1": f"({zy1:.4f}+{dy})"}
+            else:
+                zb = {"x0": num_(zx0), "x1": num_(zx1), "y0": num_(zy0), "y1": num_(zy1)}
+            specs.append((z.get("side", "top"), _rgb01(z["color"]), zb, inside_box(zb["x0"], zb["y0"], zb["x1"], zb["y1"], float(z.get("soft", 0.3)), (zx1 - zx0, zy1 - zy0)),
                           0.3 + 0.6 * float(z.get("reach", 0.5)), float(z.get("intensity", 1.0))))
         layers = []
         for side, c, bx_, inside_, reach_, gain in specs:

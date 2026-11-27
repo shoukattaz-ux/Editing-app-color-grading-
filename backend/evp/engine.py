@@ -233,11 +233,14 @@ def ensure_light_box(plan: Plan, source: str, cache_dir: str) -> None:
     Placed through subject_scale / x / y, so a light from the left really starts at the subject's left edge. zone = nothing to measure (your own rectangle)."""
     import hashlib, json as _json
     plan.light_box = {}
-    for r in [o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) and plan.look_for[o.id].params.get("colour_light", 0) > 0 and plan.look_for[o.id].params.get("colour_light_place", "fixed") != "zone"]:
-        place = plan.look_for[r.id].params.get("colour_light_place", "fixed")
+    def _wants(lk) -> bool:                                  # a measured box is needed unless everything is the user's own fixed rectangle
+        return lk.params.get("colour_light_place", "fixed") != "zone" or any(z.get("follow") for z in (lk.params.get("colour_zones") or []))
+    for r in [o for o in plan.steps if o.type == "background_replacement" and plan.look_for.get(o.id) and plan.look_for[o.id].params.get("colour_light", 0) > 0 and _wants(plan.look_for[o.id])]:
+        lk_p = plan.look_for[r.id].params
+        place = "follow" if (lk_p.get("colour_light_place", "fixed") == "follow" or any(z.get("follow") for z in (lk_p.get("colour_zones") or []))) else lk_p.get("colour_light_place", "fixed")
         fps = plan.blueprint.output.fps
         sig = [(o.id, o.type, o.start_frame, o.end_frame, repr(sorted(o.params.items())), repr(sorted(o.keyframes))) for o in plan.steps if o.type in ("chroma_key", "background_removal", "matte_mask")]
-        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, r.id, r.start_frame, r.end_frame, repr(sorted((k, v) for k, v in r.params.items() if k.startswith("subject_"))), sig, plan.edl, "box2", place], default=str).encode()).hexdigest()[:24]
+        key = hashlib.sha256(_json.dumps([str(source), Path(source).stat().st_mtime_ns, r.id, r.start_frame, r.end_frame, repr(sorted((k, v) for k, v in r.params.items() if k.startswith("subject_"))), sig, plan.edl, "box3", place], default=str).encode()).hexdigest()[:24]
         f = Path(cache_dir) / "floor" / f"box_{key}.json"
         if f.is_file():
             plan.light_box[r.id] = _json.loads(f.read_text(encoding="utf-8")); continue
@@ -248,7 +251,8 @@ def ensure_light_box(plan: Plan, source: str, cache_dir: str) -> None:
             rows = [(t, _subject_bounds(plan, r, source, cache_dir, t)) for t in ts]
             rows = [[round(t, 4), b["x0"], b["x1"], b["y0"], b["y1"]] for t, b in rows if b]
             if not rows: continue
-            res = {"track": smooth_track(rows)} if len(rows) >= 2 else dict(zip(("x0", "x1", "y0", "y1"), rows[0][1:]))
+            mid = rows[len(rows) // 2]                           # the reference position: where the subject is in the middle of the clip
+            res = {"track": smooth_track(rows), "ref": dict(zip(("x0", "x1", "y0", "y1"), mid[1:]))} if len(rows) >= 2 else dict(zip(("x0", "x1", "y0", "y1"), rows[0][1:]))
         else:
             b = _subject_bounds(plan, r, source, cache_dir, ((r.start_frame + r.end_frame) // 2) / fps)
             if not b: continue

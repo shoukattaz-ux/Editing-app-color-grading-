@@ -50,3 +50,42 @@ def test_bad_boxes_are_refused(bad):
 def test_good_boxes_are_normalised():
     out = _coerce("colour_zones", SPEC, [{"x0": 0.1, "x1": 0.4}])
     assert out[0]["side"] == "top" and out[0]["color"].startswith("#") and 0 <= out[0]["intensity"] <= 1.5
+
+
+# ---------------------------------------------------------------------------------------------------- boxes that follow the subject
+from test_colourlights import XR, blue_gain, ONE   # noqa: E402
+
+
+def _box(follow):
+    return dict(colour_light=1.0, colour_light_side_a="off", colour_light_side_b="off", colour_light_edge=0.0,
+                colour_zones=[{"x0": 0.30, "y0": 0.2, "x1": 0.75, "y1": 0.9, "color": "#0000ff", "side": "left", "reach": 0.9, "soft": 0.1, "follow": follow}])
+
+
+def _gain(prep, media, t, follow):
+    from test_lightpattern import comp
+    base, _ = comp(prep, media, t=t)
+    lit, _ = comp(prep, media, t=t, **_box(follow))
+    lo = XR[t][0]
+    sl = (slice(CY - 8, CY + 8), slice(lo + 6, lo + 16))
+    return float((lit[sl] - base[sl])[..., 2].mean())
+
+
+def test_a_following_box_keeps_its_light_on_the_subject_as_it_moves(prep, media):
+    follow = [_gain(prep, media, t, True) for t in (0.2, 1.0, 2.0)]
+    fixed = [_gain(prep, media, t, False) for t in (0.2, 1.0, 2.0)]
+    assert min(follow) > 6                                              # the light is on the subject's left edge at every moment
+    assert fixed[2] < 0.5 * min(follow)                                 # a fixed box is left behind when the subject drifts out of it (t=2.0)
+
+
+def test_follow_and_fixed_boxes_can_be_mixed(prep, media):
+    from test_lightpattern import comp
+    b = _box(True); b["colour_zones"] = b["colour_zones"] + [dict(b["colour_zones"][0], follow=False, color="#ff0000", side="right")]
+    lit, _ = comp(prep, media, t=2.0, **b)
+    assert lit.shape[2] == 3
+
+
+def test_follow_must_be_true_or_false():
+    with pytest.raises(ValueError):
+        _coerce("colour_zones", SPEC, [{"follow": "yes"}])
+    assert _coerce("colour_zones", SPEC, [{"follow": True}])[0]["follow"] is True
+    assert _coerce("colour_zones", SPEC, [{}])[0]["follow"] is False

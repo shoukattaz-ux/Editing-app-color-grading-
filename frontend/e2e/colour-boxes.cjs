@@ -50,6 +50,8 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check((await zones())[1].side === "top" && (await zones())[0].side !== "top", "a box's side is set on its own", JSON.stringify((await zones()).map(z => z.side)));
     await page.fill("[aria-label='Box 2 colour']", "#00ff00"); await page.waitForTimeout(700);
     check((await zones())[1].color === "#00ff00", "a box's colour is set on its own");
+    await page.check("[aria-label='Box 2 follow the subject']"); await page.waitForTimeout(700);
+    check((await zones())[1].follow === true && (await zones())[0].follow === false, "a box can be set to follow the subject, on its own", JSON.stringify((await zones()).map(z => z.follow)));
     await page.click(".colourlights button:has-text('Boxes only')"); await page.waitForTimeout(2500);
     const sl = (await bpNow()).operations.find(o => o.type === "studio_look").parameters;
      check(sl.colour_light_side_a === "off" && sl.colour_light_side_b === "off", "Boxes only switches Light A and B off");

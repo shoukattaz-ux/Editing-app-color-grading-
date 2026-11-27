@@ -1419,7 +1419,7 @@
                       "default": 0.6
                     },
                     "colour_zones": {
-                      "description": "[colour_light] MANY BOXES: up to 6 extra coloured lights, each confined to its own rectangle (fractions of the frame: x0,y0,x1,y1) with its own colour, side (left/right/top/bottom), reach, intensity and edge softness. They are added to light A and B (set their side to 'off' to use boxes only). Only the subject is ever lit."
+                      "description": "[colour_light] MANY BOXES: up to 6 extra coloured lights, each confined to its own rectangle (fractions of the frame: x0,y0,x1,y1) with its own colour, side (left/right/top/bottom), reach, intensity, edge softness and 'follow' (true = the box travels with the subject; its rectangle is where it sits when the subject is in its middle-of-clip position). They are added to light A and B (set their side to 'off' to use boxes only). Only the subject is ever lit."
                     },
                     "light_pattern_asset_id": {
                       "description": "[light_pattern] Your own light pattern (a picture or a looping video: bright web / rays on a dark ground) instead of the generated ripples.",
