@@ -21,12 +21,29 @@ _CINE = _op("grade", "color_grading", cinematic=0.6, cinematic_style="teal_orang
 _STUDIO = _op("look", "studio_look")
 
 
-def _t(id: str, section: str, title: str, text: str, ops: list[dict], needs: str = "", scale: int = 1) -> dict:
+def _t(id: str, section: str, title: str, text: str, ops: list[dict], needs: str = "", scale: int = 1, **extra: Any) -> dict:
+    """extra: uses_source = the look needs the photo itself as an asset (the editor imports it); strength_ops = the ops whose Amount the card's Strength slider sets"""
+    assets = [{"id": "orig", "type": "image", "path": "@photo"}] if extra.get("uses_source") else []
     return {"id": id, "section": section, "title": title, "description": text, "needs": needs, "scale": scale,
-            "blueprint": {"blueprint_version": "1.0", "project": {"name": title}, "assets": [], "operations": ops}}
+            "uses_source": bool(extra.get("uses_source")), "strength_ops": list(extra.get("strength_ops", [])),
+            "blueprint": {"blueprint_version": "1.0", "project": {"name": title}, "assets": assets, "operations": ops}}
+
+
+def _dep(o: dict, *ids: str) -> dict:
+    return {**o, "depends_on": list(ids)}
 
 
 TEMPLATES: list[dict] = [
+    _t("fix_overexposed", "Enhance", "Fix an overexposed or hazy photo",
+       "For a washed-out, hazy or too bright photo of a person (sun glare, a blown-out wall). The person and the background are corrected separately: "
+       "the person gets deeper shadows and contrast (darker, denser hair and clothes) and a face tone fix, and the background gets haze removed and the highlights brought down. "
+       "Use the Strength slider to make it milder or stronger. Photos only. Needs the AI person model (15 MB, downloaded once).",
+       [_op("key", "background_removal", mode="ai"),
+        _dep(_op("bg", "background_replacement", asset_id="orig", fit="cover"), "key"),
+        _op("face", "face_tone_correction", strength=0.6, target_brightness=0.55),
+        _dep(_op("wall", "color_grading", apply_to="background", dehaze=0.7, highlights=-0.6, whites=-0.4, contrast=1.12, saturation=1.12, exposure=-0.25), "bg"),
+        _dep(_op("me", "color_grading", apply_to="subject", curve_master=[[0, 0], [0.3, 0.1], [0.55, 0.5], [1, 1]], saturation=1.12, contrast=1.08), "bg")],
+       "A photo of a person", uses_source=True, strength_ops=["wall", "me"]),
     _t("enhance_photo", "Enhance", "Enhance photo (the 'enhance app' look)",
        "One click for a soft, old or low-quality photo or video of a person: 2x AI upscale, the strongest face detail (GPEN: eyes, eyebrows, skin texture, hair), a little skin smoothing and an automatic exposure and colour fix. "
        "Slow without a graphics card. The face AI is for non-commercial use.",

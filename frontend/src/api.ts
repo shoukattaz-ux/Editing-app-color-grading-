@@ -25,7 +25,7 @@ export interface Validation { ok: boolean; errors: Issue[]; warnings: Issue[]; p
 export interface VideoInfo { duration: number; fps: number; width: number; height: number; has_audio: boolean; codec: string }
 export interface PhotoInfo { original: string; name: string; width: number; height: number }
 export interface BatchState { id: string; state: string; total: number; done: number; failed: { file: string; error: string }[]; outputs: string[]; current: string; out_dir: string; error: string | null }
-export interface ReadyMade { id: string; section: string; title: string; description: string; needs: string; scale: number; blueprint: any }
+export interface ReadyMade { id: string; section: string; title: string; description: string; needs: string; scale: number; uses_source?: boolean; strength_ops?: string[]; blueprint: any }
 export interface ProjectState { photo?: PhotoInfo | null; path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean; restored?: boolean; restored_at?: number | null; saved_blueprint?: Blueprint | null }
 export interface JobState { waiting_for?: { id: string; kind: string; state: string; current: string; progress: number; eta_seconds: number | null } | null; id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }
 

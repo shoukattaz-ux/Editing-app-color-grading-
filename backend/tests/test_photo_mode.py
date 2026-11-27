@@ -1,5 +1,6 @@
 """Photo mode: a photo is edited with the same engine as a video and saved as a picture."""
 import io
+import json
 import numpy as np
 import cv2
 import pytest
@@ -166,3 +167,14 @@ def test_the_ai_steps_of_a_photo_run_on_three_frames_only(prep, tmp_path, img):
     p = prep(photo.whole_clip(bp(ops=[{"id": "u", "type": "ai_upscale", "start": 0, "end": 5, "parameters": {}}])), str(clip))
     up = [o for o in p.plan.steps if o.type == "ai_upscale"]
     assert up and up[0].end_frame - up[0].start_frame == 3                                         # not 25: every AI step is ~8x cheaper
+
+
+@pytest.mark.skipif(not __import__("evp.ml.models", fromlist=["x"]).is_installed("rvm"), reason="the AI person model is not downloaded here")
+def test_the_overexposed_photo_look_renders_end_to_end(client, proj, tmp_path):
+    from evp.templates import TEMPLATES
+    t = {x["id"]: x for x in TEMPLATES}["fix_overexposed"]
+    a = client.post("/api/project/asset", headers=H, json={"path": str(tmp_path / "me.jpg")}).json()["path"]          # what the editor does: the photo itself becomes the "orig" asset
+    b = json.loads(json.dumps(t["blueprint"])); b["assets"][0]["path"] = a
+    r = client.post("/api/photo/export", headers=H, json={"blueprint": b, "filename": "fixed", "format": "png"})
+    assert r.status_code == 200, r.text
+    assert cv2.imread(r.json()["output"]).shape == (200, 300, 3)

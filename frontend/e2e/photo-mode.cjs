@@ -33,6 +33,16 @@ const serveDist = () => { const types = { ".html": "text/html", ".js": "text/jav
     check((await page.locator(".photostrip").innerText()).includes("400 × 300"), "the strip shows the photo size");
     await page.waitForSelector("video.media, img.media", { timeout: 30000 });
     check(true, "the live preview picture appears");
+    // the one-click "Fix an overexposed photo" look: needs the photo itself as a picture, and has a Strength slider
+    const H = { "x-evp-token": be.token, "content-type": "application/json" }, base = `http://127.0.0.1:${be.port}`;
+    await page.click("nav.rail button[aria-label='Ready-made']"); await page.waitForSelector(".rm-card");
+    const card = page.locator(".rm-card", { hasText: "Fix an overexposed or hazy photo" });
+    await card.locator("input[type=range]").evaluate((el, v) => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); }, "60");
+    await card.locator("button:has-text('Add to project')").click(); await page.waitForSelector("text=Added 5 effects", { timeout: 20000 }); await page.waitForTimeout(2500);
+    const bpj = (await (await fetch(`${base}/api/project`, { headers: H })).json()).blueprint;
+    const wall = bpj.operations.find(o => o.id === "wall" || (o.parameters || {}).apply_to === "background");
+    check(bpj.assets.some(a => a.id === "orig" && /^assets\//.test(a.path)), "the photo itself was copied into the project as a picture", JSON.stringify(bpj.assets.map(a => a.path)));
+    check(wall && Math.abs(wall.parameters.amount - 0.6) < 0.01, "the Strength slider set the corrections' amount to 60%", String(wall && wall.parameters.amount));
     await page.click("button:has-text('Save photo')"); await page.waitForSelector("[aria-label='Save photo']");
     await page.selectOption("[aria-label='Photo format']", "png");
     await page.click(".modal >> text=Choose folder…"); await page.fill('input[placeholder="Full path"]', dest); await page.keyboard.press("Enter");

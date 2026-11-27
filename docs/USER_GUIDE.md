@@ -333,3 +333,7 @@ Photos are stored as a 3-frame clip, and every effect covers the whole clip what
 ### One-click Enhance
 
 The **Enhance** section of the Ready-made tab has two looks for soft, old or low-quality photos and videos of people: **Enhance photo (the 'enhance app' look)** (2x AI upscale, GPEN face detail, a little skin smoothing, automatic exposure and colour) and **Enhance photo, natural** (the same with the natural GFPGAN face AI, safe for commercial use). In the face restoration card, **Include small faces** also restores people in the background (up to 8 faces); on a very small or blurry face the AI invents features, so check the result.
+
+### Fix an overexposed or hazy photo
+
+In Photo mode, **Ready-made → Enhance → Fix an overexposed or hazy photo** corrects a washed-out photo of a person in one click. The person and the background are corrected separately (the app finds the person with the AI person model, a 15 MB download the first time): the person gets deeper shadows and contrast, so dark hair and clothes look dark again, plus a face tone fix, and the background gets haze removed and its highlights brought down. The card has a **Strength** slider (30% to 150%) for a milder or stronger result. For a very soft photo, run **Enhance photo** first, save it, then open the saved picture and run this look. It works on photos only, and it does not invent hair or beard detail.

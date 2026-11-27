@@ -121,11 +121,22 @@ export function Report({ rep, onSelect }: { rep: Validation; onSelect: (id: stri
 export function ReadyMade({ ctx, sections, title }: { ctx: Ctx; sections?: string[]; title?: string }) {
   const [data, setData] = useState<{ sections: string[]; templates: import("./api").ReadyMade[] } | null>(null);
   const [err, setErr] = useState("");
+  const [strength, setStrength] = useState<Record<string, number>>({});
   useEffect(() => { ctx.api.templates().then(setData).catch(e => setErr(e.message)); }, [ctx.api]);
   const add = async (t: import("./api").ReadyMade) => {
     const nb = JSON.parse(JSON.stringify(t.blueprint));
     const v = ctx.video;
     if (t.scale > 1 && v) nb.output = { resolution: `${Math.round(v.width * t.scale / 2) * 2}x${Math.round(v.height * t.scale / 2) * 2}` };    // AI upscale needs a bigger output
+    if (t.uses_source) {                                                              // the look needs the photo itself as a picture: the original photo is copied into the project
+      const orig = ctx.project.photo?.original;
+      if (!orig) { ctx.toast("This look is for photos: open a photo first.", "err"); return; }
+      try { const a = await ctx.api.importAsset(orig); nb.assets.forEach((x: any) => { if (x.path === "@photo") x.path = a.path; }); }
+      catch (e: any) { ctx.toast("Could not use the photo: " + e.message, "err"); return; }
+    }
+    if (t.strength_ops?.length) {                                                     // the card's Strength slider: the master Amount of the looks' own corrections
+      const s = (strength[t.id] ?? 100) / 100;
+      nb.operations.forEach((o: any) => { if (t.strength_ops!.includes(o.id)) o.parameters = { ...(o.parameters ?? {}), amount: s }; });
+    }
     await ctx.executeBlueprint(nb, { how: "add", applyOutput: t.scale > 1 && !!v, clip: null });
   };
   const list = (data?.templates ?? []).filter(t => !sections || sections.includes(t.section));
@@ -135,7 +146,10 @@ export function ReadyMade({ ctx, sections, title }: { ctx: Ctx; sections?: strin
     {list.map(t => (<div className="rm-card" key={t.id}>
       <b>{t.title}</b><p className="muted small">{t.description}</p>
       {t.needs && <p className="muted small">Works on: {t.needs}</p>}
-      <Btn icon="plus" label="Add to project" kind="primary" disabled={!ctx.video} onClick={() => add(t)} title="Adds these effects; nothing you already have is removed" />
+      {t.strength_ops?.length ? <label className="field"><span className="fl">Strength <em>{strength[t.id] ?? 100}%</em></span>
+        <input type="range" min={30} max={150} value={strength[t.id] ?? 100} onChange={e => setStrength(s => ({ ...s, [t.id]: +e.target.value }))} aria-label={`${t.title} strength`} /></label> : null}
+      <Btn icon="plus" label="Add to project" kind="primary" disabled={!ctx.video || (!!t.uses_source && !ctx.project.photo)} onClick={() => add(t)}
+        title={t.uses_source && !ctx.project.photo ? "This look is for photos: open a photo first" : "Adds these effects; nothing you already have is removed"} />
     </div>))}
   </div>);
 }
