@@ -337,3 +337,14 @@ The **Enhance** section of the Ready-made tab has two looks for soft, old or low
 ### Fix an overexposed or hazy photo
 
 In Photo mode, **Ready-made → Enhance → Fix an overexposed or hazy photo** corrects a washed-out photo of a person in one click. The person and the background are corrected separately (the app finds the person with the AI person model, a 15 MB download the first time): the person gets deeper shadows and contrast, so dark hair and clothes look dark again, plus a face tone fix, and the background gets haze removed and its highlights brought down. The card has a **Strength** slider (30% to 150%) for a milder or stronger result. For a very soft photo, run **Enhance photo** first, save it, then open the saved picture and run this look. It works on photos only, and it does not invent hair or beard detail.
+
+## Test speed (Settings → AI device)
+
+Press **Test speed** to time the AI on your own computer. It runs the upscale network and each face AI you have already downloaded (it never downloads one just for the test), takes about a minute the first time (the models have to load), and shows:
+
+- how long the AI upscale takes per 720p and 1080p frame, and what that means for a 1-minute video,
+- how many times faster your graphics card is than the processor,
+- seconds per face per frame for GFPGAN, GPEN and CodeFormer,
+- whether the graphics card could be used at all, or the processor had to run it (for example when the card runs out of memory).
+
+The numbers are stored with the device they were measured on. While you use that same device, every time estimate and "this will take about N minutes" warning in the editor uses them. If you pick another device in the list, the old numbers are kept but not used until you test again.

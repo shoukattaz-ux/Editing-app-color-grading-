@@ -284,4 +284,7 @@ def estimate_seconds_per_frame(src_w: int, src_h: int, quality: str, need: float
     _, _, net_scale, us = UPSCALE_MODELS[model]
     px = src_w * src_h * (0.25 if quality == "fast" and need <= net_scale / 2 else 1.0)
     s = px * us * 1e-6
+    from . import bench
+    m = bench.measured()                                                    # Test speed was run on this device: use the real speed (relative to the built-in reference)
+    if m and m.get("upscale_factor"): return s * float(m["upscale_factor"])
     return s / 25 if gpu else s

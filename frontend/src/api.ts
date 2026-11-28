@@ -26,6 +26,7 @@ export interface VideoInfo { duration: number; fps: number; width: number; heigh
 export interface PhotoInfo { original: string; name: string; width: number; height: number }
 export interface BatchState { id: string; state: string; total: number; done: number; failed: { file: string; error: string }[]; outputs: string[]; current: string; out_dir: string; error: string | null }
 export interface ReadyMade { id: string; section: string; title: string; description: string; needs: string; scale: number; uses_source?: boolean; strength_ops?: string[]; blueprint: any }
+export interface BenchState { state: string; step: string; error: string | null; valid?: boolean; current_device?: string; result: null | { device: string; running_on: string; upscale_us_per_px: number; upscale_factor: number; fell_back: boolean; speedup?: number; cpu_us_per_px?: number; faces: Record<string, number | null>; errors?: Record<string, string> } }
 export interface ProjectState { photo?: PhotoInfo | null; path: string; name: string; version: number; source: { path: string | null } | null; video: VideoInfo | null; blueprint: Blueprint; ui: Record<string, any>; missing: { source: string | null; assets: { id: string; path: string }[] }; recovery_available: boolean; restored?: boolean; restored_at?: number | null; saved_blueprint?: Blueprint | null }
 export interface JobState { waiting_for?: { id: string; kind: string; state: string; current: string; progress: number; eta_seconds: number | null } | null; id: string; kind: string; state: string; progress: number; eta_seconds: number | null; current: string; error: string | null; output: string; log: string[]; hardware_fallback: boolean; operations: string[] }
 
@@ -104,6 +105,8 @@ export class Api {
   photoBatchStatus(id: string): Promise<BatchState> { return this.req("GET", "/api/photo/batch/" + id); }
   photoBatchCancel(id: string): Promise<BatchState> { return this.req("POST", `/api/photo/batch/${id}/cancel`, {}); }
   templates(): Promise<{ sections: string[]; templates: ReadyMade[] }> { return this.req("GET", "/api/templates"); }
+  benchStart(): Promise<BenchState> { return this.req("POST", "/api/ai-benchmark", {}); }
+  benchStatus(): Promise<BenchState> { return this.req("GET", "/api/ai-benchmark"); }
   render(blueprint: Blueprint, preset: "proxy" | "export", extra: Record<string, any> = {}): Promise<{ cached: boolean; output: string; job: JobState | null }> { return this.req("POST", "/api/render", { blueprint, preset, ...extra }); }
   keyDoctor(blueprint: Blueprint, opId: string): Promise<KeyDoctorResult> { return this.req("POST", "/api/key/doctor", { blueprint, op_id: opId }); }
   mediaBin(): Promise<MediaBin> { return this.req("GET", "/api/project/media"); }

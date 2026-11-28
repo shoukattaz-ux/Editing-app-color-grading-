@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importAssetFile, importBackground, importVideoFile, applyLut, useBackgroundItem } from "./imports";
 import type { MediaDrag } from "./Media";
-import { Api, ApiError, JobState, ProjectState, BatchState, ReportConfig, Validation, AiDevice, connection } from "./api";
+import { Api, ApiError, JobState, ProjectState, BatchState, BenchState, ReportConfig, Validation, AiDevice, connection } from "./api";
 import * as m from "./model";
 import type { Blueprint, Schema } from "./model";
 import { Preview, Mode } from "./Preview";
@@ -521,6 +521,14 @@ function AiDeviceBox({ api }: { api: Api }) {
   const [d, setD] = useState<AiDevice | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   useEffect(() => { api.aiDevice().then(setD).catch(() => {}); }, [api]);
   const choose = async (v: string) => { setBusy(true); setErr(""); try { setD(await api.setAiDevice(v)); } catch (e: any) { setErr(String(e.message ?? e)); } setBusy(false); };
+  const [bench, setBench] = useState<BenchState | null>(null);
+  useEffect(() => { api.benchStatus().then(setBench).catch(() => {}); }, [api, d?.choice]);
+  useEffect(() => {
+    if (bench?.state !== "running") return;
+    const h = setTimeout(() => { api.benchStatus().then(setBench).catch(() => {}); }, 800);
+    return () => clearTimeout(h);
+  }, [bench, api]);
+  const runBench = async () => { try { setBench(await api.benchStart()); } catch (e: any) { setErr(String(e.message ?? e)); } };
   if (!d) return null;
   const gpu = d.provider !== "CPU";
   return (
@@ -533,6 +541,25 @@ function AiDeviceBox({ api }: { api: Api }) {
       </select>
       {d.fell_back && <div className="issue warning">The graphics card ({d.wanted}) could not be used - DirectML refused it - so the processor was used instead. Pick another device in the list, or update the graphics driver.</div>}
       {err && <div className="issue error">{err}</div>}
+      <div className="speedtest" aria-label="Speed test">
+        <div className="btn-row"><Btn icon="bolt" label={bench?.state === "running" ? "Testing…" : "Test speed"} onClick={runBench} disabled={bench?.state === "running"}
+          title="Times the AI upscale and the face AI on this computer (about a minute). The estimates in the editor then use the real numbers." /></div>
+        {bench?.state === "running" && <p className="muted small" role="status">Testing: {bench.step || "starting"}… (the first run loads the models)</p>}
+        {bench?.state === "failed" && <div className="issue error">The speed test failed: {bench.error}</div>}
+        {bench?.state === "done" && bench.result && (() => {
+          const r = bench.result, per720 = (1280 * 720 * 0.25 * r.upscale_us_per_px) / 1e6, per1080 = (1920 * 1080 * 0.25 * r.upscale_us_per_px) / 1e6;
+          const names: Record<string, string> = { gfpgan: "GFPGAN (natural)", gpen512: "GPEN (strongest detail)", codeformer: "CodeFormer" };
+          return (<div className="speedresult">
+            <p className="small">Measured on <b>{r.running_on}</b>{r.fell_back ? " (the graphics card could not be used, so the processor ran it)" : ""}{bench.valid === false ? " — this was a different device from the one in use now; run the test again" : ""}.</p>
+            <ul className="small">
+              <li>AI upscale (Fast, 2x): about <b>{per720.toFixed(1)} s</b> per 720p frame, <b>{per1080.toFixed(1)} s</b> per 1080p frame → a 1-minute 720p video at 24 fps ≈ <b>{Math.max(1, Math.round((per720 * 1440) / 60))} min</b>.</li>
+              {r.speedup ? <li>The graphics card is about <b>{r.speedup.toFixed(1)}×</b> faster than the processor for upscaling.</li> : null}
+              {Object.entries(r.faces).map(([k, v]) => <li key={k}>Face AI, {names[k] ?? k}: <b>{v ? v.toFixed(2) + " s" : "failed"}</b> per face per frame.</li>)}
+            </ul>
+            <p className="muted small">{bench.valid === false ? "These numbers are not used for estimates until you test again on the current device." : "The time estimates and warnings in the editor now use these numbers. Models that are not downloaded yet were not tested."}</p>
+          </div>);
+        })()}
+      </div>
     </div>);
 }
 

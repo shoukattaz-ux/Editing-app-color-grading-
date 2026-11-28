@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/wheels-scopes.cjs && node e2e/restore-gpu.cjs && node e2e/merge.cjs && node e2e/media-bin.cjs && node e2e/master.cjs && node e2e/export-folder.cjs && node e2e/key-tools.cjs && node e2e/clean-plate.cjs && node e2e/key-doctor.cjs && node e2e/camera-match.cjs && node e2e/hair-detail.cjs && node e2e/floor-fx.cjs && node e2e/light-pattern.cjs && node e2e/colour-lights.cjs && node e2e/ux-basics.cjs && node e2e/media-timeline.cjs && node e2e/auto-enhance.cjs && node e2e/photo-mode.cjs && node e2e/ready-made.cjs && node e2e/colour-boxes.cjs && node e2e/job-queue.cjs",
+    "e2e": "node e2e/wheels-scopes.cjs && node e2e/restore-gpu.cjs && node e2e/merge.cjs && node e2e/media-bin.cjs && node e2e/master.cjs && node e2e/export-folder.cjs && node e2e/key-tools.cjs && node e2e/clean-plate.cjs && node e2e/key-doctor.cjs && node e2e/camera-match.cjs && node e2e/hair-detail.cjs && node e2e/floor-fx.cjs && node e2e/light-pattern.cjs && node e2e/colour-lights.cjs && node e2e/ux-basics.cjs && node e2e/media-timeline.cjs && node e2e/auto-enhance.cjs && node e2e/photo-mode.cjs && node e2e/ready-made.cjs && node e2e/colour-boxes.cjs && node e2e/job-queue.cjs && node e2e/speed-test.cjs",
     "e2e:restore": "node e2e/restore-gpu.cjs",
     "e2e:merge": "node e2e/merge.cjs",
     "e2e:media": "node e2e/media-bin.cjs",
@@ -28,7 +28,8 @@
     "e2e:photo": "node e2e/photo-mode.cjs",
     "e2e:ready": "node e2e/ready-made.cjs",
     "e2e:boxes": "node e2e/colour-boxes.cjs",
-    "e2e:queue": "node e2e/job-queue.cjs"
+    "e2e:queue": "node e2e/job-queue.cjs",
+    "e2e:speed": "node e2e/speed-test.cjs"
   },
   "dependencies": {
     "react": "^18.3.1",

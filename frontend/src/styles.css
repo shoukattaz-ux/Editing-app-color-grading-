@@ -265,3 +265,5 @@ body.electron .toolbar button,body.electron .toolbar input,body.electron .toolba
 .cl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
 .cl-tab { background: transparent; color: inherit; border: 2px solid var(--line, #2a2f3a); border-radius: 12px; padding: 3px 10px; cursor: pointer; }
 .cl-tab.on { background: rgba(255,255,255,.1); }
+.speedtest { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line, #2a2f3a); }
+.speedresult ul { margin: 6px 0; padding-left: 18px; }

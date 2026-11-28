@@ -558,6 +558,17 @@ def create_app(token: str | None = None, data_dir: str | None = None) -> FastAPI
         from .ml.device import describe
         return describe()
 
+    @app.post("/api/ai-benchmark", dependencies=[api()])
+    def ai_benchmark_start():
+        """Test speed: time the AI models on this computer (runs in the background; the UI polls GET /api/ai-benchmark)"""
+        from .ml import bench
+        return bench.start()
+
+    @app.get("/api/ai-benchmark", dependencies=[api()])
+    def ai_benchmark_status():
+        from .ml import bench
+        return bench.status()
+
     @app.put("/api/ai-device", dependencies=[api()])
     def ai_device_put(b: AiDevice):
         from .ml import device

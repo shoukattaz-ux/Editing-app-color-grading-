@@ -245,4 +245,7 @@ CPU_SECONDS = {"gfpgan": 1.3, "gpen512": 2.2, "codeformer": 2.7}      # per face
 
 def estimate_seconds_per_frame(gpu: bool, faces: int = 1, model: str = "gfpgan") -> float:
     """CPU: measured per face on a 4-thread machine; a graphics card is assumed ~10x faster (not measured here)"""
+    from . import bench
+    m = bench.measured()
+    if m and (m.get("faces") or {}).get(model): return float(m["faces"][model]) * max(1, faces)       # measured by Test speed on this device
     return (CPU_SECONDS.get(model, 1.3) * (0.1 if gpu else 1.0)) * max(1, faces)
