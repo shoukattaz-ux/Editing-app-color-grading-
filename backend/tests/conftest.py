@@ -100,3 +100,10 @@ def export_ids(prep_fn, ramp, blueprint, src=None, name="out.mp4"):
     j.run()
     assert j.state == "done", j.error
     return frame_ids(out), out
+
+
+@pytest.fixture(autouse=True)
+def _no_speed_measurement_from_this_computer(tmp_path_factory, monkeypatch):
+    """a Test speed result stored on the developer's machine must not change the built-in estimates the tests check"""
+    from evp.ml import bench
+    monkeypatch.setattr(bench, "_file", lambda: tmp_path_factory.getbasetemp() / "no_benchmark_here.json")
